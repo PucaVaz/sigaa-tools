@@ -21,6 +21,7 @@ dev = ["pytest>=8.0"]
 
 [project.scripts]
 sigaa = "sigaa.cli:main"
+sigaa-mcp = "sigaa.mcp_server:main"
 
 [tool.setuptools.packages.find]
 include = ["sigaa*"]
