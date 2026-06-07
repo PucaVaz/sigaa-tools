@@ -75,22 +75,25 @@ def _news_panel(turma_html: str):
     soup = BeautifulSoup(turma_html, "lxml")
     for header in soup.find_all("div", class_=re.compile("headerBloco")):
         if _PANEL_HEADER_RE.search(header.get_text(strip=True)):
-            body = header.find_next_sibling("div")
+            # The body div is not an immediate sibling (a hidden input div and a
+            # closing form sit between), so scan forward for the panel body.
+            body = header.find_next("div", class_=re.compile("rich-stglpanel-body"))
             return body if body is not None else header.parent
     return None
 
 
+_DATE_RE = re.compile(r"\d{2}/\d{2}/\d{4} \d{2}:\d{2}")
+
+
 def _date_and_title(form) -> tuple[str, str]:
-    """Date and title sit as text + <i> just before the form in the panel."""
+    """Date and title sit as ``<date text><br><i>title</i>`` before the form."""
     date, title = "", ""
     italic = form.find_previous("i")
     if italic:
         title = italic.get_text(strip=True)
-        prev = italic.previous_sibling
-        while prev is not None and not str(prev).strip():
-            prev = prev.previous_sibling
-        if prev is not None:
-            match = re.search(r"\d{2}/\d{2}/\d{4} \d{2}:\d{2}", str(prev))
+        for sibling in italic.previous_siblings:
+            match = _DATE_RE.search(str(sibling))
             if match:
                 date = match.group(0)
+                break
     return date, title
