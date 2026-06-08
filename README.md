@@ -36,6 +36,7 @@ sigaa news --unread --mark-seen
 sigaa grades --semester 2025.1 # grades report by semester
 sigaa deadlines            # assessment/task due dates
 sigaa ics --out sigaa.ics  # export classes + deadlines as a calendar
+sigaa historico --out h.pdf # download the academic transcript PDF (networked)
 sigaa watch --interval 900 # foreground loop
 ```
 
@@ -58,8 +59,8 @@ Run with `sigaa-mcp` (stdio). Wire into Claude Code via `.mcp.json`:
 
 Tools: `sigaa_list_classes`, `sigaa_list_news`, `sigaa_get_news_body`,
 `sigaa_get_schedule`, `sigaa_list_grades`, `sigaa_list_deadlines`,
-`sigaa_export_ics`, `sigaa_sync`. Reads come from the store; only
-`sigaa_sync` touches the network.
+`sigaa_export_ics`, `sigaa_download_historico`, `sigaa_sync`. Reads come from
+the store; `sigaa_sync` and `sigaa_download_historico` touch the network.
 
 ## Scheduled polling
 
