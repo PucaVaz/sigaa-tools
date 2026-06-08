@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import re
+
 from . import config
 from .http import Session, extract_viewstate
-from .models import NewsItem, Student, Turma
+from .models import Deadline, Grade, NewsItem, Student, Turma
+from .parsers import grades as grades_parser
 from .parsers import news as news_parser
 from .parsers import portal as portal_parser
 
@@ -24,6 +27,34 @@ class SigaaClient:
 
     def list_turmas(self) -> list[Turma]:
         return portal_parser.parse_turmas(self._portal())
+
+    def list_deadlines(self) -> list[Deadline]:
+        """Assessment/task deadlines (already present in the portal HTML)."""
+        return portal_parser.parse_deadlines(self._portal())
+
+    def get_grades(self) -> list[Grade]:
+        html = self._portal_menu_post("Minhas Notas")
+        return grades_parser.parse_grades(html)
+
+    def _portal_menu_post(self, link_text: str) -> str:
+        """Click a portal sidebar menu item by its visible text via JSF postback."""
+        portal = self._portal()
+        form_id = portal_parser.portal_form_id(portal)
+        pattern = re.compile(
+            r"jsfcljs\(document\.getElementById\('"
+            + re.escape(form_id)
+            + r"'\),\{'([^']+)':'[^']+'\}[^>]*>\s*" + re.escape(link_text)
+        )
+        match = pattern.search(portal)
+        if not match:
+            raise ValueError(f"portal menu item not found: {link_text!r}")
+        field = match.group(1)
+        fields = {
+            form_id: form_id,
+            field: field,
+            "javax.faces.ViewState": extract_viewstate(portal),
+        }
+        return self._session.post(config.PORTAL_ACTION_URL, fields)
 
     def enter_turma(self, turma: Turma) -> str:
         """Navigate into a Turma Virtual and return its Principal page HTML."""
