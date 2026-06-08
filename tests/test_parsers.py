@@ -30,6 +30,12 @@ def test_parse_turmas():
     assert sd.form_id == "j_id_jsp_111111111_1"
 
 
+def test_find_menu_field_matches_decoded_text():
+    field = portal_parser.find_menu_field(PORTAL, "SISTEMAS DISTRIBUÍDOS")
+    assert field == "j_id_jsp_111111111_1:link0"
+    assert portal_parser.find_menu_field(PORTAL, "Nonexistent Item") is None
+
+
 def test_parse_news_list():
     items = news_parser.parse_news_list(TURMA, id_turma="369279")
     assert [n.id for n in items] == ["46214565", "46003254"]
