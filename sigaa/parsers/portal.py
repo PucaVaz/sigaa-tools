@@ -34,7 +34,7 @@ def portal_form_id(html: str) -> str:
     return form["id"]
 
 
-_MENU_FIELD_RE = re.compile(r"jsfcljs\([^,]+,\{'([^']+)':'[^']+'\}")
+_MENU_FIELD_RE = re.compile(r"jsfcljs\([^,]+,\s*\{\s*'([^']+)'\s*:", re.S)
 
 
 def find_menu_field(html: str, link_text: str) -> str | None:

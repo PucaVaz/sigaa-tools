@@ -36,6 +36,23 @@ def test_find_menu_field_matches_decoded_text():
     assert portal_parser.find_menu_field(PORTAL, "Nonexistent Item") is None
 
 
+def test_find_menu_field_handles_formatted_jsfcljs_params():
+    html = """
+    <a href="#" onclick="
+      if (typeof jsfcljs == 'function') {
+        jsfcljs(
+          document.getElementById('portal'),
+          { 'portal:link0' : 'portal:link0', 'idTurma' : '369279' },
+          ''
+        );
+      }
+      return false
+    ">SISTEMAS DISTRIBUÍDOS</a>
+    """
+
+    assert portal_parser.find_menu_field(html, "SISTEMAS DISTRIBUÍDOS") == "portal:link0"
+
+
 def test_parse_news_list():
     items = news_parser.parse_news_list(TURMA, id_turma="369279")
     assert [n.id for n in items] == ["46214565", "46003254"]
