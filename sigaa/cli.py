@@ -11,6 +11,7 @@ import time
 from . import config
 from .client import SigaaClient
 from .config import Settings
+from .exporters.ics import build_calendar
 from .parsers.schedule import day_name, decode_schedule
 from .services.sync import sync
 from .store.db import connect
@@ -49,6 +50,20 @@ def _build_parser() -> argparse.ArgumentParser:
     p_classes.add_argument("--schedule", action="store_true", help="decode schedule codes")
     p_classes.add_argument("--json", action="store_true")
     p_classes.set_defaults(func=_cmd_classes)
+
+    p_grades = sub.add_parser("grades", help="list grades from the store")
+    p_grades.add_argument("--semester", help="filter by semester, e.g. 2025.1")
+    p_grades.add_argument("--json", action="store_true")
+    p_grades.set_defaults(func=_cmd_grades)
+
+    p_dl = sub.add_parser("deadlines", help="list assessment/task deadlines from the store")
+    p_dl.add_argument("--class", dest="klass", help="filter by class code")
+    p_dl.add_argument("--json", action="store_true")
+    p_dl.set_defaults(func=_cmd_deadlines)
+
+    p_ics = sub.add_parser("ics", help="export classes + deadlines as an .ics calendar")
+    p_ics.add_argument("--out", help="output file (default: stdout)")
+    p_ics.set_defaults(func=_cmd_ics)
 
     p_news = sub.add_parser("news", help="list news from the store")
     p_news.add_argument("--class", dest="klass", help="filter by class code")
@@ -90,9 +105,14 @@ def _cmd_sync(args, settings: Settings) -> int:
     if not result.ok:
         print(f"sync failed: {result.error}", file=sys.stderr)
         return 1
-    print(f"synced {result.turma_count} classes — {len(result.new_items)} new")
+    print(
+        f"synced {result.turma_count} classes, {result.grade_count} grade rows — "
+        f"{len(result.new_items)} new news, {len(result.new_deadlines)} new deadlines"
+    )
     for item in result.new_items:
-        print(f"  + [{item.date}] {item.title}")
+        print(f"  news + [{item.date}] {item.title}")
+    for dl in result.new_deadlines:
+        print(f"  {dl.kind} + [{dl.date}] {dl.title}")
     return 0
 
 
@@ -134,6 +154,55 @@ def _cmd_news(args, settings: Settings) -> int:
     return 0
 
 
+def _cmd_grades(args, settings: Settings) -> int:
+    repo = Repository(connect(settings.db_path))
+    grades = repo.get_grades(semester=args.semester)
+    if args.json:
+        print(json.dumps([_grade_json(g) for g in grades], ensure_ascii=False, indent=2))
+        return 0
+    if not grades:
+        print("no grades in store — run `sigaa sync` first")
+        return 0
+    current = None
+    for g in grades:
+        if g.semester != current:
+            current = g.semester
+            print(f"\n{current}")
+        units = " ".join(g.units) if g.units else "—"
+        result = g.result or "—"
+        print(f"  {g.code:12} {g.discipline[:40]:40} {units:20} = {result:5} {g.status or ''}")
+    return 0
+
+
+def _cmd_deadlines(args, settings: Settings) -> int:
+    repo = Repository(connect(settings.db_path))
+    id_turma = None
+    if args.klass:
+        turma = repo.get_turma(args.klass)
+        id_turma = turma.id_turma if turma else args.klass
+    items = repo.get_deadlines(id_turma=id_turma)
+    if args.json:
+        print(json.dumps([_deadline_json(d) for d in items], ensure_ascii=False, indent=2))
+        return 0
+    if not items:
+        print("no deadlines in store — run `sigaa sync` first")
+    for d in items:
+        print(f"  [{d.date}] ({d.kind}) {d.title}  {d.detail or ''}")
+    return 0
+
+
+def _cmd_ics(args, settings: Settings) -> int:
+    repo = Repository(connect(settings.db_path))
+    ics = build_calendar(repo.get_turmas(), repo.get_deadlines())
+    if args.out:
+        with open(args.out, "w", encoding="utf-8") as fh:
+            fh.write(ics)
+        print(f"wrote {args.out}")
+    else:
+        print(ics, end="")
+    return 0
+
+
 def _cmd_watch(args, settings: Settings) -> int:
     print(f"watching: sync every {args.interval}s (Ctrl-C to stop)")
     try:
@@ -162,7 +231,9 @@ def _sync_json(result) -> dict:
         "ok": result.ok,
         "error": result.error,
         "classes": result.turma_count,
-        "new": [_news_json(n) for n in result.new_items],
+        "grade_rows": result.grade_count,
+        "new_news": [_news_json(n) for n in result.new_items],
+        "new_deadlines": [_deadline_json(d) for d in result.new_deadlines],
     }
 
 
@@ -178,6 +249,21 @@ def _turma_json(t, with_schedule: bool) -> dict:
 
 def _news_json(n) -> dict:
     return {"id": n.id, "id_turma": n.id_turma, "date": n.date, "title": n.title, "body": n.body}
+
+
+def _grade_json(g) -> dict:
+    return {
+        "semester": g.semester, "code": g.code, "discipline": g.discipline,
+        "units": g.units, "exam": g.exam, "result": g.result,
+        "absences": g.absences, "status": g.status,
+    }
+
+
+def _deadline_json(d) -> dict:
+    return {
+        "id": d.id, "id_turma": d.id_turma, "kind": d.kind,
+        "title": d.title, "date": d.date, "detail": d.detail,
+    }
 
 
 if __name__ == "__main__":
