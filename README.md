@@ -28,15 +28,18 @@ Optional `SIGAA_DB=/path/to/sigaa.db` to override the store location.
 ## CLI
 
 ```bash
-sigaa sync                 # hit SIGAA, persist new news (the only networked cmd)
-sigaa sync --bodies        # also fetch full article text
+sigaa sync                 # hit SIGAA: persist new news, deadlines, grades (only networked cmd)
+sigaa sync --bodies        # also fetch full news article text
 sigaa classes --schedule   # enrolled classes with decoded weekly schedule
 sigaa news --class DSCO00022   # news for one class, from the store
 sigaa news --unread --mark-seen
+sigaa grades --semester 2025.1 # grades report by semester
+sigaa deadlines            # assessment/task due dates
+sigaa ics --out sigaa.ics  # export classes + deadlines as a calendar
 sigaa watch --interval 900 # foreground loop
 ```
 
-`sync` writes the store; `classes`/`news` read it (fast, offline).
+`sync` writes the store; everything else reads it (fast, offline).
 
 ## MCP server (for code agents)
 
@@ -54,7 +57,8 @@ Run with `sigaa-mcp` (stdio). Wire into Claude Code via `.mcp.json`:
 ```
 
 Tools: `sigaa_list_classes`, `sigaa_list_news`, `sigaa_get_news_body`,
-`sigaa_get_schedule`, `sigaa_sync`. Reads come from the store; only
+`sigaa_get_schedule`, `sigaa_list_grades`, `sigaa_list_deadlines`,
+`sigaa_export_ics`, `sigaa_sync`. Reads come from the store; only
 `sigaa_sync` touches the network.
 
 ## Scheduled polling
@@ -99,8 +103,11 @@ sigaa/
   mcp_server.py agent tools
 ```
 
-Adding a feature (grades, materials) = a parser + client method + store columns +
-a CLI/MCP surface. HTML changes touch only `parsers/`.
+Adding a feature (materials, attendance) = a parser + client method + store
+columns + a CLI/MCP surface. HTML changes touch only `parsers/`. Implemented so
+far: classes, news (+bodies), grades, deadlines, ICS export.
+
+`exporters/` turns store data into interchange formats (currently `ics`).
 
 ## Schedule decoding
 
