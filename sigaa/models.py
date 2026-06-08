@@ -50,3 +50,29 @@ class NewsItem:
     body: str | None = None
     # JSF form id for the per-row "Visualizar" body postback.
     form_id: str | None = None
+
+
+@dataclass
+class Grade:
+    """A discipline's grades for one semester from the Relatório de Notas."""
+
+    semester: str
+    code: str
+    discipline: str
+    units: list[str] = field(default_factory=list)  # Unidade 1..N (blank = "")
+    exam: str | None = None  # Exame Final
+    result: str | None = None  # Resultado (média)
+    absences: str | None = None  # Faltas
+    status: str | None = None  # Situação
+
+
+@dataclass
+class Deadline:
+    """An upcoming assessment/task surfaced on the portal turma cards."""
+
+    id: str  # SIGAA's stable event id (dedup key)
+    id_turma: str
+    kind: str  # avaliacao / tarefa / atividade / ...
+    title: str
+    date: str  # raw SIGAA date text, e.g. "Ter, 16/06" or "19/05 à 02/06"
+    detail: str | None = None  # e.g. "em 10 dias"
