@@ -34,6 +34,24 @@ def portal_form_id(html: str) -> str:
     return form["id"]
 
 
+_MENU_FIELD_RE = re.compile(r"jsfcljs\([^,]+,\{'([^']+)':'[^']+'\}")
+
+
+def find_menu_field(html: str, link_text: str) -> str | None:
+    """The JSF postback field for a sidebar menu item, matched by decoded text.
+
+    Matches on the anchor's rendered text (handles HTML entities like ``í``).
+    """
+    soup = BeautifulSoup(html, "lxml")
+    target = link_text.strip().casefold()
+    for anchor in soup.select("a[onclick*='jsfcljs']"):
+        if anchor.get_text(" ", strip=True).casefold() == target:
+            match = _MENU_FIELD_RE.search(anchor["onclick"])
+            if match:
+                return match.group(1)
+    return None
+
+
 def parse_student(html: str) -> Student:
     soup = BeautifulSoup(html, "lxml")
     text = _text(soup)

@@ -36,19 +36,23 @@ class SigaaClient:
         html = self._portal_menu_post("Minhas Notas")
         return grades_parser.parse_grades(html)
 
+    def get_historico_pdf(self) -> bytes:
+        """Download the full academic transcript (Histórico) as a PDF."""
+        portal = self._portal()
+        field = portal_parser.find_menu_field(portal, "Histórico acadêmico")
+        if field is None:
+            raise ValueError("Histórico menu item not found")
+        form_id = portal_parser.portal_form_id(portal)
+        fields = {form_id: form_id, field: field, "javax.faces.ViewState": extract_viewstate(portal)}
+        return self._session.post_bytes(config.PORTAL_ACTION_URL, fields)
+
     def _portal_menu_post(self, link_text: str) -> str:
         """Click a portal sidebar menu item by its visible text via JSF postback."""
         portal = self._portal()
-        form_id = portal_parser.portal_form_id(portal)
-        pattern = re.compile(
-            r"jsfcljs\(document\.getElementById\('"
-            + re.escape(form_id)
-            + r"'\),\{'([^']+)':'[^']+'\}[^>]*>\s*" + re.escape(link_text)
-        )
-        match = pattern.search(portal)
-        if not match:
+        field = portal_parser.find_menu_field(portal, link_text)
+        if field is None:
             raise ValueError(f"portal menu item not found: {link_text!r}")
-        field = match.group(1)
+        form_id = portal_parser.portal_form_id(portal)
         fields = {
             form_id: form_id,
             field: field,
