@@ -65,6 +65,10 @@ def _build_parser() -> argparse.ArgumentParser:
     p_ics.add_argument("--out", help="output file (default: stdout)")
     p_ics.set_defaults(func=_cmd_ics)
 
+    p_hist = sub.add_parser("historico", help="download the academic transcript PDF (networked)")
+    p_hist.add_argument("--out", default="historico.pdf", help="output file (default: historico.pdf)")
+    p_hist.set_defaults(func=_cmd_historico)
+
     p_news = sub.add_parser("news", help="list news from the store")
     p_news.add_argument("--class", dest="klass", help="filter by class code")
     p_news.add_argument("--unread", action="store_true")
@@ -200,6 +204,19 @@ def _cmd_ics(args, settings: Settings) -> int:
         print(f"wrote {args.out}")
     else:
         print(ics, end="")
+    return 0
+
+
+def _cmd_historico(args, settings: Settings) -> int:
+    password = settings.resolve_password()
+    if not settings.username or not password:
+        print("missing credentials (set SIGAA_USER and keyring/SIGAA_PASS)", file=sys.stderr)
+        return 1
+    with SigaaClient(settings.username, password) as client:
+        pdf = client.get_historico_pdf()
+    with open(args.out, "wb") as fh:
+        fh.write(pdf)
+    print(f"wrote {args.out} ({len(pdf)} bytes)")
     return 0
 
 

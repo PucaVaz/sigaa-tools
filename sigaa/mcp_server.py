@@ -143,6 +143,20 @@ def sigaa_export_ics() -> str:
 
 
 @mcp.tool()
+def sigaa_download_historico(path: str = "historico.pdf") -> str:
+    """Download the academic transcript PDF to a path. Networked. Returns the path."""
+    settings = Settings()
+    password = settings.resolve_password()
+    if not settings.username or not password:
+        return "no credentials available"
+    with SigaaClient(settings.username, password) as client:
+        pdf = client.get_historico_pdf()
+    with open(path, "wb") as fh:
+        fh.write(pdf)
+    return f"wrote {path} ({len(pdf)} bytes)"
+
+
+@mcp.tool()
 def sigaa_sync(fetch_bodies: bool = False) -> dict:
     """Refresh from SIGAA and persist new news. The only networked tool."""
     result = run_sync(Settings(), fetch_bodies=fetch_bodies)
