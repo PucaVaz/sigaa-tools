@@ -10,6 +10,7 @@ from mcp.server.fastmcp import FastMCP
 
 from .client import SigaaClient
 from .config import Settings
+from .exporters.ics import build_calendar
 from .parsers.schedule import day_name, decode_schedule
 from .services.sync import sync as run_sync
 from .store.db import connect
@@ -103,6 +104,45 @@ def sigaa_get_schedule(class_code: str | None = None) -> list[dict]:
 
 
 @mcp.tool()
+def sigaa_list_grades(semester: str | None = None) -> list[dict]:
+    """List grades from the store, optionally filtered by semester (e.g. 2025.1)."""
+    return [
+        {
+            "semester": g.semester,
+            "code": g.code,
+            "discipline": g.discipline,
+            "units": g.units,
+            "result": g.result,
+            "absences": g.absences,
+            "status": g.status,
+        }
+        for g in _repo().get_grades(semester=semester)
+    ]
+
+
+@mcp.tool()
+def sigaa_list_deadlines(class_code: str | None = None) -> list[dict]:
+    """List assessment/task deadlines from the store, optionally filtered by class."""
+    repo = _repo()
+    id_turma = None
+    if class_code:
+        turma = repo.get_turma(class_code)
+        id_turma = turma.id_turma if turma else class_code
+    return [
+        {"id": d.id, "class_id": d.id_turma, "kind": d.kind, "title": d.title,
+         "date": d.date, "detail": d.detail}
+        for d in repo.get_deadlines(id_turma=id_turma)
+    ]
+
+
+@mcp.tool()
+def sigaa_export_ics() -> str:
+    """Return an iCalendar (.ics) feed of classes + deadlines from the store."""
+    repo = _repo()
+    return build_calendar(repo.get_turmas(), repo.get_deadlines())
+
+
+@mcp.tool()
 def sigaa_sync(fetch_bodies: bool = False) -> dict:
     """Refresh from SIGAA and persist new news. The only networked tool."""
     result = run_sync(Settings(), fetch_bodies=fetch_bodies)
@@ -110,7 +150,12 @@ def sigaa_sync(fetch_bodies: bool = False) -> dict:
         "ok": result.ok,
         "error": result.error,
         "classes": result.turma_count,
-        "new": [{"id": n.id, "date": n.date, "title": n.title} for n in result.new_items],
+        "grade_rows": result.grade_count,
+        "new_news": [{"id": n.id, "date": n.date, "title": n.title} for n in result.new_items],
+        "new_deadlines": [
+            {"id": d.id, "date": d.date, "kind": d.kind, "title": d.title}
+            for d in result.new_deadlines
+        ],
     }
 
 
