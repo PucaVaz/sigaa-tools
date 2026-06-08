@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 
-from ..models import NewsItem, Student, Turma
+from ..models import Deadline, Grade, NewsItem, Student, Turma
 
 
 class Repository:
@@ -97,6 +98,66 @@ class Repository:
         )
         self._conn.commit()
 
+    # --- grades ----------------------------------------------------------
+    def upsert_grade(self, grade: Grade) -> None:
+        self._conn.execute(
+            """INSERT INTO grade (semester, code, discipline, units, exam, result,
+                                  absences, status, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+               ON CONFLICT(semester, code) DO UPDATE SET
+                 discipline=excluded.discipline, units=excluded.units, exam=excluded.exam,
+                 result=excluded.result, absences=excluded.absences, status=excluded.status,
+                 updated_at=datetime('now')""",
+            (grade.semester, grade.code, grade.discipline, json.dumps(grade.units),
+             grade.exam, grade.result, grade.absences, grade.status),
+        )
+        self._conn.commit()
+
+    def get_grades(self, semester: str | None = None, code: str | None = None) -> list[Grade]:
+        clauses, params = [], []
+        if semester:
+            clauses.append("semester = ?")
+            params.append(semester)
+        if code:
+            clauses.append("code = ?")
+            params.append(code)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self._conn.execute(
+            f"SELECT * FROM grade {where} ORDER BY semester DESC, code", params
+        ).fetchall()
+        return [_grade(r) for r in rows]
+
+    # --- deadlines -------------------------------------------------------
+    def known_deadline_ids(self) -> set[str]:
+        rows = self._conn.execute("SELECT id FROM deadline").fetchall()
+        return {r["id"] for r in rows}
+
+    def upsert_deadline(self, item: Deadline) -> bool:
+        """Insert or refresh a deadline. Returns True if it was new."""
+        is_new = item.id not in self.known_deadline_ids()
+        self._conn.execute(
+            """INSERT INTO deadline (id, id_turma, kind, title, date, detail, is_new)
+               VALUES (?, ?, ?, ?, ?, ?, 1)
+               ON CONFLICT(id) DO UPDATE SET
+                 title=excluded.title, date=excluded.date, detail=excluded.detail""",
+            (item.id, item.id_turma, item.kind, item.title, item.date, item.detail),
+        )
+        self._conn.commit()
+        return is_new
+
+    def get_deadlines(self, id_turma: str | None = None, unread_only: bool = False) -> list[Deadline]:
+        clauses, params = [], []
+        if id_turma:
+            clauses.append("id_turma = ?")
+            params.append(id_turma)
+        if unread_only:
+            clauses.append("is_new = 1")
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self._conn.execute(
+            f"SELECT * FROM deadline {where} ORDER BY date", params
+        ).fetchall()
+        return [_deadline(r) for r in rows]
+
     # --- audit -----------------------------------------------------------
     def record_sync(self, new_count: int, ok: bool = True, detail: str | None = None) -> None:
         self._conn.execute(
@@ -124,4 +185,19 @@ def _news(row: sqlite3.Row) -> NewsItem:
     return NewsItem(
         id=row["id"], id_turma=row["id_turma"], date=row["date"], title=row["title"],
         body=row["body"],
+    )
+
+
+def _grade(row: sqlite3.Row) -> Grade:
+    return Grade(
+        semester=row["semester"], code=row["code"], discipline=row["discipline"],
+        units=json.loads(row["units"]) if row["units"] else [],
+        exam=row["exam"], result=row["result"], absences=row["absences"], status=row["status"],
+    )
+
+
+def _deadline(row: sqlite3.Row) -> Deadline:
+    return Deadline(
+        id=row["id"], id_turma=row["id_turma"], kind=row["kind"], title=row["title"],
+        date=row["date"], detail=row["detail"],
     )

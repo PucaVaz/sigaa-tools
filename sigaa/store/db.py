@@ -38,6 +38,32 @@ CREATE TABLE IF NOT EXISTS news (
 CREATE INDEX IF NOT EXISTS idx_news_turma ON news(id_turma);
 CREATE INDEX IF NOT EXISTS idx_news_new ON news(is_new);
 
+CREATE TABLE IF NOT EXISTS grade (
+    semester   TEXT NOT NULL,
+    code       TEXT NOT NULL,
+    discipline TEXT,
+    units      TEXT,
+    exam       TEXT,
+    result     TEXT,
+    absences   TEXT,
+    status     TEXT,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (semester, code)
+);
+
+CREATE TABLE IF NOT EXISTS deadline (
+    id         TEXT PRIMARY KEY,
+    id_turma   TEXT,
+    kind       TEXT,
+    title      TEXT,
+    date       TEXT,
+    detail     TEXT,
+    is_new     INTEGER NOT NULL DEFAULT 1,
+    fetched_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_deadline_turma ON deadline(id_turma);
+
 CREATE TABLE IF NOT EXISTS sync_run (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     started_at  TEXT NOT NULL DEFAULT (datetime('now')),
