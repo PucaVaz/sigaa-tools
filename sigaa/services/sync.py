@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 
 from ..client import SigaaClient
 from ..config import Settings
-from ..models import NewsItem, Student, Turma
+from ..models import Deadline, NewsItem, Student, Turma
 from ..store.db import connect
 from ..store.repository import Repository
 
@@ -20,6 +20,8 @@ class SyncResult:
     student: Student | None = None
     turma_count: int = 0
     new_items: list[NewsItem] = field(default_factory=list)
+    new_deadlines: list[Deadline] = field(default_factory=list)
+    grade_count: int = 0
     ok: bool = True
     error: str | None = None
 
@@ -42,6 +44,15 @@ def sync(settings: Settings, fetch_bodies: bool = False) -> SyncResult:
             for turma in turmas:
                 repo.upsert_turma(turma)
                 result.new_items.extend(_sync_turma_news(client, repo, turma, fetch_bodies))
+
+            for deadline in client.list_deadlines():
+                if repo.upsert_deadline(deadline):
+                    result.new_deadlines.append(deadline)
+
+            grades = client.get_grades()
+            for grade in grades:
+                repo.upsert_grade(grade)
+            result.grade_count = len(grades)
 
         repo.record_sync(len(result.new_items))
     except Exception as exc:  # noqa: BLE001 - record and surface the failure
