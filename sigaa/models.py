@@ -84,6 +84,23 @@ class Grade:
 
 
 @dataclass
+class TurmaGrade:
+    """The student's own grade row from a turma's Ver Notas report.
+
+    Per-class and linked to ``id_turma`` (unlike the all-semester Relatório,
+    which is keyed by discipline code). Columns mirror the report: Unid. 1..N,
+    Exame Final, Resultado, Faltas, Situação.
+    """
+
+    id_turma: str
+    units: list[str] = field(default_factory=list)
+    exam: str | None = None
+    result: str | None = None
+    absences: str | None = None
+    status: str | None = None
+
+
+@dataclass
 class Deadline:
     """An upcoming assessment/task surfaced on the portal turma cards."""
 
