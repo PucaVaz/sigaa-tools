@@ -54,6 +54,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p_grades = sub.add_parser("grades", help="list grades from the store")
     p_grades.add_argument("--semester", help="filter by semester, e.g. 2025.1")
+    p_grades.add_argument("--class", dest="klass", help="show one class's per-turma grade breakdown")
     p_grades.add_argument("--json", action="store_true")
     p_grades.set_defaults(func=_cmd_grades)
 
@@ -172,6 +173,8 @@ def _cmd_news(args, settings: Settings) -> int:
 
 def _cmd_grades(args, settings: Settings) -> int:
     repo = Repository(connect(settings.db_path))
+    if getattr(args, "klass", None):
+        return _cmd_turma_grades(args, repo)
     grades = repo.get_grades(semester=args.semester)
     if args.json:
         print(json.dumps([_grade_json(g) for g in grades], ensure_ascii=False, indent=2))
@@ -187,6 +190,26 @@ def _cmd_grades(args, settings: Settings) -> int:
         units = " ".join(g.units) if g.units else "—"
         result = g.result or "—"
         print(f"  {g.code:12} {g.discipline[:40]:40} {units:20} = {result:5} {g.status or ''}")
+    return 0
+
+
+def _cmd_turma_grades(args, repo: Repository) -> int:
+    turma = repo.get_turma(args.klass)
+    id_turma = turma.id_turma if turma else args.klass
+    grades = repo.get_turma_grades(id_turma=id_turma)
+    if args.json:
+        print(json.dumps([_turma_grade_json(repo, g) for g in grades], ensure_ascii=False, indent=2))
+        return 0
+    if not grades:
+        print("no per-class grades in store — run `sigaa sync` first")
+        return 0
+    for g in grades:
+        t = repo.get_turma(g.id_turma)
+        name = t.name if t else g.id_turma
+        units = " ".join(g.units) if g.units else "—"
+        print(f"{name}")
+        print(f"  units: {units}   exame: {g.exam or '—'}   resultado: {g.result or '—'}")
+        print(f"  faltas: {g.absences or '—'}   situação: {g.status or '—'}")
     return 0
 
 
@@ -344,6 +367,15 @@ def _material_json(m) -> dict:
 def _grade_json(g) -> dict:
     return {
         "semester": g.semester, "code": g.code, "discipline": g.discipline,
+        "units": g.units, "exam": g.exam, "result": g.result,
+        "absences": g.absences, "status": g.status,
+    }
+
+
+def _turma_grade_json(repo, g) -> dict:
+    t = repo.get_turma(g.id_turma)
+    return {
+        "class_id": g.id_turma, "code": t.code if t else None, "name": t.name if t else None,
         "units": g.units, "exam": g.exam, "result": g.result,
         "absences": g.absences, "status": g.status,
     }

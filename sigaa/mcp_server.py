@@ -161,6 +161,32 @@ def sigaa_list_grades(semester: str | None = None) -> list[dict]:
 
 
 @mcp.tool()
+def sigaa_get_turma_grades(class_code: str | None = None) -> list[dict]:
+    """Per-class grade breakdown (Ver Notas): Unid. 1..N, Exame, Resultado, Faltas, Situação."""
+    repo = _repo()
+    id_turma = None
+    if class_code:
+        turma = repo.get_turma(class_code)
+        id_turma = turma.id_turma if turma else class_code
+    out = []
+    for g in repo.get_turma_grades(id_turma=id_turma):
+        turma = repo.get_turma(g.id_turma)
+        out.append(
+            {
+                "class_id": g.id_turma,
+                "code": turma.code if turma else None,
+                "name": turma.name if turma else None,
+                "units": g.units,
+                "exam": g.exam,
+                "result": g.result,
+                "absences": g.absences,
+                "status": g.status,
+            }
+        )
+    return out
+
+
+@mcp.tool()
 def sigaa_list_deadlines(class_code: str | None = None) -> list[dict]:
     """List assessment/task deadlines from the store, optionally filtered by class."""
     repo = _repo()
