@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 
-from ..models import Deadline, Grade, Material, NewsItem, Student, Turma
+from ..models import Deadline, Grade, Material, NewsItem, Student, Turma, TurmaGrade
 
 
 class Repository:
@@ -156,6 +156,31 @@ class Repository:
         ).fetchall()
         return [_grade(r) for r in rows]
 
+    # --- turma grades ----------------------------------------------------
+    def upsert_turma_grade(self, item: TurmaGrade) -> None:
+        self._conn.execute(
+            """INSERT INTO turma_grade (id_turma, units, exam, result, absences, status, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+               ON CONFLICT(id_turma) DO UPDATE SET
+                 units=excluded.units, exam=excluded.exam, result=excluded.result,
+                 absences=excluded.absences, status=excluded.status,
+                 updated_at=datetime('now')""",
+            (item.id_turma, json.dumps(item.units), item.exam, item.result,
+             item.absences, item.status),
+        )
+        self._conn.commit()
+
+    def get_turma_grades(self, id_turma: str | None = None) -> list[TurmaGrade]:
+        clauses, params = [], []
+        if id_turma:
+            clauses.append("id_turma = ?")
+            params.append(id_turma)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self._conn.execute(
+            f"SELECT * FROM turma_grade {where} ORDER BY id_turma", params
+        ).fetchall()
+        return [_turma_grade(r) for r in rows]
+
     # --- deadlines -------------------------------------------------------
     def known_deadline_ids(self) -> set[str]:
         rows = self._conn.execute("SELECT id FROM deadline").fetchall()
@@ -227,6 +252,14 @@ def _material(row: sqlite3.Row) -> Material:
 def _grade(row: sqlite3.Row) -> Grade:
     return Grade(
         semester=row["semester"], code=row["code"], discipline=row["discipline"],
+        units=json.loads(row["units"]) if row["units"] else [],
+        exam=row["exam"], result=row["result"], absences=row["absences"], status=row["status"],
+    )
+
+
+def _turma_grade(row: sqlite3.Row) -> TurmaGrade:
+    return TurmaGrade(
+        id_turma=row["id_turma"],
         units=json.loads(row["units"]) if row["units"] else [],
         exam=row["exam"], result=row["result"], absences=row["absences"], status=row["status"],
     )

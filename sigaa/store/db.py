@@ -64,6 +64,16 @@ CREATE TABLE IF NOT EXISTS grade (
     PRIMARY KEY (semester, code)
 );
 
+CREATE TABLE IF NOT EXISTS turma_grade (
+    id_turma   TEXT PRIMARY KEY REFERENCES turma(id_turma),
+    units      TEXT,
+    exam       TEXT,
+    result     TEXT,
+    absences   TEXT,
+    status     TEXT,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS deadline (
     id         TEXT PRIMARY KEY,
     id_turma   TEXT,
