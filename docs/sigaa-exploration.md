@@ -15,7 +15,7 @@ against the live account (SIGAA v26.6.0, 2026-06). Use this to pick the next bui
 |------|--------|-------|
 | Principal | ✅ | Landing page from `enter_turma`. Hosts the Notícias panel. |
 | Notícias | ✅ | List + per-row body (`get_news_body`). |
-| Ver Notas | 🟢 | Per-turma grade table (Unid.1..N, Exame, Resultado, Faltas, Sit.) — finer than the Relatório. Worked as the first post after entry. |
+| Ver Notas | ✅ | Per-turma grade table (Unid.1..N, Exame, Resultado, Faltas, Sit.), linked to id_turma. `formMenu` postback to a standalone report; dodges the bounce by re-deriving the turma from its own report id. (`get_turma_grades` / `sigaa grades --class`). |
 | Plano de Curso | 🟡 | Bounced. Would confirm the **slot→clock time table** (resolves `SLOT_TIMES_UNCONFIRMED`). High value. |
 | Frequência | 🟡 | Menu-param matcher didn't resolve the link (entity-encoded text) + bounce. Attendance per class. |
 | Tarefas | 🟡 | Bounced. Assignments with due dates + submission status. |
@@ -63,4 +63,4 @@ primes the session before the `formMenu` POST works. Replicate that GET in
 2. **Fix the turma-frame load** in `enter_turma` — unlocks Tarefas, Arquivos, Frequência, Participantes, Plano de Curso at once. The single biggest lever.
 3. **Plano de Curso** (after #2) → confirm `SLOT_TIMES_UNCONFIRMED`, making ICS class times trustworthy.
 4. **Atestado de Matrícula** → parse the HTML enrollment proof (🟢, low effort).
-5. **Ver Notas** (per-turma) → finer grade breakdown than the Relatório.
+5. ~~Ver Notas (per-turma)~~ — ✅ done (`sigaa grades --class`).
