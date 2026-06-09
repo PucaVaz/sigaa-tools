@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 
-from ..models import Deadline, Grade, NewsItem, Student, Turma
+from ..models import Deadline, Grade, Material, NewsItem, Student, Turma
 
 
 class Repository:
@@ -98,6 +98,35 @@ class Repository:
         )
         self._conn.commit()
 
+    # --- materials -------------------------------------------------------
+    def known_material_ids(self, id_turma: str) -> set[str]:
+        rows = self._conn.execute(
+            "SELECT id FROM material WHERE id_turma = ?", (id_turma,)
+        ).fetchall()
+        return {r["id"] for r in rows}
+
+    def insert_material(self, item: Material) -> None:
+        self._conn.execute(
+            """INSERT OR IGNORE INTO material (id, id_turma, topic, title, kind, url, is_new)
+               VALUES (?, ?, ?, ?, ?, ?, 1)""",
+            (item.id, item.id_turma, item.topic, item.title, item.kind, item.url),
+        )
+        self._conn.commit()
+
+    def get_materials(self, id_turma: str | None = None, kind: str | None = None) -> list[Material]:
+        clauses, params = [], []
+        if id_turma:
+            clauses.append("id_turma = ?")
+            params.append(id_turma)
+        if kind:
+            clauses.append("kind = ?")
+            params.append(kind)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self._conn.execute(
+            f"SELECT * FROM material {where} ORDER BY id_turma, fetched_at", params
+        ).fetchall()
+        return [_material(r) for r in rows]
+
     # --- grades ----------------------------------------------------------
     def upsert_grade(self, grade: Grade) -> None:
         self._conn.execute(
@@ -185,6 +214,13 @@ def _news(row: sqlite3.Row) -> NewsItem:
     return NewsItem(
         id=row["id"], id_turma=row["id_turma"], date=row["date"], title=row["title"],
         body=row["body"],
+    )
+
+
+def _material(row: sqlite3.Row) -> Material:
+    return Material(
+        id=row["id"], id_turma=row["id_turma"], topic=row["topic"], title=row["title"],
+        kind=row["kind"], url=row["url"],
     )
 
 

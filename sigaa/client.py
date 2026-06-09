@@ -6,8 +6,9 @@ import re
 
 from . import config
 from .http import Session, extract_viewstate
-from .models import Deadline, Grade, NewsItem, Student, Turma
+from .models import Deadline, Grade, Material, NewsItem, Student, Turma
 from .parsers import grades as grades_parser
+from .parsers import materials as materials_parser
 from .parsers import news as news_parser
 from .parsers import portal as portal_parser
 
@@ -83,6 +84,29 @@ class SigaaClient:
             return None
         body_html = self._session.post(config.AVA_URL, fields)
         return news_parser.parse_news_body(body_html)
+
+    def list_materials(self, turma: Turma) -> list[Material]:
+        turma_html = self.enter_turma(turma)
+        return materials_parser.parse_materials(turma_html, turma.id_turma)
+
+    def download_material(self, turma: Turma, material_id: str) -> tuple[bytes, str]:
+        """Download one uploaded material. Returns (bytes, suggested filename)."""
+        turma_html = self.enter_turma(turma)
+        material = next(
+            (m for m in materials_parser.parse_materials(turma_html, turma.id_turma)
+             if m.id == material_id),
+            None,
+        )
+        if material is None or material.kind != "file":
+            raise ValueError(f"downloadable material {material_id!r} not found in {turma.code}")
+        fields = materials_parser.build_download_postback(
+            turma_html, material_id, extract_viewstate(turma_html, default="j_id2")
+        )
+        if fields is None:
+            raise ValueError(f"could not build download request for material {material_id!r}")
+        content, content_type, disposition = self._session.post_download(config.AVA_URL, fields)
+        filename = materials_parser.filename_for(material.title, content_type, disposition)
+        return content, filename
 
     def close(self) -> None:
         self._session.close()

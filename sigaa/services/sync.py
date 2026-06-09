@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 
 from ..client import SigaaClient
 from ..config import Settings
-from ..models import Deadline, NewsItem, Student, Turma
+from ..models import Deadline, Material, NewsItem, Student, Turma
 from ..store.db import connect
 from ..store.repository import Repository
 
@@ -20,6 +20,7 @@ class SyncResult:
     student: Student | None = None
     turma_count: int = 0
     new_items: list[NewsItem] = field(default_factory=list)
+    new_materials: list[Material] = field(default_factory=list)
     new_deadlines: list[Deadline] = field(default_factory=list)
     grade_count: int = 0
     ok: bool = True
@@ -44,6 +45,7 @@ def sync(settings: Settings, fetch_bodies: bool = False) -> SyncResult:
             for turma in turmas:
                 repo.upsert_turma(turma)
                 result.new_items.extend(_sync_turma_news(client, repo, turma, fetch_bodies))
+                result.new_materials.extend(_sync_turma_materials(client, repo, turma))
 
             for deadline in client.list_deadlines():
                 if repo.upsert_deadline(deadline):
@@ -75,5 +77,18 @@ def _sync_turma_news(
         if fetch_bodies:
             item.body = client.get_news_body(turma, item.id)
         repo.insert_news(item)
+        fresh.append(item)
+    return fresh
+
+
+def _sync_turma_materials(
+    client: SigaaClient, repo: Repository, turma: Turma
+) -> list[Material]:
+    known = repo.known_material_ids(turma.id_turma)
+    fresh: list[Material] = []
+    for item in client.list_materials(turma):
+        if item.id in known:
+            continue
+        repo.insert_material(item)
         fresh.append(item)
     return fresh

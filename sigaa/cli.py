@@ -7,6 +7,7 @@ import getpass
 import json
 import sys
 import time
+from pathlib import Path
 
 from . import config
 from .client import SigaaClient
@@ -76,6 +77,15 @@ def _build_parser() -> argparse.ArgumentParser:
     p_news.add_argument("--json", action="store_true")
     p_news.set_defaults(func=_cmd_news)
 
+    p_mat = sub.add_parser("materials", help="list class materials; download with --download/--download-all")
+    p_mat.add_argument("--class", dest="klass", help="filter by class code")
+    p_mat.add_argument("--kind", choices=["file", "link"], help="filter by kind")
+    p_mat.add_argument("--download", metavar="ID", help="download one material by id (networked)")
+    p_mat.add_argument("--download-all", action="store_true", help="download all file materials (networked)")
+    p_mat.add_argument("--dir", default=".", help="output directory for downloads (default: .)")
+    p_mat.add_argument("--json", action="store_true")
+    p_mat.set_defaults(func=_cmd_materials)
+
     p_watch = sub.add_parser("watch", help="sync repeatedly on an interval")
     p_watch.add_argument("--interval", type=int, default=900, help="seconds (default 900)")
     p_watch.add_argument("--bodies", action="store_true")
@@ -115,6 +125,8 @@ def _cmd_sync(args, settings: Settings) -> int:
     )
     for item in result.new_items:
         print(f"  news + [{item.date}] {item.title}")
+    for mat in result.new_materials:
+        print(f"  material + ({mat.kind}) {mat.title}")
     for dl in result.new_deadlines:
         print(f"  {dl.kind} + [{dl.date}] {dl.title}")
     return 0
@@ -220,6 +232,61 @@ def _cmd_historico(args, settings: Settings) -> int:
     return 0
 
 
+def _cmd_materials(args, settings: Settings) -> int:
+    repo = Repository(connect(settings.db_path))
+    id_turma = None
+    if args.klass:
+        turma = repo.get_turma(args.klass)
+        id_turma = turma.id_turma if turma else args.klass
+
+    if args.download or args.download_all:
+        return _download_materials(args, settings, repo, id_turma)
+
+    items = repo.get_materials(id_turma=id_turma, kind=args.kind)
+    if args.json:
+        print(json.dumps([_material_json(m) for m in items], ensure_ascii=False, indent=2))
+        return 0
+    if not items:
+        print("no materials in store — run `sigaa sync` first")
+        return 0
+    for m in items:
+        tag = "file" if m.kind == "file" else "link"
+        print(f"  [{tag}] {m.id:>10}  {m.title}")
+        if m.url:
+            print(f"             {m.url}")
+    return 0
+
+
+def _download_materials(args, settings: Settings, repo: Repository, id_turma) -> int:
+    password = settings.resolve_password()
+    if not settings.username or not password:
+        print("missing credentials (set SIGAA_USER and keyring/SIGAA_PASS)", file=sys.stderr)
+        return 1
+
+    stored = repo.get_materials(id_turma=id_turma, kind="file")
+    if args.download:
+        stored = [m for m in stored if m.id == args.download]
+        if not stored:
+            print(f"file material {args.download} not in store — run `sigaa sync` first", file=sys.stderr)
+            return 1
+
+    out_dir = Path(args.dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    with SigaaClient(settings.username, password) as client:
+        turmas = {t.id_turma: t for t in client.list_turmas()}
+        for m in stored:
+            turma = turmas.get(m.id_turma)
+            if turma is None:
+                print(f"  ! {m.title}: class not found", file=sys.stderr)
+                continue
+            content, filename = client.download_material(turma, m.id)
+            path = out_dir / filename
+            with open(path, "wb") as fh:
+                fh.write(content)
+            print(f"  wrote {path} ({len(content)} bytes)")
+    return 0
+
+
 def _cmd_watch(args, settings: Settings) -> int:
     print(f"watching: sync every {args.interval}s (Ctrl-C to stop)")
     try:
@@ -250,6 +317,7 @@ def _sync_json(result) -> dict:
         "classes": result.turma_count,
         "grade_rows": result.grade_count,
         "new_news": [_news_json(n) for n in result.new_items],
+        "new_materials": [_material_json(m) for m in result.new_materials],
         "new_deadlines": [_deadline_json(d) for d in result.new_deadlines],
     }
 
@@ -266,6 +334,11 @@ def _turma_json(t, with_schedule: bool) -> dict:
 
 def _news_json(n) -> dict:
     return {"id": n.id, "id_turma": n.id_turma, "date": n.date, "title": n.title, "body": n.body}
+
+
+def _material_json(m) -> dict:
+    return {"id": m.id, "id_turma": m.id_turma, "topic": m.topic,
+            "title": m.title, "kind": m.kind, "url": m.url}
 
 
 def _grade_json(g) -> dict:

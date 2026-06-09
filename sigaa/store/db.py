@@ -38,6 +38,19 @@ CREATE TABLE IF NOT EXISTS news (
 CREATE INDEX IF NOT EXISTS idx_news_turma ON news(id_turma);
 CREATE INDEX IF NOT EXISTS idx_news_new ON news(is_new);
 
+CREATE TABLE IF NOT EXISTS material (
+    id         TEXT PRIMARY KEY,
+    id_turma   TEXT NOT NULL REFERENCES turma(id_turma),
+    topic      TEXT,
+    title      TEXT,
+    kind       TEXT,
+    url        TEXT,
+    is_new     INTEGER NOT NULL DEFAULT 1,
+    fetched_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_material_turma ON material(id_turma);
+
 CREATE TABLE IF NOT EXISTS grade (
     semester   TEXT NOT NULL,
     code       TEXT NOT NULL,

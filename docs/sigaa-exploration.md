@@ -19,7 +19,8 @@ against the live account (SIGAA v26.6.0, 2026-06). Use this to pick the next bui
 | Plano de Curso | 🟡 | Bounced. Would confirm the **slot→clock time table** (resolves `SLOT_TIMES_UNCONFIRMED`). High value. |
 | Frequência | 🟡 | Menu-param matcher didn't resolve the link (entity-encoded text) + bounce. Attendance per class. |
 | Tarefas | 🟡 | Bounced. Assignments with due dates + submission status. |
-| Arquivos / Referências / Vídeos / Conteúdo | 🟡 | Bounced. Course materials. |
+| Materiais (Tópicos de Aula) | ✅ | Uploaded files + external links are listed inline on the Principal page (`div.topico-aula` → `div.item`), no deep nav needed. File rows download via a `formAva` postback to `/sigaa/ava/index.jsf` (`list_materials` / `download_material` / `sigaa materials`). |
+| Arquivos / Referências / Vídeos / Conteúdo (deep menu) | 🟡 | Dedicated menu pages still bounce, but their files already surface via Materiais above. |
 | Participantes / Situação dos Discentes | 🟡 | Bounced. Roster. |
 | Avaliações / Enquetes / Questionários / Fóruns | ⚪ | Not probed. |
 

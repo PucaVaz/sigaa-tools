@@ -78,6 +78,46 @@ def sigaa_get_news_body(news_id: str) -> str:
 
 
 @mcp.tool()
+def sigaa_list_materials(class_code: str | None = None, kind: str | None = None) -> list[dict]:
+    """List class materials (slides, lists, links) from the store. Filter by class or kind (file/link)."""
+    repo = _repo()
+    id_turma = None
+    if class_code:
+        turma = repo.get_turma(class_code)
+        id_turma = turma.id_turma if turma else class_code
+    return [
+        {"id": m.id, "class_id": m.id_turma, "topic": m.topic, "title": m.title,
+         "kind": m.kind, "url": m.url}
+        for m in repo.get_materials(id_turma=id_turma, kind=kind)
+    ]
+
+
+@mcp.tool()
+def sigaa_download_material(material_id: str, path: str | None = None) -> str:
+    """Download an uploaded class material (file) by its id. Networked. Returns the path written."""
+    repo = _repo()
+    material = next((m for m in repo.get_materials() if m.id == material_id), None)
+    if material is None:
+        return f"material id {material_id} not found in store; run sigaa_sync first"
+    if material.kind != "file":
+        return f"material {material_id} is an external link: {material.url}"
+
+    settings = Settings()
+    password = settings.resolve_password()
+    if not settings.username or not password:
+        return "no credentials available"
+    with SigaaClient(settings.username, password) as client:
+        turma = next((t for t in client.list_turmas() if t.id_turma == material.id_turma), None)
+        if turma is None:
+            return "could not locate the class for this material"
+        content, filename = client.download_material(turma, material_id)
+    out = path or filename
+    with open(out, "wb") as fh:
+        fh.write(content)
+    return f"wrote {out} ({len(content)} bytes)"
+
+
+@mcp.tool()
 def sigaa_get_schedule(class_code: str | None = None) -> list[dict]:
     """Decoded weekly schedule (days/shift/slots) for one or all classes."""
     repo = _repo()
@@ -166,6 +206,10 @@ def sigaa_sync(fetch_bodies: bool = False) -> dict:
         "classes": result.turma_count,
         "grade_rows": result.grade_count,
         "new_news": [{"id": n.id, "date": n.date, "title": n.title} for n in result.new_items],
+        "new_materials": [
+            {"id": m.id, "topic": m.topic, "title": m.title, "kind": m.kind}
+            for m in result.new_materials
+        ],
         "new_deadlines": [
             {"id": d.id, "date": d.date, "kind": d.kind, "title": d.title}
             for d in result.new_deadlines

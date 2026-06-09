@@ -57,6 +57,16 @@ class Session:
 
     def post_bytes(self, url: str, data: dict[str, str]) -> bytes:
         """POST expecting a binary download (e.g. a PDF). Re-logins if bounced."""
+        content, _, _ = self.post_download(url, data)
+        return content
+
+    def post_download(
+        self, url: str, data: dict[str, str]
+    ) -> tuple[bytes, str | None, str | None]:
+        """POST a binary download; return (content, content-type, content-disposition).
+
+        Re-logins and retries once if the server bounces to an HTML login page.
+        """
         if not self._authenticated:
             self.login()
         resp = self._client.request("POST", url, data=data)
@@ -66,7 +76,7 @@ class Session:
             self.login()
             resp = self._client.request("POST", url, data=data)
             resp.raise_for_status()
-        return resp.content
+        return resp.content, resp.headers.get("content-type"), resp.headers.get("content-disposition")
 
     def _request(self, method: str, url: str, data: dict | None = None) -> str:
         if not self._authenticated:

@@ -53,6 +53,23 @@ class NewsItem:
 
 
 @dataclass
+class Material:
+    """A course material on the Turma Virtual Principal page (Tópicos de Aula).
+
+    ``kind == "file"`` is a teacher upload downloadable via formAva postback;
+    ``id`` is SIGAA's stable material id (dedup key). ``kind == "link"`` is an
+    external URL (e.g. SharePoint slides); ``id`` is that URL and ``url`` holds it.
+    """
+
+    id: str
+    id_turma: str
+    topic: str  # the Tópico de Aula heading + date range
+    title: str
+    kind: str  # file / link
+    url: str | None = None  # set for external links
+
+
+@dataclass
 class Grade:
     """A discipline's grades for one semester from the Relatório de Notas."""
 
