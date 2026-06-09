@@ -113,7 +113,9 @@ class Repository:
         )
         self._conn.commit()
 
-    def get_materials(self, id_turma: str | None = None, kind: str | None = None) -> list[Material]:
+    def get_materials(
+        self, id_turma: str | None = None, kind: str | None = None, unread_only: bool = False
+    ) -> list[Material]:
         clauses, params = [], []
         if id_turma:
             clauses.append("id_turma = ?")
@@ -121,11 +123,22 @@ class Repository:
         if kind:
             clauses.append("kind = ?")
             params.append(kind)
+        if unread_only:
+            clauses.append("is_new = 1")
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         rows = self._conn.execute(
             f"SELECT * FROM material {where} ORDER BY id_turma, fetched_at", params
         ).fetchall()
         return [_material(r) for r in rows]
+
+    def mark_materials_seen(self, material_ids: list[str]) -> None:
+        if not material_ids:
+            return
+        placeholders = ",".join("?" * len(material_ids))
+        self._conn.execute(
+            f"UPDATE material SET is_new = 0 WHERE id IN ({placeholders})", material_ids
+        )
+        self._conn.commit()
 
     # --- grades ----------------------------------------------------------
     def upsert_grade(self, grade: Grade) -> None:
@@ -157,29 +170,52 @@ class Repository:
         return [_grade(r) for r in rows]
 
     # --- turma grades ----------------------------------------------------
-    def upsert_turma_grade(self, item: TurmaGrade) -> None:
+    def upsert_turma_grade(self, item: TurmaGrade) -> bool:
+        """Insert or refresh a class's grades. Returns True if a real grade was
+        posted or changed (empty/MATRICULADO refreshes are not notable)."""
+        prev = self._conn.execute(
+            "SELECT units, exam, result, status FROM turma_grade WHERE id_turma = ?",
+            (item.id_turma,),
+        ).fetchone()
+        notable = _grade_changed(prev, item)
         self._conn.execute(
-            """INSERT INTO turma_grade (id_turma, units, exam, result, absences, status, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+            """INSERT INTO turma_grade
+                 (id_turma, units, exam, result, absences, status, is_new, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
                ON CONFLICT(id_turma) DO UPDATE SET
                  units=excluded.units, exam=excluded.exam, result=excluded.result,
                  absences=excluded.absences, status=excluded.status,
+                 is_new=CASE WHEN excluded.is_new = 1 THEN 1 ELSE turma_grade.is_new END,
                  updated_at=datetime('now')""",
             (item.id_turma, json.dumps(item.units), item.exam, item.result,
-             item.absences, item.status),
+             item.absences, item.status, 1 if notable else 0),
         )
         self._conn.commit()
+        return notable
 
-    def get_turma_grades(self, id_turma: str | None = None) -> list[TurmaGrade]:
+    def get_turma_grades(
+        self, id_turma: str | None = None, unread_only: bool = False
+    ) -> list[TurmaGrade]:
         clauses, params = [], []
         if id_turma:
             clauses.append("id_turma = ?")
             params.append(id_turma)
+        if unread_only:
+            clauses.append("is_new = 1")
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         rows = self._conn.execute(
             f"SELECT * FROM turma_grade {where} ORDER BY id_turma", params
         ).fetchall()
         return [_turma_grade(r) for r in rows]
+
+    def mark_turma_grades_seen(self, id_turmas: list[str]) -> None:
+        if not id_turmas:
+            return
+        placeholders = ",".join("?" * len(id_turmas))
+        self._conn.execute(
+            f"UPDATE turma_grade SET is_new = 0 WHERE id_turma IN ({placeholders})", id_turmas
+        )
+        self._conn.commit()
 
     # --- deadlines -------------------------------------------------------
     def known_deadline_ids(self) -> set[str]:
@@ -211,6 +247,15 @@ class Repository:
             f"SELECT * FROM deadline {where} ORDER BY date", params
         ).fetchall()
         return [_deadline(r) for r in rows]
+
+    def mark_deadlines_seen(self, deadline_ids: list[str]) -> None:
+        if not deadline_ids:
+            return
+        placeholders = ",".join("?" * len(deadline_ids))
+        self._conn.execute(
+            f"UPDATE deadline SET is_new = 0 WHERE id IN ({placeholders})", deadline_ids
+        )
+        self._conn.commit()
 
     # --- audit -----------------------------------------------------------
     def record_sync(self, new_count: int, ok: bool = True, detail: str | None = None) -> None:
@@ -254,6 +299,27 @@ def _grade(row: sqlite3.Row) -> Grade:
         semester=row["semester"], code=row["code"], discipline=row["discipline"],
         units=json.loads(row["units"]) if row["units"] else [],
         exam=row["exam"], result=row["result"], absences=row["absences"], status=row["status"],
+    )
+
+
+def _grade_changed(prev: sqlite3.Row | None, item: TurmaGrade) -> bool:
+    """A grade is notable when it carries real content (a unit/exame/resultado, or
+    a terminal status) and differs from what was stored. Empty MATRICULADO rows —
+    e.g. every class at the start of term — are never notable, so they don't flood
+    the what's-new feed on the first sync."""
+    has_content = bool(item.units) or bool(item.exam) or bool(item.result) or (
+        item.status not in (None, "", "MATRICULADO")
+    )
+    if not has_content:
+        return False
+    if prev is None:
+        return True
+    prev_units = json.loads(prev["units"]) if prev["units"] else []
+    return (
+        prev_units != item.units
+        or (prev["exam"] or None) != (item.exam or None)
+        or (prev["result"] or None) != (item.result or None)
+        or (prev["status"] or None) != (item.status or None)
     )
 
 

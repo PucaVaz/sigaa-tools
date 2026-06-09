@@ -14,6 +14,7 @@ from .client import SigaaClient
 from .config import Settings
 from .exporters.ics import build_calendar
 from .parsers.schedule import day_name, decode_schedule
+from .services import whatsnew
 from .services.sync import sync
 from .store.db import connect
 from .store.repository import Repository
@@ -87,6 +88,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p_mat.add_argument("--json", action="store_true")
     p_mat.set_defaults(func=_cmd_materials)
 
+    p_whatsnew = sub.add_parser("whatsnew", help="everything unseen: news, materials, deadlines, grades")
+    p_whatsnew.add_argument("--mark-seen", action="store_true", help="clear items after showing them")
+    p_whatsnew.add_argument("--json", action="store_true")
+    p_whatsnew.set_defaults(func=_cmd_whatsnew)
+
     p_watch = sub.add_parser("watch", help="sync repeatedly on an interval")
     p_watch.add_argument("--interval", type=int, default=900, help="seconds (default 900)")
     p_watch.add_argument("--bodies", action="store_true")
@@ -128,6 +134,8 @@ def _cmd_sync(args, settings: Settings) -> int:
         print(f"  news + [{item.date}] {item.title}")
     for mat in result.new_materials:
         print(f"  material + ({mat.kind}) {mat.title}")
+    for g in result.grade_updates:
+        print(f"  grade + {g.id_turma}: {' '.join(g.units) or '—'} → {g.result or g.status or '—'}")
     for dl in result.new_deadlines:
         print(f"  {dl.kind} + [{dl.date}] {dl.title}")
     return 0
@@ -310,6 +318,29 @@ def _download_materials(args, settings: Settings, repo: Repository, id_turma) ->
     return 0
 
 
+def _cmd_whatsnew(args, settings: Settings) -> int:
+    repo = Repository(connect(settings.db_path))
+    feed = whatsnew.collect(repo)
+    if args.json:
+        print(json.dumps(_whatsnew_json(repo, feed), ensure_ascii=False, indent=2))
+    elif feed.total() == 0:
+        print("nothing new — run `sigaa sync` to check")
+    else:
+        for n in feed.news:
+            print(f"  news      [{n.date}] {n.title}")
+        for m in feed.materials:
+            print(f"  material  ({m.kind}) {m.title}")
+        for d in feed.deadlines:
+            print(f"  deadline  [{d.date}] ({d.kind}) {d.title}")
+        for g in feed.grades:
+            t = repo.get_turma(g.id_turma)
+            name = t.name if t else g.id_turma
+            print(f"  grade     {name}: {' '.join(g.units) or '—'} → {g.result or g.status or '—'}")
+    if args.mark_seen:
+        whatsnew.mark_seen(repo, feed)
+    return 0
+
+
 def _cmd_watch(args, settings: Settings) -> int:
     print(f"watching: sync every {args.interval}s (Ctrl-C to stop)")
     try:
@@ -341,6 +372,11 @@ def _sync_json(result) -> dict:
         "grade_rows": result.grade_count,
         "new_news": [_news_json(n) for n in result.new_items],
         "new_materials": [_material_json(m) for m in result.new_materials],
+        "grade_updates": [
+            {"class_id": g.id_turma, "units": g.units, "exam": g.exam,
+             "result": g.result, "status": g.status}
+            for g in result.grade_updates
+        ],
         "new_deadlines": [_deadline_json(d) for d in result.new_deadlines],
     }
 
@@ -369,6 +405,16 @@ def _grade_json(g) -> dict:
         "semester": g.semester, "code": g.code, "discipline": g.discipline,
         "units": g.units, "exam": g.exam, "result": g.result,
         "absences": g.absences, "status": g.status,
+    }
+
+
+def _whatsnew_json(repo, feed) -> dict:
+    return {
+        "total": feed.total(),
+        "news": [_news_json(n) for n in feed.news],
+        "materials": [_material_json(m) for m in feed.materials],
+        "deadlines": [_deadline_json(d) for d in feed.deadlines],
+        "grades": [_turma_grade_json(repo, g) for g in feed.grades],
     }
 
 

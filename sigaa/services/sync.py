@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 
 from ..client import SigaaClient
 from ..config import Settings
-from ..models import Deadline, Material, NewsItem, Student, Turma
+from ..models import Deadline, Material, NewsItem, Student, Turma, TurmaGrade
 from ..store.db import connect
 from ..store.repository import Repository
 
@@ -21,6 +21,7 @@ class SyncResult:
     turma_count: int = 0
     new_items: list[NewsItem] = field(default_factory=list)
     new_materials: list[Material] = field(default_factory=list)
+    grade_updates: list[TurmaGrade] = field(default_factory=list)
     new_deadlines: list[Deadline] = field(default_factory=list)
     grade_count: int = 0
     ok: bool = True
@@ -51,7 +52,9 @@ def sync(settings: Settings, fetch_bodies: bool = False) -> SyncResult:
                 result.new_materials.extend(
                     _sync_turma_materials(client, repo, turma, turma_html)
                 )
-                _sync_turma_grades(client, repo, turma, turma_html)
+                result.grade_updates.extend(
+                    _sync_turma_grades(client, repo, turma, turma_html)
+                )
 
             for deadline in client.list_deadlines():
                 if repo.upsert_deadline(deadline):
@@ -102,11 +105,13 @@ def _sync_turma_materials(
 
 def _sync_turma_grades(
     client: SigaaClient, repo: Repository, turma: Turma, turma_html: str
-) -> None:
-    """Best-effort: a turma whose Ver Notas is missing/bounces must not abort sync."""
+) -> list[TurmaGrade]:
+    """Best-effort: a turma whose Ver Notas is missing/bounces must not abort sync.
+    Returns the grade in a list only when a real grade was posted or changed."""
     try:
         grade = client.get_turma_grades(turma, turma_html)
     except Exception:  # noqa: BLE001 - per-turma report is optional
-        return
-    if grade is not None:
-        repo.upsert_turma_grade(grade)
+        return []
+    if grade is None:
+        return []
+    return [grade] if repo.upsert_turma_grade(grade) else []

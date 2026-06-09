@@ -12,6 +12,7 @@ from .client import SigaaClient
 from .config import Settings
 from .exporters.ics import build_calendar
 from .parsers.schedule import day_name, decode_schedule
+from .services import whatsnew
 from .services.sync import sync as run_sync
 from .store.db import connect
 from .store.repository import Repository
@@ -209,6 +210,37 @@ def sigaa_export_ics() -> str:
 
 
 @mcp.tool()
+def sigaa_whats_new(mark_seen: bool = False) -> dict:
+    """Everything unseen since last check: news, materials, deadlines, and posted
+    grade changes. Pass mark_seen=true to clear them after reading."""
+    repo = _repo()
+    feed = whatsnew.collect(repo)
+    out = {
+        "total": feed.total(),
+        "news": [{"id": n.id, "class_id": n.id_turma, "date": n.date, "title": n.title}
+                 for n in feed.news],
+        "materials": [{"id": m.id, "class_id": m.id_turma, "topic": m.topic,
+                       "title": m.title, "kind": m.kind, "url": m.url} for m in feed.materials],
+        "deadlines": [{"id": d.id, "class_id": d.id_turma, "kind": d.kind,
+                       "title": d.title, "date": d.date} for d in feed.deadlines],
+        "grades": [_grade_update(repo, g) for g in feed.grades],
+    }
+    if mark_seen:
+        whatsnew.mark_seen(repo, feed)
+    return out
+
+
+def _grade_update(repo: Repository, g) -> dict:
+    turma = repo.get_turma(g.id_turma)
+    return {
+        "class_id": g.id_turma,
+        "code": turma.code if turma else None,
+        "name": turma.name if turma else None,
+        "units": g.units, "exam": g.exam, "result": g.result, "status": g.status,
+    }
+
+
+@mcp.tool()
 def sigaa_download_historico(path: str = "historico.pdf") -> str:
     """Download the academic transcript PDF to a path. Networked. Returns the path."""
     settings = Settings()
@@ -236,6 +268,7 @@ def sigaa_sync(fetch_bodies: bool = False) -> dict:
             {"id": m.id, "topic": m.topic, "title": m.title, "kind": m.kind}
             for m in result.new_materials
         ],
+        "grade_updates": [_grade_update(_repo(), g) for g in result.grade_updates],
         "new_deadlines": [
             {"id": d.id, "date": d.date, "kind": d.kind, "title": d.title}
             for d in result.new_deadlines

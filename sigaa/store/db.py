@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS turma_grade (
     result     TEXT,
     absences   TEXT,
     status     TEXT,
+    is_new     INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -103,4 +104,17 @@ def connect(db_path: Path) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(_SCHEMA)
+    _migrate(conn)
     return conn
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Additive migrations for stores created before a column existed."""
+    if not _has_column(conn, "turma_grade", "is_new"):
+        conn.execute("ALTER TABLE turma_grade ADD COLUMN is_new INTEGER NOT NULL DEFAULT 0")
+        conn.commit()
+
+
+def _has_column(conn: sqlite3.Connection, table: str, column: str) -> bool:
+    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    return any(row["name"] == column for row in rows)
