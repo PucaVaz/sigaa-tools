@@ -46,6 +46,7 @@ def sync(settings: Settings, fetch_bodies: bool = False) -> SyncResult:
                 repo.upsert_turma(turma)
                 result.new_items.extend(_sync_turma_news(client, repo, turma, fetch_bodies))
                 result.new_materials.extend(_sync_turma_materials(client, repo, turma))
+                _sync_turma_grades(client, repo, turma)
 
             for deadline in client.list_deadlines():
                 if repo.upsert_deadline(deadline):
@@ -92,3 +93,13 @@ def _sync_turma_materials(
         repo.insert_material(item)
         fresh.append(item)
     return fresh
+
+
+def _sync_turma_grades(client: SigaaClient, repo: Repository, turma: Turma) -> None:
+    """Best-effort: a turma whose Ver Notas is missing/bounces must not abort sync."""
+    try:
+        grade = client.get_turma_grades(turma)
+    except Exception:  # noqa: BLE001 - per-turma report is optional
+        return
+    if grade is not None:
+        repo.upsert_turma_grade(grade)

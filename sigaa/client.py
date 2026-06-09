@@ -6,7 +6,7 @@ import re
 
 from . import config
 from .http import Session, extract_viewstate
-from .models import Deadline, Grade, Material, NewsItem, Student, Turma
+from .models import Deadline, Grade, Material, NewsItem, Student, Turma, TurmaGrade
 from .parsers import grades as grades_parser
 from .parsers import materials as materials_parser
 from .parsers import news as news_parser
@@ -70,6 +70,24 @@ class SigaaClient:
             "javax.faces.ViewState": extract_viewstate(self._portal()),
         }
         return self._session.post(config.PORTAL_ACTION_URL, fields)
+
+    def _turma_menu_post(self, turma: Turma, link_text: str) -> str:
+        """Click a Turma Virtual (formMenu) menu item by its visible text."""
+        principal = self.enter_turma(turma)
+        field = portal_parser.find_menu_field(principal, link_text)
+        if field is None:
+            raise ValueError(f"turma menu item not found: {link_text!r}")
+        fields = {
+            "formMenu": "formMenu",
+            field: field,
+            "javax.faces.ViewState": extract_viewstate(principal, default="j_id2"),
+        }
+        return self._session.post(config.AVA_URL, fields)
+
+    def get_turma_grades(self, turma: Turma) -> TurmaGrade | None:
+        """Per-turma grade report (Ver Notas), linked to the turma."""
+        html = self._turma_menu_post(turma, "Ver Notas")
+        return grades_parser.parse_turma_grades(html, turma.id_turma)
 
     def list_news(self, turma: Turma) -> list[NewsItem]:
         turma_html = self.enter_turma(turma)
