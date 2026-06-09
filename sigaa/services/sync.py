@@ -44,9 +44,14 @@ def sync(settings: Settings, fetch_bodies: bool = False) -> SyncResult:
             result.turma_count = len(turmas)
             for turma in turmas:
                 repo.upsert_turma(turma)
-                result.new_items.extend(_sync_turma_news(client, repo, turma, fetch_bodies))
-                result.new_materials.extend(_sync_turma_materials(client, repo, turma))
-                _sync_turma_grades(client, repo, turma)
+                turma_html = client.enter_turma(turma)  # one fetch feeds all parsers
+                result.new_items.extend(
+                    _sync_turma_news(client, repo, turma, fetch_bodies, turma_html)
+                )
+                result.new_materials.extend(
+                    _sync_turma_materials(client, repo, turma, turma_html)
+                )
+                _sync_turma_grades(client, repo, turma, turma_html)
 
             for deadline in client.list_deadlines():
                 if repo.upsert_deadline(deadline):
@@ -68,26 +73,26 @@ def sync(settings: Settings, fetch_bodies: bool = False) -> SyncResult:
 
 
 def _sync_turma_news(
-    client: SigaaClient, repo: Repository, turma: Turma, fetch_bodies: bool
+    client: SigaaClient, repo: Repository, turma: Turma, fetch_bodies: bool, turma_html: str
 ) -> list[NewsItem]:
     known = repo.known_news_ids(turma.id_turma)
     fresh: list[NewsItem] = []
-    for item in client.list_news(turma):
+    for item in client.list_news(turma, turma_html):
         if item.id in known:
             continue
         if fetch_bodies:
-            item.body = client.get_news_body(turma, item.id)
+            item.body = client.get_news_body(turma, item.id, turma_html)
         repo.insert_news(item)
         fresh.append(item)
     return fresh
 
 
 def _sync_turma_materials(
-    client: SigaaClient, repo: Repository, turma: Turma
+    client: SigaaClient, repo: Repository, turma: Turma, turma_html: str
 ) -> list[Material]:
     known = repo.known_material_ids(turma.id_turma)
     fresh: list[Material] = []
-    for item in client.list_materials(turma):
+    for item in client.list_materials(turma, turma_html):
         if item.id in known:
             continue
         repo.insert_material(item)
@@ -95,10 +100,12 @@ def _sync_turma_materials(
     return fresh
 
 
-def _sync_turma_grades(client: SigaaClient, repo: Repository, turma: Turma) -> None:
+def _sync_turma_grades(
+    client: SigaaClient, repo: Repository, turma: Turma, turma_html: str
+) -> None:
     """Best-effort: a turma whose Ver Notas is missing/bounces must not abort sync."""
     try:
-        grade = client.get_turma_grades(turma)
+        grade = client.get_turma_grades(turma, turma_html)
     except Exception:  # noqa: BLE001 - per-turma report is optional
         return
     if grade is not None:

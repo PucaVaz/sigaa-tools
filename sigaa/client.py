@@ -71,9 +71,13 @@ class SigaaClient:
         }
         return self._session.post(config.PORTAL_ACTION_URL, fields)
 
-    def _turma_menu_post(self, turma: Turma, link_text: str) -> str:
-        """Click a Turma Virtual (formMenu) menu item by its visible text."""
-        principal = self.enter_turma(turma)
+    def _turma_menu_post(self, turma: Turma, link_text: str, turma_html: str | None = None) -> str:
+        """Click a Turma Virtual (formMenu) menu item by its visible text.
+
+        Pass ``turma_html`` (an already-fetched Principal page) to skip a redundant
+        ``enter_turma`` round-trip.
+        """
+        principal = turma_html or self.enter_turma(turma)
         field = portal_parser.find_menu_field(principal, link_text)
         if field is None:
             raise ValueError(f"turma menu item not found: {link_text!r}")
@@ -84,28 +88,28 @@ class SigaaClient:
         }
         return self._session.post(config.AVA_URL, fields)
 
-    def get_turma_grades(self, turma: Turma) -> TurmaGrade | None:
+    def get_turma_grades(self, turma: Turma, turma_html: str | None = None) -> TurmaGrade | None:
         """Per-turma grade report (Ver Notas), linked to the turma."""
-        html = self._turma_menu_post(turma, "Ver Notas")
+        html = self._turma_menu_post(turma, "Ver Notas", turma_html)
         return grades_parser.parse_turma_grades(html, turma.id_turma)
 
-    def list_news(self, turma: Turma) -> list[NewsItem]:
-        turma_html = self.enter_turma(turma)
-        return news_parser.parse_news_list(turma_html, turma.id_turma)
+    def list_news(self, turma: Turma, turma_html: str | None = None) -> list[NewsItem]:
+        html = turma_html or self.enter_turma(turma)
+        return news_parser.parse_news_list(html, turma.id_turma)
 
-    def get_news_body(self, turma: Turma, news_id: str) -> str | None:
-        turma_html = self.enter_turma(turma)
+    def get_news_body(self, turma: Turma, news_id: str, turma_html: str | None = None) -> str | None:
+        html = turma_html or self.enter_turma(turma)
         fields = news_parser.build_body_postback(
-            turma_html, news_id, extract_viewstate(turma_html, default="j_id2")
+            html, news_id, extract_viewstate(html, default="j_id2")
         )
         if fields is None:
             return None
         body_html = self._session.post(config.AVA_URL, fields)
         return news_parser.parse_news_body(body_html)
 
-    def list_materials(self, turma: Turma) -> list[Material]:
-        turma_html = self.enter_turma(turma)
-        return materials_parser.parse_materials(turma_html, turma.id_turma)
+    def list_materials(self, turma: Turma, turma_html: str | None = None) -> list[Material]:
+        html = turma_html or self.enter_turma(turma)
+        return materials_parser.parse_materials(html, turma.id_turma)
 
     def download_material(self, turma: Turma, material_id: str) -> tuple[bytes, str]:
         """Download one uploaded material. Returns (bytes, suggested filename)."""
