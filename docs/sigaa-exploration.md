@@ -16,27 +16,23 @@ against the live account (SIGAA v26.6.0, 2026-06). Use this to pick the next bui
 | Principal | ✅ | Landing page from `enter_turma`. Hosts the Notícias panel. |
 | Notícias | ✅ | List + per-row body (`get_news_body`). |
 | Ver Notas | ✅ | Per-turma grade table (Unid.1..N, Exame, Resultado, Faltas, Sit.), linked to id_turma. `formMenu` postback to a standalone report; dodges the bounce by re-deriving the turma from its own report id. (`get_turma_grades` / `sigaa grades --class`). |
-| Plano de Curso | 🟡 | Bounced. Would confirm the **slot→clock time table** (resolves `SLOT_TIMES_UNCONFIRMED`). High value. |
-| Frequência | 🟡 | Menu-param matcher didn't resolve the link (entity-encoded text) + bounce. Attendance per class. |
-| Tarefas | 🟡 | Bounced. Assignments with due dates + submission status. |
+| Plano de Curso | ✅ | Cronograma de Aulas + Avaliações (exam dates) via `get_course_plan` / `sigaa plan --class`. **No clock times on the page** — `SLOT_TIMES_UNCONFIRMED` stays unconfirmed. |
+| Frequência | ✅ | Mapa de Frequências (per-date status + totals) via `get_attendance` / `sigaa attendance --class`. |
+| Tarefas | 🟢 | Reachable (returns "Nenhum item foi encontrado" on the test turma). Parser pending real data. |
 | Materiais (Tópicos de Aula) | ✅ | Uploaded files + external links are listed inline on the Principal page (`div.topico-aula` → `div.item`), no deep nav needed. File rows download via a `formAva` postback to `/sigaa/ava/index.jsf` (`list_materials` / `download_material` / `sigaa materials`). |
-| Arquivos / Referências / Vídeos / Conteúdo (deep menu) | 🟡 | Dedicated menu pages still bounce, but their files already surface via Materiais above. |
-| Participantes / Situação dos Discentes | 🟡 | Bounced. Roster. |
+| Arquivos / Referências / Vídeos / Conteúdo (deep menu) | 🟢 | Reachable; files already surface via Materiais above. |
+| Participantes / Situação dos Discentes | 🟢 | Reachable: professor + full roster (name, curso, matrícula, e-mail). Parser pending need. |
 | Avaliações / Enquetes / Questionários / Fóruns | ⚪ | Not probed. |
 
-### The bounce problem (next reverse-engineering task)
-Deep `formMenu` items return the turma-selection page even with a fresh
-`enter_turma` and with `idTurma`/`id` re-asserted in the POST. The Principal
-page carries a "Por favor, aguarde enquanto carregamos a página…" notice —
-strong sign there is a **follow-up request that loads the turma frame and sets
-the AVA session's current turma**, which we skip. `Ver Notas` works because it
-renders a standalone printable report that re-derives the turma from its own id.
-
-**Fix approach:** capture a real browser navigation (DevTools → Network) for one
-deep item (e.g. Tarefas) to see the exact request sequence after entering a
-turma — likely a GET to `/sigaa/ava/index.jsf` (or a `?...` frame URL) that
-primes the session before the `formMenu` POST works. Replicate that GET in
-`enter_turma`, then the existing menu-post helper should unlock all deep items.
+### The bounce problem — RESOLVED (2026-06-11)
+Deep `formMenu` items work with the current flow: a fresh `enter_turma` POST
+followed by the `formMenu` postback built from that Principal page's decoded
+anchor text (`find_menu_field`). The earlier "bounce" diagnosis was a false
+positive: the literal "Selecione uma das turmas" string also appears in the
+Principal sidebar, so substring checks misread valid pages as bounced. Verified
+live: Tarefas, Plano de Curso, Frequência, and Participantes all render real
+content. Caveat: reuse one Principal page per postback — do not chain two deep
+posts off the same cached `turma_html` without re-entering.
 
 ## Portal menu (`/sigaa/portais/discente/...`, sidebar postbacks)
 
@@ -60,7 +56,11 @@ primes the session before the `formMenu` POST works. Replicate that GET in
 
 ## Recommended next order
 1. ~~Histórico acadêmico~~ — ✅ done (PDF download).
-2. **Fix the turma-frame load** in `enter_turma` — unlocks Tarefas, Arquivos, Frequência, Participantes, Plano de Curso at once. The single biggest lever.
-3. **Plano de Curso** (after #2) → confirm `SLOT_TIMES_UNCONFIRMED`, making ICS class times trustworthy.
+2. ~~Fix the turma-frame load~~ — ✅ resolved (no fix needed; see bounce note above).
+3. ~~Plano de Curso~~ — ✅ done (`sigaa plan --class`). Page has no clock times, so
+   `SLOT_TIMES_UNCONFIRMED` needs another source (official UFPB slot table or a
+   browser capture of the timetable widget).
 4. **Atestado de Matrícula** → parse the HTML enrollment proof (🟢, low effort).
 5. ~~Ver Notas (per-turma)~~ — ✅ done (`sigaa grades --class`).
+6. **Tarefas parser** once a turma has real assignments (page reachable, currently empty).
+7. **Participantes parser** if roster data becomes useful.
