@@ -6,8 +6,20 @@ import re
 
 from . import config
 from .http import Session, extract_viewstate
-from .models import Deadline, Grade, Material, NewsItem, Student, Turma, TurmaGrade
+from .models import (
+    Attendance,
+    CoursePlan,
+    Deadline,
+    Grade,
+    Material,
+    NewsItem,
+    Student,
+    Turma,
+    TurmaGrade,
+)
+from .parsers import attendance as attendance_parser
 from .parsers import grades as grades_parser
+from .parsers import plano as plano_parser
 from .parsers import materials as materials_parser
 from .parsers import news as news_parser
 from .parsers import portal as portal_parser
@@ -92,6 +104,16 @@ class SigaaClient:
         """Per-turma grade report (Ver Notas), linked to the turma."""
         html = self._turma_menu_post(turma, "Ver Notas", turma_html)
         return grades_parser.parse_turma_grades(html, turma.id_turma)
+
+    def get_attendance(self, turma: Turma, turma_html: str | None = None) -> Attendance | None:
+        """Per-date attendance map (Frequência)."""
+        html = self._turma_menu_post(turma, "Frequência", turma_html)
+        return attendance_parser.parse_attendance(html, turma.id_turma)
+
+    def get_course_plan(self, turma: Turma, turma_html: str | None = None) -> CoursePlan | None:
+        """Plano de Curso: class schedule (cronograma) and evaluation dates."""
+        html = self._turma_menu_post(turma, "Plano de Curso", turma_html)
+        return plano_parser.parse_course_plan(html, turma.id_turma)
 
     def list_news(self, turma: Turma, turma_html: str | None = None) -> list[NewsItem]:
         html = turma_html or self.enter_turma(turma)
