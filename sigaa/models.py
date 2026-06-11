@@ -101,6 +101,52 @@ class TurmaGrade:
 
 
 @dataclass
+class AttendanceRecord:
+    """One row of a turma's Mapa de Frequências."""
+
+    date: str  # DD/MM/YYYY
+    status: str  # e.g. "2 Falta(s)" or "Presente"
+    justified: bool = False
+
+
+@dataclass
+class Attendance:
+    """The student's attendance map for one turma (Frequência page)."""
+
+    id_turma: str
+    records: list[AttendanceRecord] = field(default_factory=list)
+    total_absences: int | None = None
+    justified_absences: int | None = None
+    max_absences: int | None = None
+
+
+@dataclass
+class PlanEntry:
+    """One Cronograma de Aulas row from a turma's Plano de Curso."""
+
+    start: str  # DD/MM/YYYY
+    end: str
+    description: str
+
+
+@dataclass
+class PlanEvaluation:
+    """One Avaliações row (exam date) from a turma's Plano de Curso."""
+
+    date: str  # DD/MM/YYYY
+    description: str
+
+
+@dataclass
+class CoursePlan:
+    """A turma's Plano de Curso: class schedule and scheduled evaluations."""
+
+    id_turma: str
+    schedule: list[PlanEntry] = field(default_factory=list)
+    evaluations: list[PlanEvaluation] = field(default_factory=list)
+
+
+@dataclass
 class Deadline:
     """An upcoming assessment/task surfaced on the portal turma cards."""
 
