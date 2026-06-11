@@ -5,7 +5,17 @@ from __future__ import annotations
 import json
 import sqlite3
 
-from ..models import Deadline, Grade, Material, NewsItem, Student, Turma, TurmaGrade
+from ..models import (
+    Attendance,
+    AttendanceRecord,
+    Deadline,
+    Grade,
+    Material,
+    NewsItem,
+    Student,
+    Turma,
+    TurmaGrade,
+)
 
 
 class Repository:
@@ -217,6 +227,63 @@ class Repository:
         )
         self._conn.commit()
 
+    # --- attendance ------------------------------------------------------
+    def upsert_attendance(self, item: Attendance) -> bool:
+        """Insert or refresh a class's attendance map. Returns True when the map
+        changed after a baseline exists (the first sync is never notable)."""
+        prev = self._conn.execute(
+            "SELECT records, total_absences FROM attendance WHERE id_turma = ?",
+            (item.id_turma,),
+        ).fetchone()
+        records_json = json.dumps(
+            [{"date": r.date, "status": r.status, "justified": r.justified}
+             for r in item.records]
+        )
+        notable = prev is not None and (
+            prev["records"] != records_json
+            or prev["total_absences"] != item.total_absences
+        )
+        self._conn.execute(
+            """INSERT INTO attendance
+                 (id_turma, records, total_absences, justified_absences, max_absences,
+                  is_new, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+               ON CONFLICT(id_turma) DO UPDATE SET
+                 records=excluded.records, total_absences=excluded.total_absences,
+                 justified_absences=excluded.justified_absences,
+                 max_absences=excluded.max_absences,
+                 is_new=CASE WHEN excluded.is_new = 1 THEN 1 ELSE attendance.is_new END,
+                 updated_at=datetime('now')""",
+            (item.id_turma, records_json, item.total_absences, item.justified_absences,
+             item.max_absences, 1 if notable else 0),
+        )
+        self._conn.commit()
+        return notable
+
+    def get_attendance(
+        self, id_turma: str | None = None, unread_only: bool = False
+    ) -> list[Attendance]:
+        clauses, params = [], []
+        if id_turma:
+            clauses.append("id_turma = ?")
+            params.append(id_turma)
+        if unread_only:
+            clauses.append("is_new = 1")
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self._conn.execute(
+            f"SELECT * FROM attendance {where} ORDER BY id_turma", params
+        ).fetchall()
+        return [_attendance(r) for r in rows]
+
+    def mark_attendance_seen(self, id_turmas: list[str]) -> None:
+        if not id_turmas:
+            return
+        placeholders = ",".join("?" * len(id_turmas))
+        self._conn.execute(
+            f"UPDATE attendance SET is_new = 0 WHERE id_turma IN ({placeholders})", id_turmas
+        )
+        self._conn.commit()
+
     # --- deadlines -------------------------------------------------------
     def known_deadline_ids(self) -> set[str]:
         rows = self._conn.execute("SELECT id FROM deadline").fetchall()
@@ -328,6 +395,19 @@ def _turma_grade(row: sqlite3.Row) -> TurmaGrade:
         id_turma=row["id_turma"],
         units=json.loads(row["units"]) if row["units"] else [],
         exam=row["exam"], result=row["result"], absences=row["absences"], status=row["status"],
+    )
+
+
+def _attendance(row: sqlite3.Row) -> Attendance:
+    records = [
+        AttendanceRecord(date=r["date"], status=r["status"], justified=r["justified"])
+        for r in (json.loads(row["records"]) if row["records"] else [])
+    ]
+    return Attendance(
+        id_turma=row["id_turma"], records=records,
+        total_absences=row["total_absences"],
+        justified_absences=row["justified_absences"],
+        max_absences=row["max_absences"],
     )
 
 

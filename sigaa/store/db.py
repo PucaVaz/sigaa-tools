@@ -75,6 +75,16 @@ CREATE TABLE IF NOT EXISTS turma_grade (
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS attendance (
+    id_turma   TEXT PRIMARY KEY REFERENCES turma(id_turma),
+    records    TEXT,
+    total_absences     INTEGER,
+    justified_absences INTEGER,
+    max_absences       INTEGER,
+    is_new     INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS deadline (
     id         TEXT PRIMARY KEY,
     id_turma   TEXT,
