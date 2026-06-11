@@ -286,6 +286,7 @@ def sigaa_whats_new(mark_seen: bool = False) -> dict:
         "deadlines": [{"id": d.id, "class_id": d.id_turma, "kind": d.kind,
                        "title": d.title, "date": d.date} for d in feed.deadlines],
         "grades": [_grade_update(repo, g) for g in feed.grades],
+        "attendance": [_attendance_update(repo, a) for a in feed.attendance],
     }
     if mark_seen:
         whatsnew.mark_seen(repo, feed)
@@ -299,6 +300,21 @@ def _grade_update(repo: Repository, g) -> dict:
         "code": turma.code if turma else None,
         "name": turma.name if turma else None,
         "units": g.units, "exam": g.exam, "result": g.result, "status": g.status,
+    }
+
+
+def _attendance_update(repo: Repository, a) -> dict:
+    turma = repo.get_turma(a.id_turma)
+    return {
+        "class_id": a.id_turma,
+        "code": turma.code if turma else None,
+        "name": turma.name if turma else None,
+        "total_absences": a.total_absences,
+        "max_absences": a.max_absences,
+        "last_record": (
+            {"date": a.records[-1].date, "status": a.records[-1].status}
+            if a.records else None
+        ),
     }
 
 
@@ -331,6 +347,7 @@ def sigaa_sync(fetch_bodies: bool = False) -> dict:
             for m in result.new_materials
         ],
         "grade_updates": [_grade_update(_repo(), g) for g in result.grade_updates],
+        "attendance_updates": [_attendance_update(_repo(), a) for a in result.attendance_updates],
         "new_deadlines": [
             {"id": d.id, "date": d.date, "kind": d.kind, "title": d.title}
             for d in result.new_deadlines

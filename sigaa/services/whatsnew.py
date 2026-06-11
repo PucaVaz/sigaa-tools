@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from ..models import Deadline, Material, NewsItem, TurmaGrade
+from ..models import Attendance, Deadline, Material, NewsItem, TurmaGrade
 from ..store.repository import Repository
 
 
@@ -19,9 +19,11 @@ class WhatsNew:
     materials: list[Material] = field(default_factory=list)
     deadlines: list[Deadline] = field(default_factory=list)
     grades: list[TurmaGrade] = field(default_factory=list)
+    attendance: list[Attendance] = field(default_factory=list)
 
     def total(self) -> int:
-        return len(self.news) + len(self.materials) + len(self.deadlines) + len(self.grades)
+        return (len(self.news) + len(self.materials) + len(self.deadlines)
+                + len(self.grades) + len(self.attendance))
 
 
 def collect(repo: Repository) -> WhatsNew:
@@ -30,6 +32,7 @@ def collect(repo: Repository) -> WhatsNew:
         materials=repo.get_materials(unread_only=True),
         deadlines=repo.get_deadlines(unread_only=True),
         grades=repo.get_turma_grades(unread_only=True),
+        attendance=repo.get_attendance(unread_only=True),
     )
 
 
@@ -38,3 +41,4 @@ def mark_seen(repo: Repository, feed: WhatsNew) -> None:
     repo.mark_materials_seen([m.id for m in feed.materials])
     repo.mark_deadlines_seen([d.id for d in feed.deadlines])
     repo.mark_turma_grades_seen([g.id_turma for g in feed.grades])
+    repo.mark_attendance_seen([a.id_turma for a in feed.attendance])

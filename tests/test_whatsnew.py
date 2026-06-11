@@ -1,4 +1,12 @@
-from sigaa.models import Deadline, Material, NewsItem, Turma, TurmaGrade
+from sigaa.models import (
+    Attendance,
+    AttendanceRecord,
+    Deadline,
+    Material,
+    NewsItem,
+    Turma,
+    TurmaGrade,
+)
 from sigaa.services import whatsnew
 from sigaa.store.db import connect
 from sigaa.store.repository import Repository
@@ -17,16 +25,26 @@ def _seeded_repo(tmp_path) -> Repository:
         Deadline(id="d1", id_turma=ID_TURMA, kind="avaliacao", title="prova", date="11/06")
     )
     repo.upsert_turma_grade(TurmaGrade(id_turma=ID_TURMA, units=["8.0"], result="8.0"))
+    baseline = Attendance(id_turma=ID_TURMA, records=[], total_absences=4, max_absences=15)
+    repo.upsert_attendance(baseline)
+    repo.upsert_attendance(
+        Attendance(
+            id_turma=ID_TURMA,
+            records=[AttendanceRecord(date="07/05/2026", status="2 Falta(s)")],
+            total_absences=6, max_absences=15,
+        )
+    )
     return repo
 
 
 def test_collect_gathers_all_channels(tmp_path):
     feed = whatsnew.collect(_seeded_repo(tmp_path))
-    assert feed.total() == 4
+    assert feed.total() == 5
     assert len(feed.news) == 1
     assert len(feed.materials) == 1
     assert len(feed.deadlines) == 1
     assert len(feed.grades) == 1
+    assert len(feed.attendance) == 1
 
 
 def test_mark_seen_empties_the_feed(tmp_path):

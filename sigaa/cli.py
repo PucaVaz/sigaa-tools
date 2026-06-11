@@ -146,6 +146,8 @@ def _cmd_sync(args, settings: Settings) -> int:
         print(f"  material + ({mat.kind}) {mat.title}")
     for g in result.grade_updates:
         print(f"  grade + {g.id_turma}: {' '.join(g.units) or '—'} → {g.result or g.status or '—'}")
+    for a in result.attendance_updates:
+        print(f"  falta + {a.id_turma}: {a.total_absences}/{a.max_absences}")
     for dl in result.new_deadlines:
         print(f"  {dl.kind} + [{dl.date}] {dl.title}")
     return 0
@@ -424,6 +426,11 @@ def _cmd_whatsnew(args, settings: Settings) -> int:
             t = repo.get_turma(g.id_turma)
             name = t.name if t else g.id_turma
             print(f"  grade     {name}: {' '.join(g.units) or '—'} → {g.result or g.status or '—'}")
+        for a in feed.attendance:
+            t = repo.get_turma(a.id_turma)
+            name = t.name if t else a.id_turma
+            last = f" (última: {a.records[-1].date} {a.records[-1].status})" if a.records else ""
+            print(f"  falta     {name}: {a.total_absences}/{a.max_absences}{last}")
     if args.mark_seen:
         whatsnew.mark_seen(repo, feed)
     return 0
@@ -466,6 +473,7 @@ def _sync_json(result) -> dict:
             for g in result.grade_updates
         ],
         "new_deadlines": [_deadline_json(d) for d in result.new_deadlines],
+        "attendance_updates": [_attendance_json(a) for a in result.attendance_updates],
     }
 
 
@@ -503,6 +511,18 @@ def _whatsnew_json(repo, feed) -> dict:
         "materials": [_material_json(m) for m in feed.materials],
         "deadlines": [_deadline_json(d) for d in feed.deadlines],
         "grades": [_turma_grade_json(repo, g) for g in feed.grades],
+        "attendance": [_attendance_json(a) for a in feed.attendance],
+    }
+
+
+def _attendance_json(a) -> dict:
+    return {
+        "class_id": a.id_turma,
+        "records": [{"date": r.date, "status": r.status, "justified": r.justified}
+                    for r in a.records],
+        "total_absences": a.total_absences,
+        "justified_absences": a.justified_absences,
+        "max_absences": a.max_absences,
     }
 
 
