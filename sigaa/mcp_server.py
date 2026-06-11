@@ -188,6 +188,68 @@ def sigaa_get_turma_grades(class_code: str | None = None) -> list[dict]:
 
 
 @mcp.tool()
+def sigaa_get_attendance(class_code: str) -> dict:
+    """Per-date attendance map (Frequência) for a class. Networked (live fetch)."""
+    client, turma, error = _live_turma(class_code)
+    if error:
+        return {"error": error}
+    with client:
+        attendance = client.get_attendance(turma)
+    if attendance is None:
+        return {"error": "attendance map not available for this class"}
+    return {
+        "class_id": attendance.id_turma,
+        "records": [
+            {"date": r.date, "status": r.status, "justified": r.justified}
+            for r in attendance.records
+        ],
+        "total_absences": attendance.total_absences,
+        "justified_absences": attendance.justified_absences,
+        "max_absences": attendance.max_absences,
+    }
+
+
+@mcp.tool()
+def sigaa_get_course_plan(class_code: str) -> dict:
+    """Plano de Curso for a class: lecture schedule + scheduled evaluation dates.
+    Networked (live fetch)."""
+    client, turma, error = _live_turma(class_code)
+    if error:
+        return {"error": error}
+    with client:
+        plan = client.get_course_plan(turma)
+    if plan is None:
+        return {"error": "course plan not available for this class"}
+    return {
+        "class_id": plan.id_turma,
+        "schedule": [
+            {"start": e.start, "end": e.end, "description": e.description}
+            for e in plan.schedule
+        ],
+        "evaluations": [{"date": e.date, "description": e.description}
+                        for e in plan.evaluations],
+    }
+
+
+def _live_turma(class_code: str):
+    """Resolve a class code to (authenticated client, live Turma, error)."""
+    settings = Settings()
+    password = settings.resolve_password()
+    if not settings.username or not password:
+        return None, None, "no credentials available"
+    repo = _repo()
+    stored = repo.get_turma(class_code)
+    id_turma = stored.id_turma if stored else class_code
+    client = SigaaClient(settings.username, password)
+    turma = next((t for t in client.list_turmas()
+                  if t.id_turma == id_turma or t.code == class_code), None)
+    if turma is None:
+        client.close()
+        return None, None, f"class {class_code!r} not found"
+    return client, turma, None
+
+
+@mcp.tool()
 def sigaa_list_deadlines(class_code: str | None = None) -> list[dict]:
     """List assessment/task deadlines from the store, optionally filtered by class."""
     repo = _repo()

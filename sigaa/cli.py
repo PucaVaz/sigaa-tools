@@ -88,6 +88,16 @@ def _build_parser() -> argparse.ArgumentParser:
     p_mat.add_argument("--json", action="store_true")
     p_mat.set_defaults(func=_cmd_materials)
 
+    p_att = sub.add_parser("attendance", help="per-date attendance map for a class (networked)")
+    p_att.add_argument("--class", dest="klass", required=True, help="class code")
+    p_att.add_argument("--json", action="store_true")
+    p_att.set_defaults(func=_cmd_attendance)
+
+    p_plan = sub.add_parser("plan", help="Plano de Curso: cronograma + evaluation dates (networked)")
+    p_plan.add_argument("--class", dest="klass", required=True, help="class code")
+    p_plan.add_argument("--json", action="store_true")
+    p_plan.set_defaults(func=_cmd_plan)
+
     p_whatsnew = sub.add_parser("whatsnew", help="everything unseen: news, materials, deadlines, grades")
     p_whatsnew.add_argument("--mark-seen", action="store_true", help="clear items after showing them")
     p_whatsnew.add_argument("--json", action="store_true")
@@ -315,6 +325,84 @@ def _download_materials(args, settings: Settings, repo: Repository, id_turma) ->
             with open(path, "wb") as fh:
                 fh.write(content)
             print(f"  wrote {path} ({len(content)} bytes)")
+    return 0
+
+
+def _live_turma(args, settings: Settings):
+    """Resolve --class to (client, live Turma) or (None, None) after printing an error."""
+    password = settings.resolve_password()
+    if not settings.username or not password:
+        print("missing credentials (set SIGAA_USER and keyring/SIGAA_PASS)", file=sys.stderr)
+        return None, None
+    repo = Repository(connect(settings.db_path))
+    stored = repo.get_turma(args.klass)
+    id_turma = stored.id_turma if stored else args.klass
+    client = SigaaClient(settings.username, password)
+    turma = next((t for t in client.list_turmas()
+                  if t.id_turma == id_turma or t.code == args.klass), None)
+    if turma is None:
+        client.close()
+        print(f"class {args.klass!r} not found", file=sys.stderr)
+        return None, None
+    return client, turma
+
+
+def _cmd_attendance(args, settings: Settings) -> int:
+    client, turma = _live_turma(args, settings)
+    if client is None:
+        return 1
+    with client:
+        attendance = client.get_attendance(turma)
+    if attendance is None:
+        print("attendance map not available for this class", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps({
+            "class_id": attendance.id_turma,
+            "records": [{"date": r.date, "status": r.status, "justified": r.justified}
+                        for r in attendance.records],
+            "total_absences": attendance.total_absences,
+            "justified_absences": attendance.justified_absences,
+            "max_absences": attendance.max_absences,
+        }, ensure_ascii=False, indent=2))
+        return 0
+    print(f"{turma.name}")
+    for r in attendance.records:
+        just = " (justificada)" if r.justified else ""
+        print(f"  [{r.date}] {r.status}{just}")
+    print(f"  faltas: {attendance.total_absences} / {attendance.max_absences} "
+          f"(justificadas: {attendance.justified_absences})")
+    return 0
+
+
+def _cmd_plan(args, settings: Settings) -> int:
+    client, turma = _live_turma(args, settings)
+    if client is None:
+        return 1
+    with client:
+        plan = client.get_course_plan(turma)
+    if plan is None:
+        print("course plan not available for this class", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps({
+            "class_id": plan.id_turma,
+            "schedule": [{"start": e.start, "end": e.end, "description": e.description}
+                         for e in plan.schedule],
+            "evaluations": [{"date": e.date, "description": e.description}
+                            for e in plan.evaluations],
+        }, ensure_ascii=False, indent=2))
+        return 0
+    print(f"{turma.name}")
+    if plan.evaluations:
+        print("  avaliações:")
+        for e in plan.evaluations:
+            print(f"    [{e.date}] {e.description}")
+    if plan.schedule:
+        print("  cronograma:")
+        for e in plan.schedule:
+            span = e.start if e.start == e.end else f"{e.start} – {e.end}"
+            print(f"    [{span}] {e.description}")
     return 0
 
 
