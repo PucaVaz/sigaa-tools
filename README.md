@@ -1,5 +1,10 @@
 # sigaa-ai-agent
 
+> [!IMPORTANT]
+> This is an unofficial personal project and is not affiliated with, endorsed
+> by, or supported by UFPB or SIGAA. Use it responsibly, keep request rates low,
+> and follow the rules that apply to your SIGAA account.
+
 User-friendly client for **SIGAA UFPB** (sigaa.ufpb.br) built for automation:
 a **CLI** and an **MCP server** over a layered Python core. Scope: single user.
 
@@ -16,7 +21,8 @@ pip install -e ".[mcp,dev]"
 
 ## Credentials
 
-Keyring-first, env-second. Recommended:
+Keyring-first, env-second. Never commit credentials, cookies, downloaded live
+HTML, SQLite databases, exported PDFs, or `.env` files. Recommended:
 
 ```bash
 sigaa --user YOUR_USER login        # prompts, stores in macOS Keychain, verifies
@@ -124,5 +130,11 @@ pytest        # offline: parsers run on fixtures, store on in-memory sqlite
 
 ## Security
 
-Single-user, but never commit credentials. `config.py` reads keyring then env.
-The SQLite db is local. `.gitignore` excludes `*.db`, `.env`, and live HTML dumps.
+Single-user, local-first tool. `config.py` reads credentials from keyring first
+and environment variables second. The SQLite db is local and may contain student
+data copied from SIGAA. `.gitignore` excludes `*.db`, `.env`, and live HTML
+dumps, but review generated files before sharing logs, issues, or screenshots.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
