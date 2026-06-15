@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import argparse
-import getpass
 import json
 import sys
 import time
 from pathlib import Path
 
-from . import config
+from . import setup_wizard
 from .client import SigaaClient
 from .config import Settings
 from .exporters.ics import build_calendar
@@ -31,7 +30,11 @@ def main(argv: list[str] | None = None) -> int:
         settings.username = args.user
     if getattr(args, "db", None):
         settings.db_path = args.db
-    return args.func(args, settings)
+    try:
+        return args.func(args, settings)
+    except KeyboardInterrupt:
+        print("\nsetup cancelled", file=sys.stderr)
+        return 130
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -42,6 +45,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p_login = sub.add_parser("login", help="store password in keychain and verify")
     p_login.set_defaults(func=_cmd_login)
+
+    p_init = sub.add_parser("init", help="interactive first-run setup wizard")
+    p_init.set_defaults(func=_cmd_init)
 
     p_sync = sub.add_parser("sync", help="fetch SIGAA and persist new news")
     p_sync.add_argument("--bodies", action="store_true", help="also fetch full news bodies")
@@ -111,21 +117,12 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _cmd_login(args, settings: Settings) -> int:
-    if not settings.username:
-        settings.username = input("SIGAA username: ").strip()
-    password = getpass.getpass("SIGAA password: ")
-    try:
-        import keyring
-
-        keyring.set_password(config.KEYRING_SERVICE, settings.username, password)
-        stored = "keychain"
-    except Exception:
-        stored = "not stored (keyring unavailable; use SIGAA_PASS env)"
-
-    with SigaaClient(settings.username, password) as client:
-        student = client.get_student()
-    print(f"login ok: {student.name} ({student.matricula}) — password {stored}")
+    setup_wizard.prompt_login(settings)
     return 0
+
+
+def _cmd_init(args, settings: Settings) -> int:
+    return setup_wizard.run_init(settings)
 
 
 def _cmd_sync(args, settings: Settings) -> int:
