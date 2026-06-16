@@ -8,12 +8,26 @@ version = "0.1.0"
 description = "User-friendly SIGAA UFPB client (CLI + MCP) for automation workflows"
 readme = "README.md"
 requires-python = ">=3.11"
+authors = [
+    { name = "Puca Vaz" },
+]
+keywords = ["sigaa", "ufpb", "mcp", "cli", "academic"]
+classifiers = [
+    "Environment :: Console",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
 dependencies = [
     "httpx>=0.27",
     "beautifulsoup4>=4.12",
     "lxml>=5.0",
     "keyring>=24",
 ]
+
+[project.urls]
+Homepage = "https://github.com/PucaVaz/sigaa-for-ai-agents"
+Repository = "https://github.com/PucaVaz/sigaa-for-ai-agents"
 
 [project.optional-dependencies]
 mcp = ["mcp>=1.0"]
