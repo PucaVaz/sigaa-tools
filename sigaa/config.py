@@ -10,7 +10,8 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-BASE = "https://sigaa.ufpb.br/sigaa"
+HOST = "https://sigaa.ufpb.br"
+BASE = f"{HOST}/sigaa"
 LOGON_URL = f"{BASE}/logon.jsf"
 # Entry point that 302-redirects to the fully rendered beta portal. A plain GET
 # of the beta URL returns only a loading shell, so this slash-terminated classic

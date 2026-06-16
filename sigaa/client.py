@@ -23,6 +23,7 @@ from .parsers import plano as plano_parser
 from .parsers import materials as materials_parser
 from .parsers import news as news_parser
 from .parsers import portal as portal_parser
+from .parsers import tarefa as tarefa_parser
 
 
 class SigaaClient:
@@ -128,6 +129,47 @@ class SigaaClient:
             return None
         body_html = self._session.post(config.AVA_URL, fields)
         return news_parser.parse_news_body(body_html)
+
+    def _open_event(self, event_id: str) -> str | None:
+        """Replay the portal deadline anchor's postback to render the event page."""
+        portal = self._portal()
+        fields = tarefa_parser.build_event_postback(
+            portal, event_id, extract_viewstate(portal)
+        )
+        if fields is None:
+            return None
+        return self._session.post(config.PORTAL_ACTION_URL, fields)
+
+    def get_tarefa_body(self, event_id: str) -> dict | None:
+        """Open a portal deadline event (tarefa/atividade) and scrape its details.
+
+        The deadline's portal anchor carries the idTurma, so only the event id is
+        needed. Returns the detail rows as a dict, or None if the event has no
+        scrapeable form (e.g. it is not a tarefa).
+        """
+        html = self._open_event(event_id)
+        if html is None:
+            return None
+        return tarefa_parser.parse_tarefa_body(html)
+
+    def download_tarefa_attachment(self, event_id: str) -> tuple[bytes, str] | None:
+        """Download a tarefa's teacher attachment (Arquivo do Professor).
+
+        Returns (bytes, suggested filename), or None if the event has no
+        attachment. The filename falls back to the task's own name + extension.
+        """
+        html = self._open_event(event_id)
+        if html is None:
+            return None
+        href = tarefa_parser.find_professor_attachment(html)
+        if href is None:
+            return None
+        url = href if href.startswith("http") else config.HOST + href
+        content, content_type, disposition = self._session.get_download(url)
+        fields = tarefa_parser.parse_tarefa_body(html) or {}
+        title = fields.get("Nome da Tarefa") or f"tarefa-{event_id}"
+        filename = materials_parser.filename_for(title, content_type, disposition)
+        return content, filename
 
     def list_materials(self, turma: Turma, turma_html: str | None = None) -> list[Material]:
         html = turma_html or self.enter_turma(turma)

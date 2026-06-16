@@ -92,6 +92,7 @@ CREATE TABLE IF NOT EXISTS deadline (
     title      TEXT,
     date       TEXT,
     detail     TEXT,
+    body       TEXT,
     is_new     INTEGER NOT NULL DEFAULT 1,
     fetched_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -122,6 +123,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
     """Additive migrations for stores created before a column existed."""
     if not _has_column(conn, "turma_grade", "is_new"):
         conn.execute("ALTER TABLE turma_grade ADD COLUMN is_new INTEGER NOT NULL DEFAULT 0")
+        conn.commit()
+    if not _has_column(conn, "deadline", "body"):
+        conn.execute("ALTER TABLE deadline ADD COLUMN body TEXT")
         conn.commit()
 
 
