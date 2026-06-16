@@ -122,3 +122,13 @@ def test_parse_tarefa_body_returns_notice_when_closed():
 
 def test_parse_tarefa_body_returns_none_when_empty():
     assert tarefa_parser.parse_tarefa_body("<html><body></body></html>") is None
+
+
+def test_find_professor_attachment_returns_href():
+    href = tarefa_parser.find_professor_attachment(TAREFA)
+    assert href == "/sigaa/verFoto?idArquivo=9999999&key=deadbeef"
+
+
+def test_find_professor_attachment_absent_returns_none():
+    html = "<html><body><a href='/x'>Outro link</a></body></html>"
+    assert tarefa_parser.find_professor_attachment(html) is None
