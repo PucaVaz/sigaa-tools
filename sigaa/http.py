@@ -78,6 +78,22 @@ class Session:
             resp.raise_for_status()
         return resp.content, resp.headers.get("content-type"), resp.headers.get("content-disposition")
 
+    def get_download(self, url: str) -> tuple[bytes, str | None, str | None]:
+        """GET a binary download; return (content, content-type, content-disposition).
+
+        Re-logins and retries once if the server bounces to an HTML login page.
+        """
+        if not self._authenticated:
+            self.login()
+        resp = self._client.request("GET", url)
+        resp.raise_for_status()
+        content_type = resp.headers.get("content-type", "")
+        if content_type.startswith("text/html") and self._looks_logged_out(resp.text):
+            self.login()
+            resp = self._client.request("GET", url)
+            resp.raise_for_status()
+        return resp.content, resp.headers.get("content-type"), resp.headers.get("content-disposition")
+
     def _request(self, method: str, url: str, data: dict | None = None) -> str:
         if not self._authenticated:
             self.login()

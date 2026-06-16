@@ -290,6 +290,30 @@ def sigaa_get_tarefa_body(deadline_id: str) -> dict:
 
 
 @mcp.tool()
+def sigaa_download_tarefa_anexo(deadline_id: str, path: str | None = None) -> str:
+    """Download a task's teacher attachment (Arquivo do Professor) by its deadline id.
+    Networked. Returns the path written, or a message if the task has no attachment."""
+    repo = _repo()
+    item = next((d for d in repo.get_deadlines() if d.id == deadline_id), None)
+    if item is None:
+        return f"deadline id {deadline_id} not found in store; run sigaa_sync first"
+
+    settings = Settings()
+    password = settings.resolve_password()
+    if not settings.username or not password:
+        return "no credentials available"
+    with SigaaClient(settings.username, password) as client:
+        result = client.download_tarefa_attachment(deadline_id)
+    if result is None:
+        return "no teacher attachment on this task (or it is not a tarefa)"
+    content, filename = result
+    out = path or filename
+    with open(out, "wb") as fh:
+        fh.write(content)
+    return f"wrote {out} ({len(content)} bytes)"
+
+
+@mcp.tool()
 def sigaa_export_ics() -> str:
     """Return an iCalendar (.ics) feed of classes + deadlines from the store."""
     repo = _repo()

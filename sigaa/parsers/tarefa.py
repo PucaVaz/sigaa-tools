@@ -18,6 +18,8 @@ _ONCLICK_RE = re.compile(
 )
 # SIGAA renders this when a task is opened outside its submission window.
 _NOTICE_RE = re.compile(r"Esta tarefa só estará dispon", re.I)
+# The "Arquivo do Professor" row links to the teacher's attached file.
+_ATTACHMENT_RE = re.compile(r"Baixar arquivo enviado", re.I)
 
 
 def build_event_postback(portal_html: str, event_id: str, viewstate: str) -> dict | None:
@@ -62,6 +64,17 @@ def parse_tarefa_body(html: str) -> dict | None:
             key = label.get_text(" ", strip=True).rstrip(":").strip()
             fields[key] = campo.get_text(" ", strip=True)
     return fields or None
+
+
+def find_professor_attachment(html: str) -> str | None:
+    """The href of the teacher's attached file on a tarefa page, or None."""
+    soup = BeautifulSoup(html, "lxml")
+    node = soup.find(string=_ATTACHMENT_RE)
+    if node is None:
+        return None
+    anchor = node.find_parent("a")
+    href = anchor.get("href") if anchor else None
+    return href or None
 
 
 def _event_form(soup: BeautifulSoup):
