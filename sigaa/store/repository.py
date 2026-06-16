@@ -302,6 +302,10 @@ class Repository:
         self._conn.commit()
         return is_new
 
+    def update_deadline_body(self, deadline_id: str, body: str) -> None:
+        self._conn.execute("UPDATE deadline SET body = ? WHERE id = ?", (body, deadline_id))
+        self._conn.commit()
+
     def get_deadlines(self, id_turma: str | None = None, unread_only: bool = False) -> list[Deadline]:
         clauses, params = [], []
         if id_turma:
@@ -414,5 +418,5 @@ def _attendance(row: sqlite3.Row) -> Attendance:
 def _deadline(row: sqlite3.Row) -> Deadline:
     return Deadline(
         id=row["id"], id_turma=row["id_turma"], kind=row["kind"], title=row["title"],
-        date=row["date"], detail=row["detail"],
+        date=row["date"], detail=row["detail"], body=row["body"],
     )

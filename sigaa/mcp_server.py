@@ -6,6 +6,8 @@ only networked tool. Run: ``python -m sigaa.mcp_server`` (stdio).
 
 from __future__ import annotations
 
+import json
+
 from mcp.server.fastmcp import FastMCP
 
 from .client import SigaaClient
@@ -262,6 +264,29 @@ def sigaa_list_deadlines(class_code: str | None = None) -> list[dict]:
          "date": d.date, "detail": d.detail}
         for d in repo.get_deadlines(id_turma=id_turma)
     ]
+
+
+@mcp.tool()
+def sigaa_get_tarefa_body(deadline_id: str) -> dict:
+    """Get a task/assignment's full details (Descrição, Período, ...) by its deadline id.
+    Served from cache; fetched live if missing. Run sigaa_sync first to learn ids."""
+    repo = _repo()
+    item = next((d for d in repo.get_deadlines() if d.id == deadline_id), None)
+    if item is None:
+        return {"error": f"deadline id {deadline_id} not found in store; run sigaa_sync first"}
+    if item.body:
+        return {"id": item.id, "title": item.title, "fields": json.loads(item.body)}
+
+    settings = Settings()
+    password = settings.resolve_password()
+    if not settings.username or not password:
+        return {"error": "body not cached and no credentials available to fetch it"}
+    with SigaaClient(settings.username, password) as client:
+        fields = client.get_tarefa_body(deadline_id)
+    if not fields:
+        return {"error": "no detail form on this event (it may not be a tarefa)"}
+    repo.update_deadline_body(deadline_id, json.dumps(fields, ensure_ascii=False))
+    return {"id": item.id, "title": item.title, "fields": fields}
 
 
 @mcp.tool()
