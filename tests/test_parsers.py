@@ -2,11 +2,13 @@ from pathlib import Path
 
 from sigaa.parsers import news as news_parser
 from sigaa.parsers import portal as portal_parser
+from sigaa.parsers import tarefa as tarefa_parser
 from sigaa.parsers.schedule import decode_schedule
 
 FIXTURES = Path(__file__).parent / "fixtures"
 PORTAL = (FIXTURES / "portal.html").read_text(encoding="utf-8")
 TURMA = (FIXTURES / "turma.html").read_text(encoding="utf-8")
+TAREFA = (FIXTURES / "tarefa.html").read_text(encoding="utf-8")
 
 
 def test_parse_student():
@@ -91,3 +93,32 @@ def test_decode_schedule_strips_date_range():
     [s] = decode_schedule("7M2345 (27/04/2026 - 13/08/2026)")
     assert s.days == [7]
     assert s.slots == [2, 3, 4, 5]
+
+
+def test_build_event_postback_from_portal_anchor():
+    fields = tarefa_parser.build_event_postback(PORTAL, "45959072", "vs1")
+    assert fields is not None
+    assert fields["id"] == "45959072"
+    assert fields["idTurma"] == "369279"
+    assert fields["javax.faces.ViewState"] == "vs1"
+
+
+def test_build_event_postback_missing_event_returns_none():
+    assert tarefa_parser.build_event_postback(PORTAL, "00000000", "vs1") is None
+
+
+def test_parse_tarefa_body_reads_detail_rows():
+    fields = tarefa_parser.parse_tarefa_body(TAREFA)
+    assert fields["Nome da Tarefa"] == "Atividade Exemplo"
+    assert fields["Descrição"] == "Enunciado da atividade de exemplo."
+    assert "finaliza em 20/06/2026" in fields["Período"]
+
+
+def test_parse_tarefa_body_returns_notice_when_closed():
+    html = "<html><body><ul><li>Esta tarefa só estará disponível no período de X.</li></ul></body></html>"
+    fields = tarefa_parser.parse_tarefa_body(html)
+    assert fields["Aviso"].startswith("Esta tarefa só estará")
+
+
+def test_parse_tarefa_body_returns_none_when_empty():
+    assert tarefa_parser.parse_tarefa_body("<html><body></body></html>") is None
