@@ -156,3 +156,5 @@ class Deadline:
     title: str
     date: str  # raw SIGAA date text, e.g. "Ter, 16/06" or "19/05 à 02/06"
     detail: str | None = None  # e.g. "em 10 dias"
+    # JSON of the scraped event detail rows (Descrição, Período, ...), cached on demand.
+    body: str | None = None

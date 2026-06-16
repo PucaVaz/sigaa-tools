@@ -1,0 +1,37 @@
+<!-- Trimmed, anonymized sample of the Turma Virtual page rendered after opening
+     a tarefa event from the portal deadline dropdown. -->
+<html>
+  <body>
+    <form action="/sigaa/ava/TarefaTurma/enviarTarefa.jsf" id="formResponder" method="post">
+      <fieldset>
+        <legend>Responder tarefa</legend>
+        <input name="formResponder:id" type="hidden" value="11112222"/>
+        <ul class="form">
+          <li>
+            <label>Nome da Tarefa:</label>
+            <div class="campo">Atividade Exemplo</div>
+          </li>
+          <li>
+            <label>Descrição:</label>
+            <div class="campo">Enunciado da atividade de exemplo.</div>
+          </li>
+          <li>
+            <label>Período:</label>
+            <div class="campo">Inicia em 15/06/2026 às 00h00 e finaliza em 20/06/2026 às 23h59</div>
+          </li>
+          <li>
+            <label>Arquivo do Professor:</label>
+            <div class="campo">
+              <a href="/sigaa/verFoto?idArquivo=9999999&amp;key=deadbeef">Baixar arquivo enviado pelo professor</a>
+            </div>
+          </li>
+          <li>
+            <label>Arquivo:<span class="required"></span></label>
+            <input id="formResponder:idArquivo" name="formResponder:idArquivo" type="file"/>
+          </li>
+        </ul>
+      </fieldset>
+      <input id="javax.faces.ViewState" name="javax.faces.ViewState" type="hidden" value="abc123"/>
+    </form>
+  </body>
+</html>
