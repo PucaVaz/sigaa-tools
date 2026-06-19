@@ -1,0 +1,150 @@
+---
+title: "Referência do CLI"
+description: "Todos os comandos do sigaa, suas flags e o que cada um faz."
+---
+
+Uso geral:
+
+```bash
+sigaa [--user USUARIO] [--db CAMINHO] <comando> [opções]
+```
+
+| Flag global | Descrição |
+|---|---|
+| `--user` | sobrescreve o usuário do SIGAA (senão usa `SIGAA_USER`) |
+| `--db` | sobrescreve o caminho do SQLite (senão usa `SIGAA_DB` ou o padrão) |
+
+<Note>
+Só `login`, `sync`, `watch`, `historico`, `attendance`, `plan` e o download de
+materiais acessam a **rede**. O resto lê do **banco local**. Quase todo comando de
+leitura aceita `--json`.
+</Note>
+
+## Setup
+
+### `login`
+
+Pede a senha, guarda no keychain e valida no SIGAA. **Networked.**
+
+```bash
+sigaa --user SEU_USUARIO login
+```
+
+## Atualizar (networked)
+
+### `sync`
+
+Busca o SIGAA e grava as novidades no banco. Único "builder" de rede.
+
+| Flag | Descrição |
+|---|---|
+| `--bodies` | também busca o texto completo das notícias |
+| `--json` | saída em JSON |
+
+### `watch`
+
+Roda `sync` repetidamente num intervalo.
+
+| Flag | Descrição |
+|---|---|
+| `--interval N` | segundos entre syncs (padrão 900) |
+| `--bodies` | igual a `sync --bodies` |
+
+### `historico`
+
+Baixa o histórico acadêmico em PDF. **Networked.**
+
+| Flag | Descrição |
+|---|---|
+| `--out ARQ` | arquivo de saída (padrão `historico.pdf`) |
+
+## Ler do banco
+
+### `classes`
+
+Lista as turmas matriculadas.
+
+| Flag | Descrição |
+|---|---|
+| `--schedule` | decodifica os códigos de horário (ex.: `6M2345` → Sex, manhã) |
+| `--json` | saída em JSON |
+
+### `news`
+
+Lista as notícias das turmas.
+
+| Flag | Descrição |
+|---|---|
+| `--class CODIGO` | filtra por turma |
+| `--unread` | só as não lidas |
+| `--mark-seen` | marca como lidas após mostrar |
+| `--json` | saída em JSON |
+
+### `grades`
+
+Notas por semestre; com `--class`, mostra o detalhamento por turma (Ver Notas).
+
+| Flag | Descrição |
+|---|---|
+| `--semester S` | filtra por semestre (ex.: `2025.1`) |
+| `--class CODIGO` | detalhamento de uma turma (unidades, exame, resultado, faltas) |
+| `--json` | saída em JSON |
+
+### `deadlines`
+
+Lista os prazos de avaliações/tarefas.
+
+| Flag | Descrição |
+|---|---|
+| `--class CODIGO` | filtra por turma |
+| `--json` | saída em JSON |
+
+### `materials`
+
+Lista os materiais das turmas; baixa com `--download`/`--download-all` (**networked**).
+
+| Flag | Descrição |
+|---|---|
+| `--class CODIGO` | filtra por turma |
+| `--kind {file,link}` | filtra por tipo |
+| `--download ID` | baixa um material por id (networked) |
+| `--download-all` | baixa todos os arquivos (networked) |
+| `--dir DIR` | pasta de saída (padrão `.`) |
+| `--json` | saída em JSON |
+
+### `whatsnew`
+
+Feed unificado: notícias, materiais, prazos, notas e faltas ainda não vistos.
+
+| Flag | Descrição |
+|---|---|
+| `--mark-seen` | limpa os itens após mostrar |
+| `--json` | saída em JSON |
+
+### `ics`
+
+Exporta turmas + prazos como calendário `.ics`.
+
+| Flag | Descrição |
+|---|---|
+| `--out ARQ` | arquivo de saída (padrão: stdout) |
+
+## Por turma, ao vivo (networked)
+
+### `attendance`
+
+Mapa de frequência (faltas por data) de uma turma. Busca ao vivo no SIGAA.
+
+| Flag | Descrição |
+|---|---|
+| `--class CODIGO` | **obrigatório** |
+| `--json` | saída em JSON |
+
+### `plan`
+
+Plano de Curso: cronograma de aulas + datas de avaliação. Busca ao vivo no SIGAA.
+
+| Flag | Descrição |
+|---|---|
+| `--class CODIGO` | **obrigatório** |
+| `--json` | saída em JSON |

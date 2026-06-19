@@ -1,0 +1,22 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "SIGAA",
+  "colors": {
+    "primary": "#15803D",
+    "light": "#22C55E",
+    "dark": "#166534"
+  },
+  "navigation": {
+    "groups": [
+      {
+        "group": "Começando",
+        "pages": ["introduction", "getting-started"]
+      },
+      {
+        "group": "Referência",
+        "pages": ["cli"]
+      }
+    ]
+  }
+}
