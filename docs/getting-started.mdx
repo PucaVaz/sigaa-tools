@@ -1,0 +1,81 @@
+---
+title: "Primeiros passos"
+description: "Instale o sigaa-ai-agent, faça login e rode o primeiro sync."
+---
+
+## Pré-requisitos
+
+- **Python 3.11+**
+- Uma conta no **SIGAA UFPB**
+
+## 1. Instalar
+
+<Steps>
+  <Step title="Clone o repositório">
+    ```bash
+    git clone https://github.com/PucaVaz/sigaa-for-ai-agents.git
+    cd sigaa-for-ai-agents
+    ```
+  </Step>
+  <Step title="Crie o ambiente virtual e instale">
+    ```bash
+    python3 -m venv .venv
+    source .venv/bin/activate
+    pip install -e ".[mcp,dev]"
+    ```
+    Isso disponibiliza o comando `sigaa`.
+  </Step>
+</Steps>
+
+## 2. Fazer login
+
+A senha é guardada no **keychain** do sistema (não vai pro disco em texto puro).
+
+```bash
+sigaa --user SEU_USUARIO login
+```
+
+O comando pede a senha, valida no SIGAA e mostra seu nome e matrícula se deu certo.
+
+<Accordion title="Sem keychain? Use variáveis de ambiente">
+Se o keychain não estiver disponível (ex.: servidor/headless), exporte as credenciais:
+
+```bash
+export SIGAA_USER=seu_usuario
+export SIGAA_PASS=sua_senha
+```
+
+Opcional: `export SIGAA_DB=/caminho/para/sigaa.db` muda onde o banco local fica.
+</Accordion>
+
+## 3. Primeiro sync
+
+`sync` é o **único** comando que acessa a rede. Ele busca tudo e grava no banco local.
+
+```bash
+sigaa sync
+```
+
+Saída de exemplo:
+
+```
+synced 6 classes, 18 grade rows — 3 new news, 2 new deadlines
+  news + [10/06/2026] Prova 2 remarcada
+  deadline + [16/06/2026] Entrega do projeto
+```
+
+## 4. Ver seus dados
+
+Tudo abaixo lê do banco local (instantâneo, offline):
+
+```bash
+sigaa classes --schedule     # turmas + horário da semana
+sigaa whatsnew               # tudo que mudou desde a última checada
+sigaa grades                 # notas por semestre
+sigaa deadlines              # prazos
+```
+
+<Tip>
+Rode `sigaa sync` de tempos em tempos (ou deixe `sigaa watch` rodando) pra manter o
+banco atualizado. Veja todos os comandos na [Referência do CLI](/cli).
+</Tip>
