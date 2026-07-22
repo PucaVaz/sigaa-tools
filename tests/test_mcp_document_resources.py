@@ -49,7 +49,6 @@ def test_document_tool_returns_readable_resource_link(
 ):
     document = AcademicDocument(
         kind=kind,
-        filename=filename,
         media_type=media_type,
         content=content,
     )

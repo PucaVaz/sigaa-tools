@@ -31,16 +31,13 @@ class AcademicDocumentError(RuntimeError):
 
 @dataclass(frozen=True)
 class AcademicDocumentSpec:
-    kind: str
     menu_label: str
-    default_filename: str
     media_type: str
 
 
 @dataclass(frozen=True)
 class AcademicDocument:
     kind: str
-    filename: str
     media_type: str
     content: bytes = field(repr=False)
     charset: str | None = None
@@ -48,21 +45,15 @@ class AcademicDocument:
 
 DOCUMENT_SPECS = {
     HISTORICO: AcademicDocumentSpec(
-        kind=HISTORICO,
         menu_label="Histórico acadêmico",
-        default_filename="historico.pdf",
         media_type="application/pdf",
     ),
     DECLARACAO_VINCULO: AcademicDocumentSpec(
-        kind=DECLARACAO_VINCULO,
         menu_label="Declaração de vínculo",
-        default_filename="declaracao-vinculo.pdf",
         media_type="application/pdf",
     ),
     ATESTADO_MATRICULA: AcademicDocumentSpec(
-        kind=ATESTADO_MATRICULA,
         menu_label="Atestado de matrícula",
-        default_filename="atestado-matricula.html",
         media_type="text/html",
     ),
 }
@@ -90,9 +81,8 @@ def validate_academic_document(
     kind: str,
     content: bytes,
     content_type: str | None,
-    content_disposition: str | None = None,
 ) -> AcademicDocument:
-    """Validate a SIGAA response and attach safe download metadata."""
+    """Validate a SIGAA response and return its media metadata."""
     spec = document_spec(kind)
     media_type, charset = _parse_content_type(content_type)
 
@@ -107,10 +97,8 @@ def validate_academic_document(
     if kind == ATESTADO_MATRICULA:
         content = _with_sigaa_base_url(content)
 
-    filename = _filename_from_disposition(content_disposition) or spec.default_filename
     return AcademicDocument(
         kind=kind,
-        filename=filename,
         media_type=media_type,
         charset=charset,
         content=content,
@@ -188,15 +176,6 @@ def _parse_content_type(value: str | None) -> tuple[str, str | None]:
     media_type = message.get_content_type().lower()
     charset = message.get_content_charset()
     return media_type, charset.lower() if charset else None
-
-
-def _filename_from_disposition(value: str | None) -> str | None:
-    if not value:
-        return None
-    message = Message()
-    message["Content-Disposition"] = value
-    filename = message.get_filename()
-    return sanitize_download_filename(filename) if filename else None
 
 
 def _validate_atestado_html(content: bytes, charset: str | None) -> None:

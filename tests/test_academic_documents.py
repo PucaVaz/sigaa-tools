@@ -72,12 +72,10 @@ def test_validate_pdf_document(kind):
         kind,
         content,
         "application/pdf",
-        "attachment; filename=../../documento.pdf",
     )
 
     assert document.content == content
     assert document.media_type == "application/pdf"
-    assert document.filename == "documento.pdf"
 
 
 @pytest.mark.parametrize(
@@ -105,7 +103,6 @@ def test_validate_atestado_preserves_encoding_and_adds_asset_base():
     assert b'<base href="https://sigaa.ufpb.br/">' in document.content
     assert document.media_type == "text/html"
     assert document.charset == "iso-8859-1"
-    assert document.filename == "atestado-matricula.html"
 
     saved = BeautifulSoup(document.content.decode("iso-8859-1"), "lxml")
     assert urljoin(saved.base["href"], saved.link["href"]) == (
@@ -181,6 +178,19 @@ def test_client_rebuilds_postback_after_session_expiry():
     assert "j_id_jsp_987654321_1:history" in session.posts[1][1]
 
 
+def test_client_surfaces_error_after_one_session_refresh():
+    session = _DocumentSession(
+        [AuthError("expired"), AcademicDocumentError("invalid document")]
+    )
+    client = _client_with(session)
+
+    with pytest.raises(AcademicDocumentError, match="invalid document"):
+        client.download_academic_document(HISTORICO)
+
+    assert session.login_count == 1
+    assert len(session.posts) == 2
+
+
 def test_session_can_delegate_auth_retry_to_jsf_operation():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -225,7 +235,7 @@ def test_write_document_refuses_overwrite_unless_explicit(tmp_path):
 @pytest.mark.parametrize(
     ("command", "default_output", "kind"),
     [
-        ("historico", "historico.pdf", None),
+        ("historico", "historico.pdf", HISTORICO),
         ("declaracao-vinculo", "declaracao-vinculo.pdf", DECLARACAO_VINCULO),
         ("atestado-matricula", "atestado-matricula.html", ATESTADO_MATRICULA),
     ],
@@ -235,8 +245,7 @@ def test_cli_exposes_all_academic_document_commands(command, default_output, kin
 
     assert args.out == default_output
     assert args.force is False
-    if kind is not None:
-        assert args.document_kind == kind
+    assert args.document_kind == kind
 
 
 def test_cli_download_writes_only_validated_document(monkeypatch, tmp_path, capsys):
