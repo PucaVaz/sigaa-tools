@@ -11,7 +11,15 @@ from pathlib import Path
 from . import setup_wizard
 from .client import SigaaClient
 from .config import Settings
+from .documents import (
+    ATESTADO_MATRICULA,
+    DECLARACAO_VINCULO,
+    HISTORICO,
+    AcademicDocumentError,
+    write_academic_document,
+)
 from .exporters.ics import build_calendar
+from .http import AuthError
 from .parsers.schedule import day_name, decode_schedule
 from .services import whatsnew
 from .services.sync import sync
@@ -76,7 +84,32 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p_hist = sub.add_parser("historico", help="download the academic transcript PDF (networked)")
     p_hist.add_argument("--out", default="historico.pdf", help="output file (default: historico.pdf)")
+    p_hist.add_argument("--force", action="store_true", help="overwrite an existing output file")
     p_hist.set_defaults(func=_cmd_historico)
+
+    p_decl = sub.add_parser(
+        "declaracao-vinculo",
+        help="download the enrollment declaration PDF (networked)",
+    )
+    p_decl.add_argument(
+        "--out",
+        default="declaracao-vinculo.pdf",
+        help="output file (default: declaracao-vinculo.pdf)",
+    )
+    p_decl.add_argument("--force", action="store_true", help="overwrite an existing output file")
+    p_decl.set_defaults(func=_cmd_academic_document, document_kind=DECLARACAO_VINCULO)
+
+    p_cert = sub.add_parser(
+        "atestado-matricula",
+        help="download the printable enrollment certificate HTML (networked)",
+    )
+    p_cert.add_argument(
+        "--out",
+        default="atestado-matricula.html",
+        help="output file (default: atestado-matricula.html)",
+    )
+    p_cert.add_argument("--force", action="store_true", help="overwrite an existing output file")
+    p_cert.set_defaults(func=_cmd_academic_document, document_kind=ATESTADO_MATRICULA)
 
     p_news = sub.add_parser("news", help="list news from the store")
     p_news.add_argument("--class", dest="klass", help="filter by class code")
@@ -260,15 +293,30 @@ def _cmd_ics(args, settings: Settings) -> int:
 
 
 def _cmd_historico(args, settings: Settings) -> int:
+    args.document_kind = HISTORICO
+    return _cmd_academic_document(args, settings)
+
+
+def _cmd_academic_document(args, settings: Settings) -> int:
+    if Path(args.out).expanduser().exists() and not args.force:
+        print(f"output already exists: {args.out} (pass --force to overwrite)", file=sys.stderr)
+        return 1
     password = settings.resolve_password()
     if not settings.username or not password:
         print("missing credentials (set SIGAA_USER and keyring/SIGAA_PASS)", file=sys.stderr)
         return 1
-    with SigaaClient(settings.username, password) as client:
-        pdf = client.get_historico_pdf()
-    with open(args.out, "wb") as fh:
-        fh.write(pdf)
-    print(f"wrote {args.out} ({len(pdf)} bytes)")
+    try:
+        with SigaaClient(settings.username, password) as client:
+            document = client.download_academic_document(args.document_kind)
+    except (AcademicDocumentError, AuthError, ValueError) as exc:
+        print(f"download failed: {exc}", file=sys.stderr)
+        return 1
+    try:
+        write_academic_document(document, args.out, overwrite=args.force)
+    except FileExistsError:
+        print(f"output already exists: {args.out} (pass --force to overwrite)", file=sys.stderr)
+        return 1
+    print(f"wrote {args.out} ({len(document.content)} bytes, {document.media_type})")
     return 0
 
 

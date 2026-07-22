@@ -50,6 +50,14 @@ def default_db_path() -> Path:
     return base / "sigaa-ai-agent" / "sigaa.db"
 
 
+def default_download_dir() -> Path:
+    """Private directory used by MCP download tools (override via SIGAA_DOWNLOAD_DIR)."""
+    override = os.environ.get("SIGAA_DOWNLOAD_DIR")
+    if override:
+        return Path(override).expanduser()
+    return default_db_path().parent / "downloads"
+
+
 @dataclass
 class Settings:
     db_path: Path = field(default_factory=default_db_path)

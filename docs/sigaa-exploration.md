@@ -41,9 +41,9 @@ posts off the same cached `turma_html` without re-entering.
 | Minhas Notas (Relatório de Notas) | ✅ | All-semester grade tables. |
 | Turma event cards (Avaliação/Atividade) | ✅ | Deadlines with stable ids. |
 | Histórico acadêmico | ✅ | Full transcript as PDF (`get_historico_pdf` / `sigaa historico`). |
-| Atestado de Matrícula | 🟢 | HTML enrollment proof (nível, vínculo, curso, turmas). Easy parse. |
+| Atestado de Matrícula | ✅ | Printable HTML enrollment certificate with official SIGAA assets (`sigaa atestado-matricula` / `sigaa_download_atestado_matricula`). |
 | Meus Dados Pessoais | ⚪ | Profile fields. |
-| Declaração de Vínculo | ⚪ | Printable doc. |
+| Declaração de Vínculo | ✅ | Enrollment declaration as PDF (`sigaa declaracao-vinculo` / `sigaa_download_declaracao_vinculo`). |
 | Ver Comprovante de Matrícula | ⚪ | Enrollment receipt. |
 | Consultar Estrutura Curricular | ⚪ | Curriculum + pending CH (progress already on portal header). |
 
@@ -60,7 +60,7 @@ posts off the same cached `turma_html` without re-entering.
 3. ~~Plano de Curso~~ — ✅ done (`sigaa plan --class`). Page has no clock times, so
    `SLOT_TIMES_UNCONFIRMED` needs another source (official UFPB slot table or a
    browser capture of the timetable widget).
-4. **Atestado de Matrícula** → parse the HTML enrollment proof (🟢, low effort).
+4. ~~Atestado de Matrícula + Declaração de Vínculo~~ — ✅ done (native HTML + PDF downloads).
 5. ~~Ver Notas (per-turma)~~ — ✅ done (`sigaa grades --class`).
 6. **Tarefas parser** once a turma has real assignments (page reachable, currently empty).
 7. **Participantes parser** if roster data becomes useful.

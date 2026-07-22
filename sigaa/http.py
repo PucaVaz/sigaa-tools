@@ -61,21 +61,34 @@ class Session:
         return content
 
     def post_download(
-        self, url: str, data: dict[str, str]
+        self,
+        url: str,
+        data: dict[str, str],
+        *,
+        retry_on_auth: bool = True,
     ) -> tuple[bytes, str | None, str | None]:
         """POST a binary download; return (content, content-type, content-disposition).
 
         Re-logins and retries once if the server bounces to an HTML login page.
+        Set ``retry_on_auth=False`` when the payload contains render-scoped JSF
+        ids: the caller must refresh the page and rebuild those fields instead.
         """
         if not self._authenticated:
             self.login()
         resp = self._client.request("POST", url, data=data)
         resp.raise_for_status()
         content_type = resp.headers.get("content-type", "")
-        if content_type.startswith("text/html") and self._looks_logged_out(resp.text):
+        if content_type.lower().startswith("text/html") and self._looks_logged_out(resp.text):
+            if not retry_on_auth:
+                self._authenticated = False
+                raise AuthError("session expired before download postback")
             self.login()
             resp = self._client.request("POST", url, data=data)
             resp.raise_for_status()
+            retry_type = resp.headers.get("content-type", "")
+            if retry_type.lower().startswith("text/html") and self._looks_logged_out(resp.text):
+                self._authenticated = False
+                raise AuthError("session lost and re-login did not restore it")
         return resp.content, resp.headers.get("content-type"), resp.headers.get("content-disposition")
 
     def get_download(self, url: str) -> tuple[bytes, str | None, str | None]:
