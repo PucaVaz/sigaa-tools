@@ -85,7 +85,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_hist = sub.add_parser("historico", help="download the academic transcript PDF (networked)")
     p_hist.add_argument("--out", default="historico.pdf", help="output file (default: historico.pdf)")
     p_hist.add_argument("--force", action="store_true", help="overwrite an existing output file")
-    p_hist.set_defaults(func=_cmd_historico)
+    p_hist.set_defaults(func=_cmd_academic_document, document_kind=HISTORICO)
 
     p_decl = sub.add_parser(
         "declaracao-vinculo",
@@ -290,11 +290,6 @@ def _cmd_ics(args, settings: Settings) -> int:
     else:
         print(ics, end="")
     return 0
-
-
-def _cmd_historico(args, settings: Settings) -> int:
-    args.document_kind = HISTORICO
-    return _cmd_academic_document(args, settings)
 
 
 def _cmd_academic_document(args, settings: Settings) -> int:

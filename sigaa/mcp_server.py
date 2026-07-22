@@ -42,7 +42,6 @@ mcp = FastMCP("sigaa-ufpb")
 class _DocumentResource:
     path: Path
     download_dir: Path
-    filename: str
     media_type: str
     size: int
     sha256: str
@@ -519,7 +518,6 @@ def _register_document_resource(
     _DOCUMENT_RESOURCES[token] = _DocumentResource(
         path=resolved_path,
         download_dir=resolved_download_dir,
-        filename=filename,
         media_type=media_type,
         size=len(content),
         sha256=hashlib.sha256(content).hexdigest(),

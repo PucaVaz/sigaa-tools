@@ -79,27 +79,22 @@ class SigaaClient:
         and rebuild the payload from the newly rendered portal before retrying.
         """
         spec = document_spec(kind)
-        last_error: AuthError | AcademicDocumentError | None = None
         for attempt in range(2):
             portal = self._portal()
             fields = portal_parser.build_menu_postback(portal, spec.menu_label)
             if fields is None:
                 raise ValueError(f"portal document menu item not found: {spec.menu_label!r}")
             try:
-                content, content_type, disposition = self._session.post_download(
+                content, content_type, _ = self._session.post_download(
                     config.PORTAL_ACTION_URL,
                     fields,
                     retry_on_auth=False,
                 )
-                return validate_academic_document(
-                    kind, content, content_type, disposition
-                )
-            except (AuthError, AcademicDocumentError) as exc:
-                last_error = exc
-                if attempt == 0:
-                    self._portal_html = self._session.login()
-        assert last_error is not None
-        raise last_error
+                return validate_academic_document(kind, content, content_type)
+            except (AuthError, AcademicDocumentError):
+                if attempt == 1:
+                    raise
+                self._portal_html = self._session.login()
 
     def _portal_menu_post(self, link_text: str) -> str:
         """Click a portal sidebar menu item by its visible text via JSF postback."""
