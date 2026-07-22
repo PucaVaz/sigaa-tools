@@ -5,7 +5,16 @@ from __future__ import annotations
 import re
 
 from . import config
-from .http import Session, extract_viewstate
+from .documents import (
+    ATESTADO_MATRICULA,
+    DECLARACAO_VINCULO,
+    HISTORICO,
+    AcademicDocument,
+    AcademicDocumentError,
+    document_spec,
+    validate_academic_document,
+)
+from .http import AuthError, Session, extract_viewstate
 from .models import (
     Attendance,
     CoursePlan,
@@ -52,26 +61,52 @@ class SigaaClient:
 
     def get_historico_pdf(self) -> bytes:
         """Download the full academic transcript (Histórico) as a PDF."""
-        portal = self._portal()
-        field = portal_parser.find_menu_field(portal, "Histórico acadêmico")
-        if field is None:
-            raise ValueError("Histórico menu item not found")
-        form_id = portal_parser.portal_form_id(portal)
-        fields = {form_id: form_id, field: field, "javax.faces.ViewState": extract_viewstate(portal)}
-        return self._session.post_bytes(config.PORTAL_ACTION_URL, fields)
+        return self.download_academic_document(HISTORICO).content
+
+    def get_declaracao_vinculo_pdf(self) -> bytes:
+        """Download the current enrollment declaration as a PDF."""
+        return self.download_academic_document(DECLARACAO_VINCULO).content
+
+    def get_atestado_matricula_html(self) -> bytes:
+        """Download the enrollment certificate as printable HTML."""
+        return self.download_academic_document(ATESTADO_MATRICULA).content
+
+    def download_academic_document(self, kind: str) -> AcademicDocument:
+        """Download and validate one document exposed on the student portal.
+
+        A session refresh changes the JSF component ids and ViewState.  If the
+        first response is an auth bounce or an unexpected page, log in once more
+        and rebuild the payload from the newly rendered portal before retrying.
+        """
+        spec = document_spec(kind)
+        last_error: AuthError | AcademicDocumentError | None = None
+        for attempt in range(2):
+            portal = self._portal()
+            fields = portal_parser.build_menu_postback(portal, spec.menu_label)
+            if fields is None:
+                raise ValueError(f"portal document menu item not found: {spec.menu_label!r}")
+            try:
+                content, content_type, disposition = self._session.post_download(
+                    config.PORTAL_ACTION_URL,
+                    fields,
+                    retry_on_auth=False,
+                )
+                return validate_academic_document(
+                    kind, content, content_type, disposition
+                )
+            except (AuthError, AcademicDocumentError) as exc:
+                last_error = exc
+                if attempt == 0:
+                    self._portal_html = self._session.login()
+        assert last_error is not None
+        raise last_error
 
     def _portal_menu_post(self, link_text: str) -> str:
         """Click a portal sidebar menu item by its visible text via JSF postback."""
         portal = self._portal()
-        field = portal_parser.find_menu_field(portal, link_text)
-        if field is None:
+        fields = portal_parser.build_menu_postback(portal, link_text)
+        if fields is None:
             raise ValueError(f"portal menu item not found: {link_text!r}")
-        form_id = portal_parser.portal_form_id(portal)
-        fields = {
-            form_id: form_id,
-            field: field,
-            "javax.faces.ViewState": extract_viewstate(portal),
-        }
         return self._session.post(config.PORTAL_ACTION_URL, fields)
 
     def enter_turma(self, turma: Turma) -> str:

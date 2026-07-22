@@ -15,7 +15,6 @@ authors = [
 keywords = ["sigaa", "ufpb", "mcp", "cli", "academic"]
 classifiers = [
     "Environment :: Console",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
 ]
@@ -31,7 +30,7 @@ Homepage = "https://github.com/PucaVaz/sigaa-for-ai-agents"
 Repository = "https://github.com/PucaVaz/sigaa-for-ai-agents"
 
 [project.optional-dependencies]
-mcp = ["mcp>=1.0"]
+mcp = ["mcp>=1.27,<2"]
 dev = ["pytest>=8.0"]
 
 [project.scripts]

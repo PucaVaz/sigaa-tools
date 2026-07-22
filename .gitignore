@@ -15,10 +15,14 @@ venv/
 *.sqlite3
 .env
 .env.*
+/.codex/config.toml
 
 # Live SIGAA dumps (may contain personal data)
 /tmp/sigaa_*
 *.local.html
+/historico.pdf
+/declaracao-vinculo.pdf
+/atestado-matricula.html
 
 # OS / editor
 .DS_Store

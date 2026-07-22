@@ -15,9 +15,10 @@ sigaa [--user USUARIO] [--db CAMINHO] <comando> [opções]
 | `--db` | sobrescreve o caminho do SQLite (senão usa `SIGAA_DB` ou o padrão) |
 
 <Note>
-Só `login`, `sync`, `watch`, `historico`, `attendance`, `plan` e o download de
-materiais acessam a **rede**. O resto lê do **banco local**. Quase todo comando de
-leitura aceita `--json`.
+`login`, `sync`, `watch`, `historico`, `declaracao-vinculo`,
+`atestado-matricula`, `attendance`, `plan` e o download de materiais acessam a
+**rede**. Os demais comandos leem do **banco local**. Quase todo comando de leitura
+aceita `--json`.
 </Note>
 
 ## Setup
@@ -34,7 +35,7 @@ sigaa --user SEU_USUARIO login
 
 ### `sync`
 
-Busca o SIGAA e grava as novidades no banco. Único "builder" de rede.
+Busca o SIGAA e grava as novidades no banco local.
 
 | Flag | Descrição |
 |---|---|
@@ -57,6 +58,27 @@ Baixa o histórico acadêmico em PDF. **Networked.**
 | Flag | Descrição |
 |---|---|
 | `--out ARQ` | arquivo de saída (padrão `historico.pdf`) |
+| `--force` | substitui o arquivo de saída se ele já existir |
+
+### `declaracao-vinculo`
+
+Baixa a declaração de vínculo em PDF. **Networked.**
+
+| Flag | Descrição |
+|---|---|
+| `--out ARQ` | arquivo de saída (padrão `declaracao-vinculo.pdf`) |
+| `--force` | substitui o arquivo de saída se ele já existir |
+
+### `atestado-matricula`
+
+Baixa o atestado de matrícula como HTML imprimível. Abra-o no navegador para
+imprimir; o arquivo carrega o estilo e as imagens oficiais do SIGAA pela rede.
+**Networked.**
+
+| Flag | Descrição |
+|---|---|
+| `--out ARQ` | arquivo de saída (padrão `atestado-matricula.html`) |
+| `--force` | substitui o arquivo de saída se ele já existir |
 
 ## Ler do banco
 
