@@ -46,11 +46,21 @@ export SIGAA_PASS=sua_senha
 ```
 
 Opcional: `export SIGAA_DB=/caminho/para/sigaa.db` muda onde o banco local fica.
+`SIGAA_DOWNLOAD_DIR=/pasta/privada` escolhe onde as tools MCP gravam documentos.
 </Accordion>
+
+As tools MCP de documentos devolvem os metadados do arquivo e um `ResourceLink`
+opaco. Em clientes compatíveis, o histórico, a declaração ou o atestado aparece
+como recurso para abrir ou baixar. O conteúdo só é lido quando o recurso é aberto;
+o link dura pela sessão atual do servidor e o arquivo continua salvo em
+`SIGAA_DOWNLOAD_DIR`. Por segurança, o atestado HTML é oferecido como download
+binário, evitando que o cliente MCP execute o conteúdo ativo do SIGAA embutido.
 
 ## 3. Primeiro sync
 
-`sync` é o **único** comando que acessa a rede. Ele busca tudo e grava no banco local.
+`sync` acessa a rede para buscar as novidades e gravá-las no banco local. Login,
+consultas ao vivo e downloads também usam a rede; os comandos baseados no SQLite
+continuam funcionando offline.
 
 ```bash
 sigaa sync
