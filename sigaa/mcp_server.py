@@ -1,17 +1,33 @@
 """MCP server exposing SIGAA to code agents.
 
-Reads are served from the local store (instant, offline). ``sigaa_sync`` is the
-only networked tool. Run: ``python -m sigaa.mcp_server`` (stdio).
+Most reads are served from the local store (instant, offline). Live class
+reports, sync, and explicit downloads touch SIGAA. Run:
+``python -m sigaa.mcp_server`` (stdio).
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
+import re
+import secrets
+from dataclasses import dataclass
+from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.exceptions import ToolError
+from mcp.types import CallToolResult, ResourceLink, TextContent
 
 from .client import SigaaClient
-from .config import Settings
+from .config import Settings, default_download_dir
+from .documents import (
+    ATESTADO_MATRICULA,
+    DECLARACAO_VINCULO,
+    HISTORICO,
+    document_spec,
+    sanitize_download_filename,
+    write_academic_document,
+)
 from .exporters.ics import build_calendar
 from .parsers.schedule import day_name, decode_schedule
 from .services import whatsnew
@@ -20,6 +36,19 @@ from .store.db import connect
 from .store.repository import Repository
 
 mcp = FastMCP("sigaa-ufpb")
+
+
+@dataclass(frozen=True)
+class _DocumentResource:
+    path: Path
+    download_dir: Path
+    media_type: str
+    size: int
+    sha256: str
+
+
+_DOCUMENT_RESOURCES: dict[str, _DocumentResource] = {}
+_RESOURCE_TOKEN_RE = re.compile(r"[A-Za-z0-9_-]{32}\Z")
 
 
 def _repo() -> Repository:
@@ -368,22 +397,182 @@ def _attendance_update(repo: Repository, a) -> dict:
 
 
 @mcp.tool()
-def sigaa_download_historico(path: str = "historico.pdf") -> str:
-    """Download the academic transcript PDF to a path. Networked. Returns the path."""
+def sigaa_download_historico(filename: str = "historico.pdf") -> CallToolResult:
+    """Download the transcript into the private MCP download directory."""
+    return _download_academic_document(HISTORICO, filename)
+
+
+@mcp.tool()
+def sigaa_download_declaracao_vinculo(
+    filename: str = "declaracao-vinculo.pdf",
+) -> CallToolResult:
+    """Download the declaration into the private MCP download directory."""
+    return _download_academic_document(DECLARACAO_VINCULO, filename)
+
+
+@mcp.tool()
+def sigaa_download_atestado_matricula(
+    filename: str = "atestado-matricula.html",
+) -> CallToolResult:
+    """Download the printable HTML into the private MCP download directory."""
+    return _download_academic_document(ATESTADO_MATRICULA, filename)
+
+
+def _download_academic_document(kind: str, filename: str) -> CallToolResult:
+    if (
+        not filename
+        or Path(filename).name != filename
+        or sanitize_download_filename(filename) != filename
+    ):
+        raise ToolError("filename must be one safe file name, not a path")
+
+    download_dir = default_download_dir().resolve()
+    target = download_dir / filename
+    if target.exists() or target.is_symlink():
+        raise ToolError(f"download already exists: {filename}")
+
     settings = Settings()
     password = settings.resolve_password()
     if not settings.username or not password:
-        return "no credentials available"
+        raise ToolError("no credentials available")
     with SigaaClient(settings.username, password) as client:
-        pdf = client.get_historico_pdf()
-    with open(path, "wb") as fh:
-        fh.write(pdf)
-    return f"wrote {path} ({len(pdf)} bytes)"
+        document = client.download_academic_document(kind)
+    download_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        written = write_academic_document(document, target)
+    except FileExistsError:
+        raise ToolError(f"download already exists: {filename}") from None
+
+    size = len(document.content)
+    resource_media_type = (
+        "application/octet-stream"
+        if document.media_type == "text/html"
+        else document.media_type
+    )
+    resource_uri = _register_document_resource(
+        written,
+        download_dir=download_dir,
+        filename=filename,
+        media_type=document.media_type,
+        content=document.content,
+    )
+    metadata = {
+        "kind": document.kind,
+        "filename": filename,
+        "mime_type": document.media_type,
+        "size": size,
+        "resource_uri": resource_uri,
+        "resource_mime_type": resource_media_type,
+    }
+    return CallToolResult(
+        content=[
+            TextContent(
+                type="text",
+                text=(
+                    f"Downloaded {filename} ({size} bytes). "
+                    "Open the attached MCP resource to view or save it."
+                ),
+            ),
+            ResourceLink(
+                type="resource_link",
+                name=filename,
+                title=document_spec(document.kind).menu_label,
+                uri=resource_uri,
+                description="Academic document downloaded from SIGAA",
+                mimeType=resource_media_type,
+                size=size,
+            ),
+        ],
+        structuredContent=metadata,
+    )
+
+
+def _register_document_resource(
+    path: Path,
+    *,
+    download_dir: Path,
+    filename: str,
+    media_type: str,
+    content: bytes,
+) -> str:
+    if media_type == "application/pdf":
+        resource_kind = "pdf"
+    elif media_type == "text/html":
+        resource_kind = "html"
+    else:  # pragma: no cover - academic document validation owns this contract
+        raise ToolError(f"unsupported academic document media type: {media_type}")
+
+    if path.is_symlink():
+        raise ToolError("document resource cannot point to a symbolic link")
+    try:
+        resolved_download_dir = download_dir.resolve(strict=True)
+        resolved_path = path.resolve(strict=True)
+    except (FileNotFoundError, OSError) as exc:  # pragma: no cover - written just above
+        raise ToolError("downloaded document is no longer available") from exc
+    if resolved_path.parent != resolved_download_dir or resolved_path.name != filename:
+        raise ToolError("document resource escaped its private download directory")
+
+    token = secrets.token_urlsafe(24)
+    while token in _DOCUMENT_RESOURCES:  # pragma: no cover - cryptographically unlikely
+        token = secrets.token_urlsafe(24)
+    _DOCUMENT_RESOURCES[token] = _DocumentResource(
+        path=resolved_path,
+        download_dir=resolved_download_dir,
+        media_type=media_type,
+        size=len(content),
+        sha256=hashlib.sha256(content).hexdigest(),
+    )
+    return f"sigaa-document://{resource_kind}/{token}"
+
+
+def _read_document_resource(token: str, expected_media_type: str) -> bytes:
+    if _RESOURCE_TOKEN_RE.fullmatch(token) is None:
+        raise ValueError("invalid document resource identifier")
+    resource = _DOCUMENT_RESOURCES.get(token)
+    if resource is None or resource.media_type != expected_media_type:
+        raise ValueError("document resource was not found or has expired")
+
+    if resource.path.is_symlink():
+        raise ValueError("document resource is no longer a regular file")
+    try:
+        resolved = resource.path.resolve(strict=True)
+    except (FileNotFoundError, OSError) as exc:
+        raise ValueError("document resource is no longer available") from exc
+    if resolved.parent != resource.download_dir or not resolved.is_file():
+        raise ValueError("document resource escaped its private download directory")
+
+    content = resolved.read_bytes()
+    if (
+        len(content) != resource.size
+        or hashlib.sha256(content).hexdigest() != resource.sha256
+    ):
+        raise ValueError("document resource changed after it was downloaded")
+    return content
+
+
+@mcp.resource(
+    "sigaa-document://pdf/{token}",
+    name="SIGAA academic document (PDF)",
+    description="A PDF downloaded by a SIGAA academic-document tool in this server session.",
+    mime_type="application/pdf",
+)
+def _read_pdf_document_resource(token: str) -> bytes:
+    return _read_document_resource(token, "application/pdf")
+
+
+@mcp.resource(
+    "sigaa-document://html/{token}",
+    name="SIGAA enrollment certificate (HTML)",
+    description="Download-only HTML from the SIGAA enrollment-certificate tool in this server session.",
+    mime_type="application/octet-stream",
+)
+def _read_html_document_resource(token: str) -> bytes:
+    return _read_document_resource(token, "text/html")
 
 
 @mcp.tool()
 def sigaa_sync(fetch_bodies: bool = False) -> dict:
-    """Refresh from SIGAA and persist new news. The only networked tool."""
+    """Refresh the local store from SIGAA."""
     result = run_sync(Settings(), fetch_bodies=fetch_bodies)
     return {
         "ok": result.ok,

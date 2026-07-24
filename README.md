@@ -45,7 +45,7 @@ Optional `SIGAA_DB=/path/to/sigaa.db` to override the store location.
 ## CLI
 
 ```bash
-sigaa sync                 # hit SIGAA: persist new news, deadlines, grades (only networked cmd)
+sigaa sync                 # hit SIGAA: persist new news, deadlines, grades
 sigaa sync --bodies        # also fetch full news article text
 sigaa classes --schedule   # enrolled classes with decoded weekly schedule
 sigaa news --class DSCO00022   # news for one class, from the store
@@ -54,10 +54,13 @@ sigaa grades --semester 2025.1 # grades report by semester
 sigaa deadlines            # assessment/task due dates
 sigaa ics --out sigaa.ics  # export classes + deadlines as a calendar
 sigaa historico --out h.pdf # download the academic transcript PDF (networked)
+sigaa declaracao-vinculo --out declaracao-vinculo.pdf # enrollment declaration PDF (networked)
+sigaa atestado-matricula --out atestado-matricula.html # enrollment certificate HTML (networked)
 sigaa watch --interval 900 # foreground loop
 ```
 
-`sync` writes the store; everything else reads it (fast, offline).
+Store-backed listing commands are fast and offline. Login, sync/watch, live
+lookups, and downloads access SIGAA over the network.
 
 ## MCP server (for code agents)
 
@@ -66,8 +69,21 @@ server without manual absolute-path editing.
 
 Tools: `sigaa_list_classes`, `sigaa_list_news`, `sigaa_get_news_body`,
 `sigaa_get_schedule`, `sigaa_list_grades`, `sigaa_list_deadlines`,
-`sigaa_export_ics`, `sigaa_download_historico`, `sigaa_sync`. Reads come from
-the store; `sigaa_sync` and `sigaa_download_historico` touch the network.
+`sigaa_export_ics`, `sigaa_download_historico`,
+`sigaa_download_declaracao_vinculo`, `sigaa_download_atestado_matricula`,
+`sigaa_sync`. Store-backed reads are offline; sync, live lookups, and downloads
+touch the network.
+
+Document tools accept a safe filename (not an arbitrary path), never overwrite,
+and write under the app's private `downloads` directory. Set
+`SIGAA_DOWNLOAD_DIR` on the MCP server to choose another directory. A successful
+call returns both structured metadata (filename, MIME type, and size) and
+an opaque MCP `ResourceLink`. Clients that support resource links can present the
+document as an attachment or download; opening it reads the saved file through
+MCP without putting its bytes in the original tool response. The resource link is
+valid for the current server session, while the local file remains on disk. HTML
+certificates are exposed as download-only binary resources so an MCP client does
+not execute the report's active SIGAA markup inline.
 
 ## Scheduled polling
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 
 from bs4 import BeautifulSoup
 
@@ -34,7 +35,8 @@ def portal_form_id(html: str) -> str:
     return form["id"]
 
 
-_MENU_FIELD_RE = re.compile(r"jsfcljs\([^,]+,\s*\{\s*'([^']+)'\s*:", re.S)
+_JSF_PARAMS_RE = re.compile(r"jsfcljs\([^,]+,\s*\{(.*?)\}\s*,", re.S)
+_JSF_PARAM_RE = re.compile(r"'([^']+)'\s*:\s*'([^']*)'")
 
 
 def find_menu_field(html: str, link_text: str) -> str | None:
@@ -43,13 +45,65 @@ def find_menu_field(html: str, link_text: str) -> str | None:
     Matches on the anchor's rendered text (handles HTML entities like ``í``).
     """
     soup = BeautifulSoup(html, "lxml")
-    target = link_text.strip().casefold()
-    for anchor in soup.select("a[onclick*='jsfcljs']"):
-        if anchor.get_text(" ", strip=True).casefold() == target:
-            match = _MENU_FIELD_RE.search(anchor["onclick"])
-            if match:
-                return match.group(1)
+    anchor = _find_menu_anchor(soup, link_text)
+    if anchor:
+        params = _jsf_params(anchor.get("onclick", ""))
+        source = next((key for key, value in params.items() if key == value), None)
+        return source or next(iter(params), None)
     return None
+
+
+def build_menu_postback(
+    html: str, link_text: str, viewstate: str | None = None
+) -> dict[str, str] | None:
+    """Build the current JSF form payload for a visible portal menu item.
+
+    Component ids and ViewState change between renders.  Mirror the browser by
+    copying the selected form's hidden inputs (including ``subsistema``) and all
+    parameters from the anchor's ``jsfcljs`` call instead of hardcoding ids.
+    """
+    soup = BeautifulSoup(html, "lxml")
+    anchor = _find_menu_anchor(soup, link_text)
+    if anchor is None:
+        return None
+    form = anchor.find_parent("form")
+    if form is None:
+        raise ValueError(f"portal menu item has no form: {link_text!r}")
+
+    form_name = form.get("name") or form.get("id")
+    if not form_name:
+        raise ValueError("portal form has no name or id")
+
+    fields: dict[str, str] = {}
+    for hidden in form.select('input[type="hidden"][name]'):
+        fields[str(hidden["name"])] = str(hidden.get("value", ""))
+    fields[str(form_name)] = str(form_name)
+    fields.update(_jsf_params(anchor.get("onclick", "")))
+    if viewstate is not None:
+        fields["javax.faces.ViewState"] = viewstate
+    if not fields.get("javax.faces.ViewState"):
+        raise ValueError("portal form has no javax.faces.ViewState")
+    return fields
+
+
+def _find_menu_anchor(soup: BeautifulSoup, link_text: str):
+    target = _normalized_label(link_text)
+    for anchor in soup.select("a[onclick*='jsfcljs']"):
+        if _normalized_label(anchor.get_text(" ", strip=True)) == target:
+            return anchor
+    return None
+
+
+def _normalized_label(value: str) -> str:
+    normalized = unicodedata.normalize("NFKC", value).replace("\xa0", " ")
+    return " ".join(normalized.split()).casefold()
+
+
+def _jsf_params(onclick: str) -> dict[str, str]:
+    match = _JSF_PARAMS_RE.search(onclick)
+    if not match:
+        return {}
+    return dict(_JSF_PARAM_RE.findall(match.group(1)))
 
 
 def parse_student(html: str) -> Student:
