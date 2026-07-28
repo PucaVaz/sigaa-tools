@@ -9,8 +9,9 @@ User-friendly client for **SIGAA UFPB** (sigaa.ufpb.br) built for automation:
 a **CLI** and an **MCP server** over a layered Python core. Scope: single user.
 
 SIGAA has no official API. This wraps the JSF web flow: login (cookie jar +
-`ViewState`, no JWT, no CAPTCHA), enrolled classes, and **per-class news
-channels** persisted to SQLite with stable dedup by news id.
+`ViewState`, no JWT, no CAPTCHA), enrolled classes, academic progress and CRA,
+plus **per-class news channels** persisted to SQLite with stable dedup by news
+id.
 
 ## Install
 
@@ -53,6 +54,8 @@ sigaa news --unread --mark-seen
 sigaa grades --semester 2025.1 # grades report by semester
 sigaa deadlines            # assessment/task due dates
 sigaa ics --out sigaa.ics  # export classes + deadlines as a calendar
+sigaa curriculum           # live CRA, enrolled + required pending components
+sigaa cra --json           # official CRA as JSON from the academic transcript
 sigaa historico --out h.pdf # download the academic transcript PDF (networked)
 sigaa declaracao-vinculo --out declaracao-vinculo.pdf # enrollment declaration PDF (networked)
 sigaa atestado-matricula --out atestado-matricula.html # enrollment certificate HTML (networked)
@@ -69,10 +72,20 @@ server without manual absolute-path editing.
 
 Tools: `sigaa_list_classes`, `sigaa_list_news`, `sigaa_get_news_body`,
 `sigaa_get_schedule`, `sigaa_list_grades`, `sigaa_list_deadlines`,
-`sigaa_export_ics`, `sigaa_download_historico`,
+`sigaa_get_curriculum`, `sigaa_get_cra`, `sigaa_export_ics`,
+`sigaa_download_historico`,
 `sigaa_download_declaracao_vinculo`, `sigaa_download_atestado_matricula`,
 `sigaa_sync`. Store-backed reads are offline; sync, live lookups, and downloads
 touch the network.
+
+`sigaa_get_curriculum` is networked and uses the same normalized contract and
+filters as `sigaa curriculum`: `status`, `required_only`, `period`,
+`include_requirements`, and `include_cra`. Its default `current` view contains
+enrolled components plus required pending ones. Pending optional components are
+choices toward the remaining optional workload, not courses that must all be
+completed. `sigaa_get_cra` is also networked and reads the official CRA from the
+academic transcript; a new student may receive `source: "unavailable"` until
+SIGAA reports one. Neither response exposes SIGAA's internal student id.
 
 Document tools accept a safe filename (not an arbitrary path), never overwrite,
 and write under the app's private `downloads` directory. Set
@@ -154,17 +167,18 @@ sigaa/
   http.py       session: cookie jar, ViewState, re-login + retry
   auth.py       login flow
   client.py     SigaaClient -> domain models
-  models.py     Student, Turma, NewsItem, Schedule
-  parsers/      portal, news, schedule (HTML isolated here)
+  models.py     Student, Turma, NewsItem, Schedule, CurriculumStatus
+  parsers/      portal, news, schedule, curriculum, transcript
   store/        SQLite db + repository (dedup, queries)
   services/     sync (fetch -> diff -> persist)
   cli.py        command line
   mcp_server.py agent tools
 ```
 
-Adding a feature (materials, attendance) = a parser + client method + store
-columns + a CLI/MCP surface. HTML changes touch only `parsers/`. Implemented so
-far: classes, news (+bodies), grades, deadlines, ICS export.
+Adding a feature (materials, attendance) = a parser + client method and a
+CLI/MCP surface, plus store columns when it is persisted. HTML changes touch
+only `parsers/`. Implemented so far: classes, news (+bodies), grades, deadlines,
+curriculum progress, official CRA, academic documents, and ICS export.
 
 `exporters/` turns store data into interchange formats (currently `ics`).
 

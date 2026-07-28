@@ -52,18 +52,26 @@ def select_institution(input_func: Callable[[str], str] = input) -> Institution:
 
 
 def verify_and_store_login(username: str, password: str) -> LoginResult:
+    with SigaaClient(username, password) as client:
+        student = client.get_student()
+
     password_stored = True
     storage_message = "password stored in keyring"
     try:
         import keyring
 
         keyring.set_password(config.KEYRING_SERVICE, username, password)
+        keyring.set_password(
+            config.KEYRING_SERVICE,
+            config.KEYRING_ACTIVE_USERNAME,
+            username,
+        )
     except Exception:
         password_stored = False
-        storage_message = "keyring unavailable; set SIGAA_PASS in your shell"
+        storage_message = (
+            "keyring unavailable; set SIGAA_USER and SIGAA_PASS in your shell"
+        )
 
-    with SigaaClient(username, password) as client:
-        student = client.get_student()
     return LoginResult(
         name=student.name,
         matricula=student.matricula,

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import re
+from dataclasses import replace
+from decimal import Decimal
 
 from . import config
 from .documents import (
@@ -18,6 +20,7 @@ from .http import AuthError, Session, extract_viewstate
 from .models import (
     Attendance,
     CoursePlan,
+    CurriculumStatus,
     Deadline,
     Grade,
     Material,
@@ -27,12 +30,14 @@ from .models import (
     TurmaGrade,
 )
 from .parsers import attendance as attendance_parser
+from .parsers import curriculum as curriculum_parser
 from .parsers import grades as grades_parser
 from .parsers import plano as plano_parser
 from .parsers import materials as materials_parser
 from .parsers import news as news_parser
 from .parsers import portal as portal_parser
 from .parsers import tarefa as tarefa_parser
+from .parsers import transcript as transcript_parser
 
 
 class SigaaClient:
@@ -58,6 +63,50 @@ class SigaaClient:
     def get_grades(self) -> list[Grade]:
         html = self._portal_menu_post("Minhas Notas")
         return grades_parser.parse_grades(html)
+
+    def get_cra(self) -> Decimal:
+        """Return the official CRA recorded in the academic transcript."""
+        return transcript_parser.parse_cra_pdf(self.get_historico_pdf())
+
+    def get_curriculum_status(
+        self,
+        *,
+        include_cra: bool = True,
+    ) -> CurriculumStatus:
+        """Return live curriculum progress and, by default, the official CRA.
+
+        SIGAA renders a curriculum shell and then fetches its JSON payload. A
+        fresh login changes the active student context, so an invalid/auth
+        response retries the complete two-request flow once.
+        """
+        status: CurriculumStatus | None = None
+        for attempt in range(2):
+            try:
+                self._session.get(config.CURRICULUM_ENTRY_URL)
+                payload = self._session.get(config.CURRICULUM_DATA_URL)
+                status = curriculum_parser.parse_curriculum(payload)
+                break
+            except (AuthError, curriculum_parser.CurriculumDataError):
+                if attempt == 1:
+                    raise
+                self._portal_html = self._session.login()
+
+        if status is None:  # pragma: no cover - loop either succeeds or raises
+            raise curriculum_parser.CurriculumDataError(
+                "Invalid curriculum response"
+            )
+        if not include_cra:
+            return replace(status, cra_source="not_requested")
+
+        try:
+            cra = self.get_cra()
+        except transcript_parser.CraUnavailableError:
+            return status
+        return replace(
+            status,
+            cra=cra,
+            cra_source="academic_transcript",
+        )
 
     def get_historico_pdf(self) -> bytes:
         """Download the full academic transcript (Histórico) as a PDF."""

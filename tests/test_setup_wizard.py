@@ -1,12 +1,60 @@
 import json
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 
+from sigaa import setup_wizard
+from sigaa.config import KEYRING_ACTIVE_USERNAME, KEYRING_SERVICE, Settings
 from sigaa.setup_wizard import (
     build_cron_line,
     build_launchd_plist,
     merge_mcp_config,
     resolve_script,
 )
+
+
+def test_login_persists_username_for_the_next_process(monkeypatch):
+    credentials: dict[tuple[str, str], str] = {}
+    events: list[str] = []
+
+    class FakeClient:
+        def __init__(self, username, password):
+            assert (username, password) == ("alice", "test-password")
+
+        def __enter__(self):
+            events.append("verified")
+            return self
+
+        def __exit__(self, *exc):
+            return None
+
+        def get_student(self):
+            return SimpleNamespace(name="ALICE", matricula="00000000000")
+
+    def set_password(service, username, password):
+        events.append(f"stored:{username}")
+        credentials[(service, username)] = password
+
+    fake_keyring = SimpleNamespace(
+        set_password=set_password,
+        get_password=lambda service, username: credentials.get((service, username)),
+    )
+    monkeypatch.setitem(sys.modules, "keyring", fake_keyring)
+    monkeypatch.setattr(setup_wizard, "SigaaClient", FakeClient)
+    monkeypatch.delenv("SIGAA_USER", raising=False)
+    monkeypatch.delenv("SIGAA_PASS", raising=False)
+
+    setup_wizard.verify_and_store_login("alice", "test-password")
+    fresh_settings = Settings()
+
+    assert credentials[(KEYRING_SERVICE, KEYRING_ACTIVE_USERNAME)] == "alice"
+    assert fresh_settings.username == "alice"
+    assert fresh_settings.resolve_password() == "test-password"
+    assert events == [
+        "verified",
+        "stored:alice",
+        f"stored:{KEYRING_ACTIVE_USERNAME}",
+    ]
 
 
 def test_merge_mcp_config_preserves_existing_servers(tmp_path):

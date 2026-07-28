@@ -17,6 +17,7 @@ def test_mcp_stdio_exposes_safe_document_schemas_and_errors(tmp_path):
         environment = dict(os.environ)
         environment.pop("SIGAA_USER", None)
         environment.pop("SIGAA_PASS", None)
+        environment["PYTHON_KEYRING_BACKEND"] = "keyring.backends.null.Keyring"
         environment["SIGAA_DOWNLOAD_DIR"] = str(tmp_path)
         parameters = StdioServerParameters(
             command=sys.executable,
