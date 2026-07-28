@@ -15,10 +15,10 @@ sigaa [--user USUARIO] [--db CAMINHO] <comando> [opções]
 | `--db` | sobrescreve o caminho do SQLite (senão usa `SIGAA_DB` ou o padrão) |
 
 <Note>
-`login`, `sync`, `watch`, `historico`, `declaracao-vinculo`,
-`atestado-matricula`, `attendance`, `plan` e o download de materiais acessam a
-**rede**. Os demais comandos leem do **banco local**. Quase todo comando de leitura
-aceita `--json`.
+`login`, `sync`, `watch`, `curriculum`, `cra`, `historico`,
+`declaracao-vinculo`, `atestado-matricula`, `attendance`, `plan` e o download
+de materiais acessam a **rede**. Os demais comandos leem do **banco local**.
+Quase todo comando de leitura aceita `--json`.
 </Note>
 
 ## Setup
@@ -79,6 +79,49 @@ imprimir; o arquivo carrega o estilo e as imagens oficiais do SIGAA pela rede.
 |---|---|
 | `--out ARQ` | arquivo de saída (padrão `atestado-matricula.html`) |
 | `--force` | substitui o arquivo de saída se ele já existir |
+
+### `curriculum`
+
+Mostra ao vivo o progresso da integralização curricular, o CRA, os componentes
+matriculados e os que ainda faltam. **Networked.**
+
+```bash
+sigaa curriculum
+sigaa curriculum --status pending --requirements
+sigaa curriculum --status completed --period 3 --json
+```
+
+A visão padrão, `--status current`, reúne os componentes **matriculados** e os
+**pendentes obrigatórios**. Componentes optativos pendentes são alternativas
+para cumprir a carga horária optativa; não significa que todos sejam
+obrigatórios. Use `--status pending` para inspecionar também essas opções.
+
+| Flag | Descrição |
+|---|---|
+| `--status {current,enrolled,pending,completed,all}` | escolhe os componentes retornados (padrão: `current`) |
+| `--required-only` | oculta componentes optativos |
+| `--period N` | filtra pelo período da estrutura curricular |
+| `--requirements` | inclui as expressões de pré-requisito e correquisito |
+| `--no-cra` | evita a requisição adicional do histórico acadêmico |
+| `--json` | usa o contrato JSON normalizado, também exposto pelo MCP |
+
+O contrato normalizado não expõe o identificador interno `idDiscente` do SIGAA.
+
+### `cra`
+
+Mostra o CRA oficial extraído do histórico acadêmico. **Networked.**
+
+```bash
+sigaa cra
+sigaa cra --json
+```
+
+| Flag | Descrição |
+|---|---|
+| `--json` | retorna `value` e `source` em JSON |
+
+Para um ingressante cujo histórico ainda não informa CRA, o comando retorna o
+estado válido `unavailable` em vez de tratar a ausência como erro.
 
 ## Ler do banco
 

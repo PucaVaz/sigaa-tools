@@ -13,23 +13,30 @@ import re
 import secrets
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
+import httpx
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.types import CallToolResult, ResourceLink, TextContent
 
 from .client import SigaaClient
 from .config import Settings, default_download_dir
+from .curriculum import curriculum_to_dict
 from .documents import (
     ATESTADO_MATRICULA,
     DECLARACAO_VINCULO,
     HISTORICO,
+    AcademicDocumentError,
     document_spec,
     sanitize_download_filename,
     write_academic_document,
 )
 from .exporters.ics import build_calendar
+from .http import AuthError
+from .parsers.curriculum import CurriculumDataError
 from .parsers.schedule import day_name, decode_schedule
+from .parsers.transcript import CraUnavailableError, TranscriptParseError
 from .services import whatsnew
 from .services.sync import sync as run_sync
 from .store.db import connect
@@ -190,6 +197,69 @@ def sigaa_list_grades(semester: str | None = None) -> list[dict]:
         }
         for g in _repo().get_grades(semester=semester)
     ]
+
+
+@mcp.tool()
+def sigaa_get_cra() -> dict:
+    """Get the official CRA recorded in the academic transcript. Networked."""
+    settings = Settings()
+    password = settings.resolve_password()
+    if not settings.username or not password:
+        raise ToolError("no credentials available")
+    try:
+        with SigaaClient(settings.username, password) as client:
+            cra = client.get_cra()
+    except CraUnavailableError:
+        return {"value": None, "source": "unavailable"}
+    except (
+        AcademicDocumentError,
+        AuthError,
+        TranscriptParseError,
+        ValueError,
+        httpx.HTTPError,
+    ) as exc:
+        raise ToolError(f"CRA lookup failed: {exc}") from None
+    return {"value": float(cra), "source": "academic_transcript"}
+
+
+@mcp.tool()
+def sigaa_get_curriculum(
+    status: Literal["current", "enrolled", "pending", "completed", "all"] = "current",
+    required_only: bool = False,
+    period: int | None = None,
+    include_requirements: bool = False,
+    include_cra: bool = True,
+) -> dict:
+    """Get live curriculum progress and components.
+
+    The default component view returns currently enrolled components plus
+    required pending ones. Use status="pending" to inspect optional choices;
+    they are alternatives toward workload requirements, not all individually
+    required. CRA comes from the official transcript. This tool is networked.
+    """
+    settings = Settings()
+    password = settings.resolve_password()
+    if not settings.username or not password:
+        raise ToolError("no credentials available")
+    try:
+        with SigaaClient(settings.username, password) as client:
+            curriculum = client.get_curriculum_status(include_cra=include_cra)
+        return curriculum_to_dict(
+            curriculum,
+            status=status,
+            required_only=required_only,
+            period=period,
+            include_requirements=include_requirements,
+        )
+    except (
+        AcademicDocumentError,
+        AuthError,
+        CurriculumDataError,
+        TranscriptParseError,
+        ValueError,
+        httpx.HTTPError,
+    ) as exc:
+        raise ToolError(f"curriculum lookup failed: {exc}") from None
 
 
 @mcp.tool()

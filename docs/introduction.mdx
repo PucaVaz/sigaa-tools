@@ -3,10 +3,12 @@ title: "Introdução"
 description: "O que é o sigaa-ai-agent e como ele funciona."
 ---
 
-O **sigaa-ai-agent** é um cliente do **SIGAA UFPB** feito para automação: um **CLI**
-sobre um núcleo Python em camadas. Como o SIGAA não tem API oficial, ele entra pelo
-fluxo web (login com cookie + `ViewState`) e busca suas **turmas, notícias, notas,
-faltas, prazos, plano de curso e materiais** — guardando tudo num **SQLite local**.
+O **sigaa-ai-agent** é um cliente do **SIGAA UFPB** feito para automação: um
+**CLI** e um **servidor MCP** sobre um núcleo Python em camadas. Como o SIGAA não
+tem API oficial, ele entra pelo fluxo web (login com cookie + `ViewState`) e
+busca suas **turmas, notícias, notas, faltas, prazos, plano de curso, materiais,
+CRA e integralização curricular**. Os dados sincronizados ficam num **SQLite
+local**; CRA e currículo são consultas ao vivo.
 
 <Note>
 As listagens armazenadas no SQLite são rápidas e funcionam offline. Login,
@@ -28,6 +30,8 @@ sync/watch, consultas ao vivo e downloads acessam o SIGAA pela rede.
 
 - Listar turmas e o **horário** decodificado da semana
 - Ver **notícias**, **notas** (gerais e por turma), **prazos** e **frequência**
+- Ver o **CRA oficial**, os componentes matriculados e o que falta para integralizar
+  o currículo
 - Baixar **materiais** das turmas
 - Baixar o **histórico** e a **declaração de vínculo** em PDF
 - Baixar o **atestado de matrícula** como HTML imprimível, com assets oficiais do SIGAA
