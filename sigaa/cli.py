@@ -8,9 +8,12 @@ import sys
 import time
 from pathlib import Path
 
+import httpx
+
 from . import setup_wizard
 from .client import SigaaClient
 from .config import Settings
+from .curriculum import COMPONENT_VIEWS, curriculum_to_dict
 from .documents import (
     ATESTADO_MATRICULA,
     DECLARACAO_VINCULO,
@@ -20,7 +23,9 @@ from .documents import (
 )
 from .exporters.ics import build_calendar
 from .http import AuthError
+from .parsers.curriculum import CurriculumDataError
 from .parsers.schedule import day_name, decode_schedule
+from .parsers.transcript import CraUnavailableError, TranscriptParseError
 from .services import whatsnew
 from .services.sync import sync
 from .store.db import connect
@@ -72,6 +77,39 @@ def _build_parser() -> argparse.ArgumentParser:
     p_grades.add_argument("--class", dest="klass", help="show one class's per-turma grade breakdown")
     p_grades.add_argument("--json", action="store_true")
     p_grades.set_defaults(func=_cmd_grades)
+
+    p_curriculum = sub.add_parser(
+        "curriculum",
+        help="live CRA, curriculum progress, enrolled and pending components",
+    )
+    p_curriculum.add_argument(
+        "--status",
+        choices=COMPONENT_VIEWS,
+        default="current",
+        help="components to return (default: enrolled + required pending)",
+    )
+    p_curriculum.add_argument(
+        "--required-only",
+        action="store_true",
+        help="hide optional components",
+    )
+    p_curriculum.add_argument("--period", type=int, help="filter by curriculum period")
+    p_curriculum.add_argument(
+        "--requirements",
+        action="store_true",
+        help="include prerequisite and corequisite expressions",
+    )
+    p_curriculum.add_argument(
+        "--no-cra",
+        action="store_true",
+        help="skip the academic-transcript request",
+    )
+    p_curriculum.add_argument("--json", action="store_true")
+    p_curriculum.set_defaults(func=_cmd_curriculum)
+
+    p_cra = sub.add_parser("cra", help="show the official CRA from the transcript")
+    p_cra.add_argument("--json", action="store_true")
+    p_cra.set_defaults(func=_cmd_cra)
 
     p_dl = sub.add_parser("deadlines", help="list assessment/task deadlines from the store")
     p_dl.add_argument("--class", dest="klass", help="filter by class code")
@@ -240,6 +278,73 @@ def _cmd_grades(args, settings: Settings) -> int:
         units = " ".join(g.units) if g.units else "—"
         result = g.result or "—"
         print(f"  {g.code:12} {g.discipline[:40]:40} {units:20} = {result:5} {g.status or ''}")
+    return 0
+
+
+def _cmd_curriculum(args, settings: Settings) -> int:
+    password = settings.resolve_password()
+    if not settings.username or not password:
+        print("missing credentials (set SIGAA_USER and keyring/SIGAA_PASS)", file=sys.stderr)
+        return 1
+
+    try:
+        with SigaaClient(settings.username, password) as client:
+            curriculum = client.get_curriculum_status(include_cra=not args.no_cra)
+    except (
+        AcademicDocumentError,
+        AuthError,
+        CurriculumDataError,
+        TranscriptParseError,
+        ValueError,
+        httpx.HTTPError,
+    ) as exc:
+        print(f"curriculum lookup failed: {exc}", file=sys.stderr)
+        return 1
+
+    data = curriculum_to_dict(
+        curriculum,
+        status=args.status,
+        required_only=args.required_only,
+        period=args.period,
+        include_requirements=args.requirements,
+    )
+    if args.json:
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+    else:
+        _print_curriculum(data)
+    return 0
+
+
+def _cmd_cra(args, settings: Settings) -> int:
+    password = settings.resolve_password()
+    if not settings.username or not password:
+        print("missing credentials (set SIGAA_USER and keyring/SIGAA_PASS)", file=sys.stderr)
+        return 1
+
+    try:
+        with SigaaClient(settings.username, password) as client:
+            cra = client.get_cra()
+    except CraUnavailableError:
+        data = {"value": None, "source": "unavailable"}
+    except (
+        AcademicDocumentError,
+        AuthError,
+        TranscriptParseError,
+        ValueError,
+        httpx.HTTPError,
+    ) as exc:
+        print(f"CRA lookup failed: {exc}", file=sys.stderr)
+        return 1
+    else:
+        data = {"value": float(cra), "source": "academic_transcript"}
+
+    if args.json:
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+    elif data["value"] is None:
+        print("CRA: unavailable (the academic transcript does not report one yet)")
+    else:
+        print(f"CRA: {data['value']:.2f}")
+        print("Source: official academic transcript")
     return 0
 
 
@@ -489,6 +594,93 @@ def _cmd_watch(args, settings: Settings) -> int:
     except KeyboardInterrupt:
         print("\nstopped")
     return 0
+
+
+def _print_curriculum(data: dict) -> None:
+    print("Curriculum progress")
+    if data["maximum_completion_term"]:
+        print(f"  Maximum completion term: {data['maximum_completion_term']}")
+
+    cra = data["cra"]
+    if cra["value"] is not None:
+        print(f"  CRA: {cra['value']:.2f} (official academic transcript)")
+    elif cra["source"] == "not_requested":
+        print("  CRA: not requested")
+    else:
+        print("  CRA: unavailable (not reported in the transcript yet)")
+
+    semester = data["semester_workload_hours"]
+    if semester["minimum"] is not None or semester["maximum"] is not None:
+        minimum = semester["minimum"] if semester["minimum"] is not None else "?"
+        maximum = semester["maximum"] if semester["maximum"] is not None else "?"
+        print(f"  Semester workload: {minimum}-{maximum} h")
+
+    print("\nWorkload")
+    if not data["progress"]:
+        print("  No workload progress reported.")
+    for item in data["progress"]:
+        percent = item["completed_percent"]
+        print(
+            f"  {item['description'][:28]:28} "
+            f"{item['completed_hours']:>4}/{item['total_hours']:<4} h "
+            f"{_progress_bar(percent)} {percent:>6.2f}%"
+        )
+
+    group_order = ("enrolled", "pending", "completed", "unknown")
+    group_labels = {
+        "enrolled": "Enrolled",
+        "pending": "Pending",
+        "completed": "Completed",
+        "unknown": "Other status",
+    }
+    components = data["components"]
+    for component_status in group_order:
+        group = [
+            component
+            for component in components
+            if component["status"] == component_status
+        ]
+        if not group:
+            continue
+        print(f"\n{group_labels[component_status]} ({len(group)})")
+        for component in group:
+            period = (
+                f"P{component['period']}"
+                if component["period"] is not None
+                else "other"
+            )
+            nature = "required" if component["required"] else "option"
+            print(
+                f"  {component['code'][:12]:12} "
+                f"{component['workload_hours']:>3} h "
+                f"{period:>6} {nature:8} {component['name']}"
+            )
+            if "prerequisite" in component:
+                print(f"      prerequisite: {component['prerequisite'] or '-'}")
+                print(f"      corequisite:  {component['corequisite'] or '-'}")
+
+    if not components:
+        print("\nNo components match the selected filters.")
+
+    counts = data["counts"]
+    print(
+        "\nSummary: "
+        f"{counts['completed']} completed | "
+        f"{counts['enrolled']} enrolled | "
+        f"{counts['pending_required']} required pending | "
+        f"{counts['pending_optional']} optional choices pending"
+    )
+    if data["query"]["status"] == "current" and counts["pending_optional"]:
+        print(
+            "Optional pending components are choices toward remaining workload, "
+            "not all individually required. Use --status pending to inspect them."
+        )
+
+
+def _progress_bar(percent: float, width: int = 16) -> str:
+    bounded = max(0.0, min(float(percent), 100.0))
+    filled = round((bounded / 100.0) * width)
+    return f"[{'#' * filled}{'-' * (width - filled)}]"
 
 
 def _fmt_schedule(raw: str) -> str:

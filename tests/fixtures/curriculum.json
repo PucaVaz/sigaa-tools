@@ -1,0 +1,71 @@
+{
+  "idDiscente": 999999,
+  "curriculo": "999999 - 2099.1",
+  "cargaHorariaMaximaSemestre": 480,
+  "cargaHorariaMinimaSemestre": 240,
+  "prazoMaximo": "2104.2",
+  "integralizacoes": [
+    {
+      "descricao": "Total",
+      "concluido": 120,
+      "total": 300,
+      "porcentagem": "60,00"
+    },
+    {
+      "descricao": "Complementar Optativa",
+      "concluido": 30,
+      "total": 60,
+      "porcentagem": "50.00"
+    }
+  ],
+  "integralizacaoSemestre": [],
+  "disciplinas": [
+    {
+      "codigo": "SYN0001",
+      "nome": "COMPONENTE SINTETICO CONCLUIDO",
+      "tipoIntegralizacao": "OB",
+      "periodo": 1,
+      "cargaHoraria": 60,
+      "obrigatoria": true,
+      "situacao": "CONCLUIDO"
+    },
+    {
+      "codigo": "SYN0002",
+      "nome": "COMPONENTE SINTETICO MATRICULADO",
+      "tipoIntegralizacao": "EC",
+      "periodo": -1,
+      "cargaHoraria": 30,
+      "obrigatoria": false,
+      "situacao": "MATRICULADO"
+    },
+    {
+      "codigo": "SYN0003",
+      "nome": "COMPONENTE SINTETICO PENDENTE",
+      "tipoIntegralizacao": "OB",
+      "periodo": 2,
+      "expressaoPreRequisito": "( SYN0001 )",
+      "expressaoCoRequisito": "( SYN0004 )",
+      "cargaHoraria": 60,
+      "obrigatoria": true,
+      "situacao": "PENDENTE"
+    },
+    {
+      "codigo": "SYN0004",
+      "nome": "OPTATIVA SINTETICA DISPONIVEL",
+      "tipoIntegralizacao": "OP",
+      "periodo": 0,
+      "cargaHoraria": 45,
+      "obrigatoria": false,
+      "situacao": "PENDENTE"
+    },
+    {
+      "codigo": "SYN0005",
+      "nome": "COMPONENTE SINTETICO EM ANALISE",
+      "tipoIntegralizacao": "ZX",
+      "periodo": 3,
+      "cargaHoraria": 15,
+      "obrigatoria": false,
+      "situacao": "EM_ANALISE"
+    }
+  ]
+}

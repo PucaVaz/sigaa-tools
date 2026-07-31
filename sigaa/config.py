@@ -1,7 +1,8 @@
 """Configuration: endpoints, JSF constants, paths, and credential resolution.
 
-Credentials resolve keyring-first, environment-second. Nothing is ever written
-to disk in plaintext by this module.
+The username resolves from ``SIGAA_USER`` first, then the active account saved
+in keyring. Passwords resolve keyring-first, environment-second. Nothing is ever
+written to disk in plaintext by this module.
 """
 
 from __future__ import annotations
@@ -19,6 +20,9 @@ LOGON_URL = f"{BASE}/logon.jsf"
 PORTAL_ENTRY_URL = f"{BASE}/portal/discente/"
 # Form action used for in-portal JSF postbacks (entering a turma).
 PORTAL_ACTION_URL = f"{BASE}/portais/discente/beta/discente.jsf"
+# Curriculum-progress shell and the JSON request it issues after rendering.
+CURRICULUM_ENTRY_URL = f"{BASE}/portal/discente/integralizacao/"
+CURRICULUM_DATA_URL = f"{BASE}/portal/discente/integralizacao/dados/"
 # Turma Virtual base; news bodies are fetched here.
 AVA_URL = f"{BASE}/ava/index.jsf"
 
@@ -30,6 +34,7 @@ AUTH_MARKER = "Sair do SIGAA"
 LOGIN_REDIRECT_MARKER = "logon.jsf"
 
 KEYRING_SERVICE = "sigaa-ufpb"
+KEYRING_ACTIVE_USERNAME = "__active_username__"
 
 # UFPB class-time slots. Day digits: 2=Mon .. 7=Sat. Shift: M/T/N.
 # NOTE: clock times below are an UNCONFIRMED default; confirm against a turma's
@@ -58,10 +63,24 @@ def default_download_dir() -> Path:
     return default_db_path().parent / "downloads"
 
 
+def default_username() -> str | None:
+    """Return the environment override or the last account saved by login."""
+    username = os.environ.get("SIGAA_USER")
+    if username:
+        return username
+    try:
+        import keyring
+
+        saved = keyring.get_password(KEYRING_SERVICE, KEYRING_ACTIVE_USERNAME)
+        return saved or None
+    except Exception:
+        return None
+
+
 @dataclass
 class Settings:
     db_path: Path = field(default_factory=default_db_path)
-    username: str | None = field(default_factory=lambda: os.environ.get("SIGAA_USER"))
+    username: str | None = field(default_factory=default_username)
 
     def resolve_password(self) -> str | None:
         """keyring first (Keychain), then SIGAA_PASS env var."""

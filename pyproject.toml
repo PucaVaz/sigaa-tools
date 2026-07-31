@@ -23,6 +23,7 @@ dependencies = [
     "beautifulsoup4>=4.12",
     "lxml>=5.0",
     "keyring>=24",
+    "pypdf>=5.0,<7",
 ]
 
 [project.urls]

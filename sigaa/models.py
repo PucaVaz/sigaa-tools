@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from decimal import Decimal
 
 
 @dataclass
@@ -50,6 +51,62 @@ class NewsItem:
     body: str | None = None
     # JSF form id for the per-row "Visualizar" body postback.
     form_id: str | None = None
+
+
+@dataclass
+class WorkloadProgress:
+    """Completed workload for one curriculum integration category.
+
+    SIGAA reports ``porcentagem`` as the percentage still remaining. The
+    normalized model exposes the percentage already completed instead.
+    """
+
+    description: str
+    completed_hours: int
+    total_hours: int
+    completed_percent: float
+    remaining_percent_raw: str | int | float | None = None
+
+
+@dataclass
+class CurriculumComponent:
+    """One component in the student's curriculum status.
+
+    ``integration_type`` keeps SIGAA's raw code (for example, ``OB`` or
+    ``OP``). ``status`` is normalized for consumers while ``status_raw``
+    retains the source value.
+    """
+
+    code: str
+    name: str
+    integration_type: str
+    period: int | None
+    workload_hours: int
+    required: bool
+    status: str
+    status_raw: str | None
+    prerequisite: str | None = None
+    corequisite: str | None = None
+    period_raw: int | float | str | None = None
+
+
+@dataclass
+class CurriculumStatus:
+    """A privacy-safe view of curriculum progress.
+
+    SIGAA's student id is deliberately not represented by this model.
+    ``cra`` is composed from an official grade-history source because the
+    curriculum integration endpoint does not provide it.
+    """
+
+    curriculum: str
+    max_semester_workload_hours: int | None
+    min_semester_workload_hours: int | None
+    maximum_completion_term: str | None
+    progress: list[WorkloadProgress] = field(default_factory=list)
+    components: list[CurriculumComponent] = field(default_factory=list)
+    cra: Decimal | None = None
+    cra_source: str = "unavailable"
 
 
 @dataclass

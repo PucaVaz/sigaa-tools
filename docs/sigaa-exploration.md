@@ -45,7 +45,8 @@ posts off the same cached `turma_html` without re-entering.
 | Meus Dados Pessoais | ⚪ | Profile fields. |
 | Declaração de Vínculo | ✅ | Enrollment declaration as PDF (`sigaa declaracao-vinculo` / `sigaa_download_declaracao_vinculo`). |
 | Ver Comprovante de Matrícula | ⚪ | Enrollment receipt. |
-| Consultar Estrutura Curricular | ⚪ | Curriculum + pending CH (progress already on portal header). |
+| Consultar Estrutura Curricular | ✅ | Progresso e componentes ao vivo via `get_curriculum_status`, `sigaa curriculum` e `sigaa_get_curriculum`. A visão padrão reúne matriculados + pendentes obrigatórios; optativas pendentes são opções, não componentes todos obrigatórios. |
+| CRA | ✅ | Valor oficial extraído do histórico acadêmico via `get_cra`, `sigaa cra` e `sigaa_get_cra`; pode estar indisponível para um ingressante cujo histórico ainda não o informe. |
 
 ## Confirmed working endpoints (reference)
 
@@ -53,6 +54,11 @@ posts off the same cached `turma_html` without re-entering.
 - Enter turma: `POST /sigaa/portais/discente/beta/discente.jsf` with `{form_id, field, idTurma, ViewState=j_id1}`.
 - TV menu / news body: `POST /sigaa/ava/index.jsf` with `formMenu` or per-row form fields, `ViewState=j_id2`.
 - Grades report: portal sidebar postback "Minhas Notas" → `tabelaRelatorio` per semester.
+- Currículo: `GET /sigaa/portal/discente/integralizacao/` (entrada/redirecionamento) e depois `GET /sigaa/portal/discente/integralizacao/dados/` para o JSON.
+- CRA: baixa o histórico acadêmico pelo postback JSF do portal e extrai localmente o valor oficial do PDF.
+
+A resposta normalizada de currículo do CLI/MCP omite deliberadamente o
+identificador interno do estudante no SIGAA (`idDiscente`).
 
 ## Recommended next order
 1. ~~Histórico acadêmico~~ — ✅ done (PDF download).
