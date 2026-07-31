@@ -85,6 +85,28 @@ sigaa grades                 # notas por semestre
 sigaa deadlines              # prazos
 ```
 
+## 5. Ver CRA e currículo ao vivo
+
+Essas consultas acessam o SIGAA pela rede e não dependem de um `sync` anterior:
+
+```bash
+sigaa curriculum             # matriculados + pendentes obrigatórios
+sigaa curriculum --status pending --requirements
+sigaa cra --json             # CRA oficial extraído do histórico
+```
+
+Na visão padrão do currículo, optativas pendentes ficam de fora porque são
+**opções** para completar a carga horária optativa, não componentes que você
+precisa cursar todos. Use `--status pending` para vê-las. Para ingressantes, o
+histórico pode ainda não informar um CRA; nesse caso, `sigaa cra` retorna
+`unavailable`.
+
+As mesmas consultas estão disponíveis no MCP como `sigaa_get_curriculum` e
+`sigaa_get_cra`. Ambas acessam a rede. A primeira aceita `status` com os valores
+`current`, `enrolled`, `pending`, `completed` e `all`, além dos filtros
+equivalentes `required_only`, `period`, `include_requirements` e `include_cra`.
+Sua resposta segue o mesmo contrato JSON do CLI e não expõe `idDiscente`.
+
 <Tip>
 Rode `sigaa sync` de tempos em tempos (ou deixe `sigaa watch` rodando) pra manter o
 banco atualizado. Veja todos os comandos na [Referência do CLI](/cli).
