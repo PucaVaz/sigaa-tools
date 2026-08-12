@@ -56,6 +56,28 @@ públicos, movimentações, alterações de status e anexos quando disponíveis.
 |---|---|
 | `--json` | retorna o contrato completo em JSON |
 
+### `sipac search`
+
+Busca processos públicos pelo nome ou identificador de uma parte interessada. Passe exatamente uma opção: `--name` ou `--identifier`.
+
+```bash
+sigaa sipac search --name "Fulano de Tal"
+sigaa sipac search --identifier "12345678901" --page 2 --json
+```
+
+Cada página retorna no máximo os 15 resultados exibidos pelo portal. Consultas por número e nome usam um cache curto somente em memória; consultas por identificador nunca entram no cache.
+
+| Flag | Descrição |
+|---|---|
+| `--name nome` | busca pelo nome da parte interessada |
+| `--identifier identificador` | busca por CPF, matrícula, CNPJ ou outro identificador aceito pelo portal |
+| `--page número` | seleciona a página de resultados, começando em `1` |
+| `--json` | retorna resultados e paginação em JSON |
+
+<Warning>
+CPF, matrícula e CNPJ são dados pessoais. Use `--identifier` somente para uma finalidade legítima e evite registrar ou compartilhar o valor consultado.
+</Warning>
+
 ## Atualizar (networked)
 
 ### `sync`

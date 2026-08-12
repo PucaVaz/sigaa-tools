@@ -291,3 +291,26 @@ class SipacProcess:
     movements: list[SipacMovement] = field(default_factory=list)
     status_changes: list[SipacStatusChange] = field(default_factory=list)
     attached_files: list[SipacAttachedFile] = field(default_factory=list)
+
+
+@dataclass
+class SipacProcessSearchResult:
+    """One row returned by SIPAC's public interested-party search."""
+
+    number: str
+    subject: str
+    interested_parties: list[str]
+    origin_unit: str
+    public_url: str
+
+
+@dataclass
+class SipacProcessSearchPage:
+    """One bounded page from SIPAC's public interested-party search."""
+
+    query_type: str
+    query: str
+    page: int
+    total_pages: int
+    total_results: int
+    results: list[SipacProcessSearchResult] = field(default_factory=list)

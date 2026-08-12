@@ -55,9 +55,37 @@ def test_parse_public_process_returns_all_public_sections():
     assert process.documents[0].download_url == (
         "https://sipac.ufpb.br/public/verArquivoDocumento?idArquivo=1"
     )
-    assert process.documents[1].download_url is None
+    assert process.documents[1].download_url == (
+        "https://sipac.ufpb.br/public/jsp/processos/"
+        "documento_visualizacao.jsf?idDoc=2"
+    )
     assert process.movements[0].urgent is False
     assert process.status_changes[0].note == "Teste."
     assert process.attached_files[0].download_url == (
         "https://sipac.ufpb.br/public/arquivo/1"
     )
+
+
+@pytest.mark.parametrize(
+    "unsafe_onclick",
+    [
+        "window.open('/public/jsp/processos/documento_visualizacao.jsf?idDoc=invalid')",
+        "window.open('https://example.com/public/jsp/processos/"
+        "documento_visualizacao.jsf?idDoc=2')",
+    ],
+)
+def test_parse_public_process_rejects_unsafe_document_view_onclick(unsafe_onclick):
+    html = (FIXTURES / "sipac_process.html").read_text(encoding="utf-8")
+    html = html.replace(
+        "window.open('/public/jsp/processos/documento_visualizacao.jsf?idDoc=2',"
+        "'','width=800,height=600, scrollbars');",
+        unsafe_onclick,
+    )
+
+    process = parse_public_process(
+        html,
+        public_url="https://sipac.ufpb.br/public/jsp/processos/"
+        "processo_detalhado.jsf?id=123",
+    )
+
+    assert process.documents[1].download_url is None
