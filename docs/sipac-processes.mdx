@@ -6,13 +6,14 @@ meta:
   category: "Começando"
 ---
 
-Use a consulta pública do Sistema Integrado de Patrimônio, Administração e Contratos (SIPAC) para transformar um número de processo da Universidade Federal da Paraíba (UFPB) em dados estruturados. A consulta funciona sem login pela interface de linha de comando (CLI) e pelo Model Context Protocol (MCP).
+Use a consulta pública do Sistema Integrado de Patrimônio, Administração e Contratos (SIPAC) para encontrar processos da Universidade Federal da Paraíba (UFPB) e ler seus dados estruturados. Consulte pelo número completo ou busque pelo nome ou identificador de uma parte interessada. As duas modalidades funcionam sem login pela interface de linha de comando (CLI) e pelo Model Context Protocol (MCP).
 
 ## Para que serve
 
 A integração elimina a consulta manual no portal quando você precisa acompanhar ou analisar processos administrativos. Você pode:
 
 - Confirmar o assunto, a situação e a unidade de origem
+- Encontrar processos relacionados a uma pessoa ou organização
 - Identificar por quais unidades o processo passou
 - Ver quem enviou e recebeu cada movimentação
 - Listar documentos e abrir os arquivos que o portal marcou como públicos
@@ -57,6 +58,45 @@ Chame `sipac_get_public_process` com o mesmo número completo:
 
 A tool não lê o usuário ou a senha configurados para o SIGAA. Ela consulta somente o Portal Público do SIPAC.
 
+## Buscar por parte interessada
+
+Use `sipac search` quando você não souber o número do processo. Passe exatamente um critério por consulta: nome ou identificador.
+
+Busque pelo nome:
+
+```bash
+sigaa sipac search --name "Gilberto Farias de Sousa Filho"
+```
+
+Busque por um identificador aceito pelo portal:
+
+```bash
+sigaa sipac search --identifier "12345678901" --json
+```
+
+O identificador pode ser um Cadastro de Pessoas Físicas (CPF), uma matrícula, um Cadastro Nacional da Pessoa Jurídica (CNPJ) ou outro valor aceito pelo SIPAC. O comando rejeita consultas sem critério ou com `--name` e `--identifier` juntos.
+
+Use `--page` para continuar a busca. A primeira página é `1`, e cada página contém no máximo os 15 resultados exibidos pelo portal:
+
+```bash
+sigaa sipac search --name "Gilberto Farias de Sousa Filho" --page 2 --json
+```
+
+No MCP, chame `sipac_search_public_processes` com o mesmo critério:
+
+```json
+{
+  "name": "Gilberto Farias de Sousa Filho",
+  "page": 1
+}
+```
+
+Você também pode passar `identifier` no lugar de `name`. Passe apenas um deles. A tool retorna os resultados da página solicitada e os metadados necessários para decidir se existe outra página.
+
+<Warning>
+CPF, matrícula e CNPJ são dados pessoais. Pesquise um identificador somente para uma finalidade legítima. Não inclua o valor em logs, issues, exemplos públicos ou mensagens compartilhadas sem necessidade.
+</Warning>
+
 ## Entender a resposta
 
 O CLI com `--json` e a tool MCP retornam o mesmo contrato `schema_version: 1`:
@@ -85,6 +125,8 @@ A integração respeita as mesmas permissões do Portal Público do SIPAC:
 - Não contorna documentos restritos ou negados
 - Não altera, movimenta ou protocola processos
 - Não armazena os resultados em banco local
+- Mantém um cache curto, somente em memória, para consultas por número e nome; buscas por identificador nunca entram no cache
+- Limita cada resposta de busca aos 15 resultados da página retornada pelo portal
 - Depende da disponibilidade e do HTML atual do portal da UFPB
 
 As respostas podem conter nomes e identificadores que o próprio portal publicou. Trate arquivos JSON, logs e documentos baixados como dados administrativos potencialmente sensíveis.
@@ -96,5 +138,7 @@ Use a mensagem de erro para distinguir um número inválido de uma falha no port
 `invalid SIPAC process number` indica que o número não segue o formato `00000.000000/0000-00`. Confira pontos, barra, hífen e dígitos verificadores.
 
 `SIPAC process 23074.056437/2026-26 was not found` indica que o portal não retornou uma correspondência exata. Confirme o número na consulta pública da UFPB.
+
+Uma busca sem `--name` ou `--identifier`, ou com as duas opções, é inválida. Escolha somente um critério e tente novamente.
 
 Erros de rede ou de leitura podem indicar indisponibilidade ou mudança no portal. Tente novamente mais tarde e abra uma issue se o erro persistir para processos que o navegador encontra.

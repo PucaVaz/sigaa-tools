@@ -40,7 +40,12 @@ from .parsers.sipac import SipacParseError
 from .parsers.transcript import CraUnavailableError, TranscriptParseError
 from .services import whatsnew
 from .services.sync import sync as run_sync
-from .sipac import SipacClient, SipacProcessNotFound, public_process_to_dict
+from .sipac import (
+    SipacClient,
+    SipacProcessNotFound,
+    public_process_search_to_dict,
+    public_process_to_dict,
+)
 from .store.db import connect
 from .store.repository import Repository
 
@@ -279,6 +284,29 @@ def sipac_get_public_process(number: str) -> dict:
         return public_process_to_dict(process)
     except (SipacProcessNotFound, SipacParseError, ValueError, httpx.HTTPError) as exc:
         raise ToolError(f"SIPAC process lookup failed: {exc}") from None
+
+
+@mcp.tool()
+def sipac_search_public_processes(
+    name: str | None = None,
+    identifier: str | None = None,
+    page: int = 1,
+) -> dict:
+    """Search public SIPAC/UFPB processes by one interested party.
+
+    Provide exactly one criterion: ``name`` or a digits-only ``identifier``
+    (registration, CPF, or CNPJ). Results are read-only, unauthenticated, and
+    returned one portal page at a time. Use personal identifiers only for a
+    legitimate purpose and do not expose them unnecessarily.
+    """
+    try:
+        with SipacClient() as client:
+            result = client.search_public_processes(
+                name=name, identifier=identifier, page=page
+            )
+        return public_process_search_to_dict(result)
+    except (SipacParseError, ValueError, httpx.HTTPError) as exc:
+        raise ToolError(f"SIPAC process search failed: {exc}") from None
 
 
 @mcp.tool()

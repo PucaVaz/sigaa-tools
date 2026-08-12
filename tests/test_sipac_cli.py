@@ -2,7 +2,10 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from sigaa import cli as cli_module
+from sigaa.models import SipacProcessSearchPage, SipacProcessSearchResult
 from sigaa.parsers.sipac import parse_public_process
 
 
@@ -69,3 +72,61 @@ def test_cli_main_public_process_does_not_construct_settings(monkeypatch, capsys
 
     assert cli_module.main(["sipac", "process", "23074.000001/2099-10"]) == 0
     assert "PROCESSO SINTÉTICO PARA TESTES" in capsys.readouterr().out
+
+
+def _search_page():
+    return SipacProcessSearchPage(
+        query_type="name",
+        query="JANE EXAMPLE",
+        page=1,
+        total_pages=2,
+        total_results=16,
+        results=[
+            SipacProcessSearchResult(
+                number="23074.000001/2099-10",
+                subject="PROCESSO SINTÉTICO",
+                interested_parties=["JANE EXAMPLE"],
+                origin_unit="UNIDADE DE TESTE",
+                public_url=(
+                    "https://sipac.ufpb.br/public/jsp/processos/"
+                    "processo_detalhado.jsf?id=123"
+                ),
+            )
+        ],
+    )
+
+
+def test_cli_search_requires_exactly_one_criterion():
+    parser = cli_module._build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["sipac", "search"])
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            ["sipac", "search", "--name", "Jane", "--identifier", "123"]
+        )
+
+
+def test_cli_search_json_uses_shared_contract_without_settings(monkeypatch, capsys):
+    class FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return None
+
+        def search_public_processes(self, *, name, identifier, page):
+            assert (name, identifier, page) == ("JANE EXAMPLE", None, 1)
+            return _search_page()
+
+    monkeypatch.setattr(cli_module, "SipacClient", FakeClient)
+    monkeypatch.setattr(
+        cli_module, "Settings", lambda: (_ for _ in ()).throw(AssertionError)
+    )
+    assert (
+        cli_module.main(["sipac", "search", "--name", "JANE EXAMPLE", "--json"])
+        == 0
+    )
+    data = json.loads(capsys.readouterr().out)
+    assert data["query"] == {"type": "name", "value": "JANE EXAMPLE"}
+    assert data["pagination"]["total_results"] == 16
+    assert data["results"][0]["number"] == "23074.000001/2099-10"

@@ -44,11 +44,13 @@ SIGAA username or password.
 
 ## Public SIPAC process lookup
 
-Use this feature to follow UFPB administrative processes without opening each SIPAC page manually. It returns the current status, subject, interested parties, public documents, routing movements, status changes, and attached files.
+Use this feature to follow UFPB administrative processes without opening each SIPAC page manually. Look up one process by its complete number or find processes by an interested party name or identifier. Process details include the current status, subject, interested parties, public documents, routing movements, status changes, and attached files.
 
 ```bash
 sigaa sipac process 23074.056437/2026-26
 sigaa sipac process 23074.056437/2026-26 --json
+sigaa sipac search --name "Gilberto Farias de Sousa Filho"
+sigaa sipac search --identifier "12345678901" --page 2 --json
 ```
 
 Example summary:
@@ -61,7 +63,7 @@ Example summary:
   Interested parties: 1 | Documents: 14 | Movements: 6
 ```
 
-Agents can call `sipac_get_public_process` with `{"number": "23074.056437/2026-26"}` and receive the same `schema_version: 1` contract as the CLI JSON output. The lookup does not authenticate, bypass restricted documents, change processes, or persist results. See the [SIPAC process guide](docs/sipac-processes.mdx) for fields, use cases, and error handling.
+Agents can call `sipac_get_public_process` with `{"number": "23074.056437/2026-26"}`. To search, call `sipac_search_public_processes` with either `name` or `identifier`. Both interfaces use the same `schema_version: 1` contracts as the CLI JSON output. Public SIPAC commands do not authenticate, bypass restricted documents, change processes, or persist results. See the [SIPAC process guide](docs/sipac-processes.mdx) for fields, use cases, privacy guidance, and error handling.
 
 Headless fallback: `export SIGAA_USER=... SIGAA_PASS=...`.
 Optional `SIGAA_DB=/path/to/sigaa.db` to override the store location.
@@ -80,6 +82,7 @@ sigaa ics --out sigaa.ics  # export classes + deadlines as a calendar
 sigaa curriculum           # live CRA, enrolled + required pending components
 sigaa cra --json           # official CRA as JSON from the academic transcript
 sigaa sipac process 23074.056437/2026-26 --json # public SIPAC process lookup
+sigaa sipac search --name "Gilberto Farias de Sousa Filho" --json # find public processes
 sigaa historico --out h.pdf # download the academic transcript PDF (networked)
 sigaa declaracao-vinculo --out declaracao-vinculo.pdf # enrollment declaration PDF (networked)
 sigaa atestado-matricula --out atestado-matricula.html # enrollment certificate HTML (networked)
@@ -98,7 +101,7 @@ server without manual absolute-path editing.
 Tools: `sigaa_list_classes`, `sigaa_list_news`, `sigaa_get_news_body`,
 `sigaa_get_schedule`, `sigaa_list_grades`, `sigaa_list_deadlines`,
 `sigaa_get_curriculum`, `sigaa_get_cra`, `sigaa_export_ics`,
-`sipac_get_public_process`,
+`sipac_get_public_process`, `sipac_search_public_processes`,
 `sigaa_download_historico`,
 `sigaa_download_declaracao_vinculo`, `sigaa_download_atestado_matricula`,
 `sigaa_sync`. Store-backed reads are offline; sync, live lookups, and downloads
@@ -108,6 +111,14 @@ touch the network.
 by UFPB: general data, interested parties, documents and public download links,
 movements, status changes, and attached files. It shares schema version 1 with
 `sigaa sipac process --json` and does not require credentials.
+
+`sipac_search_public_processes(name?, identifier?, page=1)` finds public
+processes by one interested-party field. Pass exactly one of `name` or
+`identifier`. Each response contains at most the 15 results exposed by one
+portal page. Number and name results use a short in-memory cache; identifier
+searches are never cached.
+Identifiers such as CPF, registration number, and CNPJ are personal data. Query
+them only for a legitimate purpose and avoid copying them into logs.
 
 `sigaa_get_curriculum` is networked and uses the same normalized contract and
 filters as `sigaa curriculum`: `status`, `required_only`, `period`,

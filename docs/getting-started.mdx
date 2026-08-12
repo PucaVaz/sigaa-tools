@@ -114,13 +114,19 @@ Sua resposta segue o mesmo contrato JSON do CLI e não expõe `idDiscente`.
 
 ## 6. Consultar um processo público do SIPAC
 
-Essa consulta retorna assunto, situação, documentos e movimentações sem usar a senha armazenada:
+Consulte um processo pelo número completo sem usar a senha armazenada:
 
 ```bash
 sigaa sipac process 23074.056437/2026-26 --json
 ```
 
-No MCP, use `sipac_get_public_process` com o mesmo número completo. Consulte [Consultar processos públicos do SIPAC](/sipac-processes) para ver exemplos, campos e limites.
+Você também pode encontrar processos pelo nome de uma parte interessada:
+
+```bash
+sigaa sipac search --name "Gilberto Farias de Sousa Filho" --json
+```
+
+No MCP, use `sipac_get_public_process` para consultar pelo número ou `sipac_search_public_processes` para buscar por nome ou identificador. Consulte [Consultar processos públicos do SIPAC](/sipac-processes) para ver exemplos, campos, privacidade e limites.
 
 <Tip>
 Rode `sigaa sync` de tempos em tempos (ou deixe `sigaa watch` rodando) pra manter o
