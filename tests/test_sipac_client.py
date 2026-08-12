@@ -1,10 +1,15 @@
-from collections import OrderedDict
 from pathlib import Path
 
 import httpx
 import pytest
 
-from sigaa.sipac import SipacClient, SipacProcessNotFound, public_process_to_dict
+from sigaa.parsers.sipac import SipacParseError
+from sigaa.sipac import (
+    PROCESS_SEARCH_URL,
+    SipacClient,
+    SipacProcessNotFound,
+    public_process_to_dict,
+)
 
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -40,12 +45,30 @@ def test_client_replays_public_get_post_get_flow_without_credentials():
 def test_client_reports_a_missing_process():
     def handler(request: httpx.Request) -> httpx.Response:
         name = "sipac_search_form.html" if request.method == "GET" else "sipac_search_results.html"
-        text = _fixture(name).replace("23074.000001/2099-10", "23074.999999/2099-99")
+        if request.method == "GET":
+            text = _fixture(name)
+        else:
+            text = (
+                "<html><body>Nenhum processo encontrado de acordo com os "
+                "parâmetros de busca passados.</body></html>"
+            )
         return httpx.Response(200, text=text)
 
     raw = httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True)
     with SipacClient(raw) as client:
         with pytest.raises(SipacProcessNotFound, match="was not found"):
+            client.get_public_process("23074.000001/2099-10")
+
+
+def test_client_does_not_report_unexpected_result_html_as_missing():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, text=_fixture("sipac_search_form.html"))
+        return httpx.Response(200, text="<html><body>Maintenance</body></html>")
+
+    raw = httpx.Client(transport=httpx.MockTransport(handler))
+    with SipacClient(raw, min_request_interval=0) as client:
+        with pytest.raises(SipacParseError, match="matching row or empty marker"):
             client.get_public_process("23074.000001/2099-10")
 
 
@@ -110,30 +133,8 @@ def test_client_retries_transient_responses_with_bounded_backoff():
 
 def test_client_respects_retry_after_and_does_not_retry_bare_429():
     attempts = 0
-    sleeps: list[float] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal attempts
-        attempts += 1
-        if attempts == 1:
-            return httpx.Response(429, headers={"Retry-After": "2"})
-        return httpx.Response(429)
-
-    raw = httpx.Client(transport=httpx.MockTransport(handler))
-    with SipacClient(
-        raw, min_request_interval=0, retry_backoff=0.25, sleep=sleeps.append
-    ) as client:
-        with pytest.raises(httpx.HTTPStatusError):
-            client.get_public_process("23074.000001/2099-10")
-
-    assert attempts == 2
-    assert sleeps == [2.0]
-
-
-def test_client_rate_limits_requests_and_reuses_short_lived_cache():
     now = 0.0
     sleeps: list[float] = []
-    requests: list[httpx.Request] = []
 
     def clock() -> float:
         return now
@@ -144,6 +145,88 @@ def test_client_rate_limits_requests_and_reuses_short_lived_cache():
         now += delay
 
     def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return httpx.Response(429, headers={"Retry-After": "2"})
+        return httpx.Response(429)
+
+    raw = httpx.Client(transport=httpx.MockTransport(handler))
+    with SipacClient(
+        raw,
+        clock=clock,
+        min_request_interval=0,
+        retry_backoff=0.25,
+        sleep=sleep,
+    ) as client:
+        with pytest.raises(httpx.HTTPStatusError):
+            client.get_public_process("23074.000001/2099-10")
+
+    assert attempts == 2
+    assert sleeps == pytest.approx([2.0], abs=0.01)
+
+
+def test_client_does_not_retry_before_a_long_retry_after_expires():
+    now = 0.0
+    sleeps: list[float] = []
+    attempts = 0
+
+    def clock() -> float:
+        return now
+
+    def sleep(delay: float) -> None:
+        nonlocal now
+        sleeps.append(delay)
+        now += delay
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return httpx.Response(429, headers={"Retry-After": "120"})
+        return httpx.Response(200, text="ok")
+
+    raw = httpx.Client(transport=httpx.MockTransport(handler))
+    with SipacClient(
+        raw,
+        clock=clock,
+        sleep=sleep,
+        min_request_interval=0,
+        max_retries=2,
+    ) as client:
+        first = client._request("GET", PROCESS_SEARCH_URL)
+        assert first.status_code == 429
+        assert attempts == 1
+        second = client._request("GET", PROCESS_SEARCH_URL)
+
+    assert second.status_code == 200
+    assert attempts == 2
+    assert sleeps == [120.0]
+
+
+@pytest.mark.parametrize("retry_after", ["1e309", "inf", "3601", "12.5"])
+def test_invalid_or_excessive_retry_after_does_not_poison_the_limiter(retry_after):
+    attempts = 0
+    sleeps: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        return httpx.Response(429, headers={"Retry-After": retry_after})
+
+    raw = httpx.Client(transport=httpx.MockTransport(handler))
+    with SipacClient(raw, min_request_interval=0, sleep=sleeps.append) as client:
+        response = client._request("GET", PROCESS_SEARCH_URL)
+
+    assert response.status_code == 429
+    assert attempts == 1
+    assert sleeps == []
+
+
+def test_client_rate_limits_each_request_without_retaining_results():
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
         if request.method == "GET" and "consulta_processo" in request.url.path:
             return httpx.Response(200, text=_fixture("sipac_search_form.html"))
@@ -152,24 +235,8 @@ def test_client_rate_limits_requests_and_reuses_short_lived_cache():
         return httpx.Response(200, text=_fixture("sipac_process.html"))
 
     raw = httpx.Client(transport=httpx.MockTransport(handler))
-    cache = OrderedDict()
-    with SipacClient(
-        raw,
-        clock=clock,
-        sleep=sleep,
-        min_request_interval=1.0,
-        cache_ttl=10.0,
-        cache_max_entries=1,
-        cache=cache,
-    ) as client:
-        first = client.get_public_process("23074.000001/2099-10")
-        first.status = "MUTATED"
-        cached = client.get_public_process("23074.000001/2099-10")
-        now += 11.0
-        refreshed = client.get_public_process("23074.000001/2099-10")
+    with SipacClient(raw, min_request_interval=0) as client:
+        client.get_public_process("23074.000001/2099-10")
+        client.get_public_process("23074.000001/2099-10")
 
     assert len(requests) == 6
-    assert sleeps == [1.0, 1.0, 1.0, 1.0]
-    assert cached.status == "ATIVO"
-    assert refreshed.status == "ATIVO"
-    assert len(cache) == 1

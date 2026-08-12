@@ -20,7 +20,7 @@ sigaa [--user seu_usuario] [--db caminho_do_banco] comando [opções]
 | `--db` | sobrescreve o caminho do SQLite (senão usa `SIGAA_DB` ou o padrão) |
 
 <Note>
-`login`, `sync`, `watch`, `curriculum`, `cra`, `sipac process`, `historico`,
+`login`, `sync`, `watch`, `curriculum`, `cra`, `sipac process`, `sipac search`, `historico`,
 `declaracao-vinculo`, `atestado-matricula`, `attendance`, `plan` e o download
 de materiais acessam a **rede**. Os demais comandos leem do **banco local**.
 Quase todo comando de leitura aceita `--json`.
@@ -65,7 +65,7 @@ sigaa sipac search --name "Gilberto Farias de Sousa Filho"
 sigaa sipac search --identifier "12345678901" --page 2 --json
 ```
 
-Cada página retorna no máximo os 15 resultados exibidos pelo portal. Consultas por número e nome usam um cache curto somente em memória; consultas por identificador nunca entram no cache.
+Cada página retorna no máximo os 15 resultados exibidos pelo portal. Os resultados não são armazenados depois que o comando termina.
 
 | Flag | Descrição |
 |---|---|

@@ -83,7 +83,10 @@ def test_pagination_rejects_out_of_range_and_external_action():
 
 def test_empty_search_page_is_a_valid_zero_result_contract():
     page = parse_process_search_page(
-        "<html><body>0 Registro(s) Encontrado(s)</body></html>",
+        (
+            "<html><body><center>Nenhum processo encontrado de acordo com os "
+            "parâmetros de busca passados.</center></body></html>"
+        ),
         query_type="name",
         query="NOBODY",
         page=1,
@@ -91,3 +94,22 @@ def test_empty_search_page_is_a_valid_zero_result_contract():
     assert page.total_results == 0
     assert page.total_pages == 0
     assert page.results == []
+
+
+@pytest.mark.parametrize(
+    "html",
+    [
+        "<html><body>Manutenção temporária</body></html>",
+        "<html><body><form id='loginForm'></form></body></html>",
+        "<html><body>0 Registro(s) Encontrado(s)</body></html>",
+        "<html><body>2 Registro(s) Encontrado(s)</body></html>",
+    ],
+)
+def test_search_page_does_not_misreport_portal_failures_as_zero_results(html):
+    with pytest.raises(SipacParseError):
+        parse_process_search_page(
+            html,
+            query_type="name",
+            query="JANE EXAMPLE",
+            page=1,
+        )

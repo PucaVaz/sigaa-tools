@@ -1,4 +1,3 @@
-from collections import OrderedDict
 from pathlib import Path
 
 import httpx
@@ -17,7 +16,6 @@ def _client(handler):
     return SipacClient(
         httpx.Client(transport=httpx.MockTransport(handler)),
         min_request_interval=0,
-        cache=OrderedDict(),
     )
 
 
@@ -65,42 +63,47 @@ def test_client_fetches_only_the_requested_second_page():
     assert page.page == 2
 
 
-def test_client_search_cache_avoids_a_second_portal_round_trip():
+def test_name_search_does_not_retain_results_between_calls():
     calls = 0
 
     def handler(request):
         nonlocal calls
         calls += 1
-        name = "sipac_search_form.html" if request.method == "GET" else "sipac_interested_results.html"
+        name = (
+            "sipac_search_form.html"
+            if request.method == "GET"
+            else "sipac_interested_results.html"
+        )
         return httpx.Response(200, text=_fixture(name))
 
     with _client(handler) as client:
         first = client.search_public_processes(name="JANE EXAMPLE")
         second = client.search_public_processes(name="JANE EXAMPLE")
 
-    assert calls == 2
+    assert calls == 4
     assert first == second
     assert first is not second
 
 
-def test_identifier_search_is_never_cached_in_shared_or_injected_memory():
+def test_identifier_search_does_not_retain_results_between_calls():
     calls = 0
-    cache = OrderedDict()
 
     def handler(request):
         nonlocal calls
         calls += 1
-        name = "sipac_search_form.html" if request.method == "GET" else "sipac_interested_results.html"
+        name = (
+            "sipac_search_form.html"
+            if request.method == "GET"
+            else "sipac_interested_results.html"
+        )
         return httpx.Response(200, text=_fixture(name))
 
     client = SipacClient(
         httpx.Client(transport=httpx.MockTransport(handler)),
         min_request_interval=0,
-        cache=cache,
     )
     with client:
         client.search_public_processes(identifier="1234567")
         client.search_public_processes(identifier="1234567")
 
     assert calls == 4
-    assert cache == {}

@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from sigaa.parsers.sipac import (
+    SipacParseError,
     build_process_search_payload,
     normalize_process_number,
     parse_process_detail_url,
@@ -37,7 +38,14 @@ def test_parse_search_result_selects_the_matching_public_detail_url():
     assert parse_process_detail_url(html, "23074.000001/2099-10") == (
         "https://sipac.ufpb.br/public/jsp/processos/processo_detalhado.jsf?id=123"
     )
-    assert parse_process_detail_url(html, "23074.999999/2099-99") is None
+    with pytest.raises(SipacParseError, match="matching row or empty marker"):
+        parse_process_detail_url(html, "23074.999999/2099-99")
+
+    empty = (
+        "<html><body>Nenhum processo encontrado de acordo com os parâmetros "
+        "de busca passados.</body></html>"
+    )
+    assert parse_process_detail_url(empty, "23074.999999/2099-99") is None
 
 
 def test_parse_public_process_returns_all_public_sections():

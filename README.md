@@ -115,8 +115,7 @@ movements, status changes, and attached files. It shares schema version 1 with
 `sipac_search_public_processes(name?, identifier?, page=1)` finds public
 processes by one interested-party field. Pass exactly one of `name` or
 `identifier`. Each response contains at most the 15 results exposed by one
-portal page. Number and name results use a short in-memory cache; identifier
-searches are never cached.
+portal page. Results are not retained after the request finishes.
 Identifiers such as CPF, registration number, and CNPJ are personal data. Query
 them only for a legitimate purpose and avoid copying them into logs.
 
