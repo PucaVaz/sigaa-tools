@@ -15,7 +15,7 @@ sigaa [--user USUARIO] [--db CAMINHO] <comando> [opções]
 | `--db` | sobrescreve o caminho do SQLite (senão usa `SIGAA_DB` ou o padrão) |
 
 <Note>
-`login`, `sync`, `watch`, `curriculum`, `cra`, `historico`,
+`login`, `sync`, `watch`, `curriculum`, `cra`, `sipac process`, `historico`,
 `declaracao-vinculo`, `atestado-matricula`, `attendance`, `plan` e o download
 de materiais acessam a **rede**. Os demais comandos leem do **banco local**.
 Quase todo comando de leitura aceita `--json`.
@@ -30,6 +30,26 @@ Pede a senha, guarda no keychain e valida no SIGAA. **Networked.**
 ```bash
 sigaa --user SEU_USUARIO login
 ```
+
+## SIPAC público (networked, sem login)
+
+### `sipac process`
+
+Consulta um processo administrativo pelo número completo no Portal Público do
+SIPAC/UFPB. O comando não usa as credenciais armazenadas do SIGAA ou SIPAC.
+
+```bash
+sigaa sipac process 23074.056437/2026-26
+sigaa sipac process 23074.056437/2026-26 --json
+```
+
+A saída JSON usa o mesmo contrato `schema_version: 1` da tool MCP
+`sipac_get_public_process` e inclui dados gerais, interessados, documentos
+públicos, movimentações, alterações de status e anexos quando disponíveis.
+
+| Flag | Descrição |
+|---|---|
+| `--json` | retorna o contrato completo em JSON |
 
 ## Atualizar (networked)
 
