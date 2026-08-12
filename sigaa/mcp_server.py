@@ -36,9 +36,11 @@ from .exporters.ics import build_calendar
 from .http import AuthError
 from .parsers.curriculum import CurriculumDataError
 from .parsers.schedule import day_name, decode_schedule
+from .parsers.sipac import SipacParseError
 from .parsers.transcript import CraUnavailableError, TranscriptParseError
 from .services import whatsnew
 from .services.sync import sync as run_sync
+from .sipac import SipacClient, SipacProcessNotFound, public_process_to_dict
 from .store.db import connect
 from .store.repository import Repository
 
@@ -260,6 +262,23 @@ def sigaa_get_curriculum(
         httpx.HTTPError,
     ) as exc:
         raise ToolError(f"curriculum lookup failed: {exc}") from None
+
+
+@mcp.tool()
+def sipac_get_public_process(number: str) -> dict:
+    """Get one administrative process from SIPAC/UFPB's public portal.
+
+    Pass the complete process number, for example 23074.056437/2026-26. This
+    read-only lookup is public and does not use or require SIGAA/SIPAC login
+    credentials. It returns general metadata, interested parties, documents,
+    movements, status changes, and attached files when the portal exposes them.
+    """
+    try:
+        with SipacClient() as client:
+            process = client.get_public_process(number)
+        return public_process_to_dict(process)
+    except (SipacProcessNotFound, SipacParseError, ValueError, httpx.HTTPError) as exc:
+        raise ToolError(f"SIPAC process lookup failed: {exc}") from None
 
 
 @mcp.tool()

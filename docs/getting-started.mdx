@@ -107,6 +107,16 @@ As mesmas consultas estão disponíveis no MCP como `sigaa_get_curriculum` e
 equivalentes `required_only`, `period`, `include_requirements` e `include_cra`.
 Sua resposta segue o mesmo contrato JSON do CLI e não expõe `idDiscente`.
 
+## 6. Consultar um processo público do SIPAC
+
+Essa consulta é pública e não usa a senha armazenada:
+
+```bash
+sigaa sipac process 23074.056437/2026-26 --json
+```
+
+No MCP, use `sipac_get_public_process` com o mesmo número completo.
+
 <Tip>
 Rode `sigaa sync` de tempos em tempos (ou deixe `sigaa watch` rodando) pra manter o
 banco atualizado. Veja todos os comandos na [Referência do CLI](/cli).

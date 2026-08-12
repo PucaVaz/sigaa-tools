@@ -215,3 +215,79 @@ class Deadline:
     detail: str | None = None  # e.g. "em 10 dias"
     # JSON of the scraped event detail rows (Descrição, Período, ...), cached on demand.
     body: str | None = None
+
+
+@dataclass
+class SipacInterestedParty:
+    """One interested party listed by SIPAC's public process portal."""
+
+    kind: str
+    identifier: str
+    name: str
+
+
+@dataclass
+class SipacDocument:
+    """Public metadata for one document attached to a SIPAC process."""
+
+    order: int
+    kind: str
+    date: str
+    origin: str
+    nature: str
+    download_url: str | None = None
+
+
+@dataclass
+class SipacMovement:
+    """One routing movement in a SIPAC process."""
+
+    sent_at: str
+    origin_unit: str
+    destination_unit: str
+    sent_by: str
+    received_at: str | None
+    received_by: str | None
+    urgent: bool
+
+
+@dataclass
+class SipacStatusChange:
+    """One status change from the public process history."""
+
+    date: str
+    user: str
+    status: str
+    note: str | None = None
+
+
+@dataclass
+class SipacAttachedFile:
+    """A file exposed by SIPAC outside the main document list."""
+
+    name: str
+    description: str | None = None
+    download_url: str | None = None
+
+
+@dataclass
+class SipacProcess:
+    """Normalized public view of one administrative SIPAC process."""
+
+    number: str
+    public_url: str
+    origin: str | None = None
+    opened_at: str | None = None
+    opened_by: str | None = None
+    subject: str | None = None
+    detailed_subject: str | None = None
+    nature: str | None = None
+    origin_unit: str | None = None
+    status: str | None = None
+    registered_on: str | None = None
+    note: str | None = None
+    interested_parties: list[SipacInterestedParty] = field(default_factory=list)
+    documents: list[SipacDocument] = field(default_factory=list)
+    movements: list[SipacMovement] = field(default_factory=list)
+    status_changes: list[SipacStatusChange] = field(default_factory=list)
+    attached_files: list[SipacAttachedFile] = field(default_factory=list)

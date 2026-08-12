@@ -5,14 +5,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "sigaa-ai-agent"
 version = "0.1.0"
-description = "User-friendly SIGAA UFPB client (CLI + MCP) for automation workflows"
+description = "User-friendly SIGAA and public SIPAC UFPB client (CLI + MCP)"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
 authors = [
     { name = "Puca Vaz" },
 ]
-keywords = ["sigaa", "ufpb", "mcp", "cli", "academic"]
+keywords = ["sigaa", "sipac", "ufpb", "mcp", "cli", "academic"]
 classifiers = [
     "Environment :: Console",
     "Programming Language :: Python :: 3.11",
