@@ -1,12 +1,17 @@
 ---
-title: "Primeiros passos"
+title: "Começar a usar o sigaa-ai-agent"
 description: "Instale o sigaa-ai-agent, faça login e rode o primeiro sync."
+meta:
+  contentType: "Tutorial"
+  category: "Começando"
 ---
+
+Instale o projeto, configure os recursos acadêmicos e faça sua primeira consulta. Você pode consultar processos públicos do SIPAC sem uma conta.
 
 ## Pré-requisitos
 
 - **Python 3.11+**
-- Uma conta no **SIGAA UFPB**
+- Uma conta no **SIGAA UFPB** para recursos acadêmicos autenticados. A consulta pública do SIPAC não exige conta
 
 ## 1. Instalar
 
@@ -109,13 +114,13 @@ Sua resposta segue o mesmo contrato JSON do CLI e não expõe `idDiscente`.
 
 ## 6. Consultar um processo público do SIPAC
 
-Essa consulta é pública e não usa a senha armazenada:
+Essa consulta retorna assunto, situação, documentos e movimentações sem usar a senha armazenada:
 
 ```bash
 sigaa sipac process 23074.056437/2026-26 --json
 ```
 
-No MCP, use `sipac_get_public_process` com o mesmo número completo.
+No MCP, use `sipac_get_public_process` com o mesmo número completo. Consulte [Consultar processos públicos do SIPAC](/sipac-processes) para ver exemplos, campos e limites.
 
 <Tip>
 Rode `sigaa sync` de tempos em tempos (ou deixe `sigaa watch` rodando) pra manter o
