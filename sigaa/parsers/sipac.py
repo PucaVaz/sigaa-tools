@@ -23,6 +23,7 @@ PROCESS_NUMBER_RE = re.compile(
     r"^\s*(\d{5})\s*[.]\s*(\d{6})\s*[/]\s*(\d{4})\s*[-]\s*(\d{2})\s*$"
 )
 IDENTIFIER_RE = re.compile(r"^\d{1,14}$")
+NO_RESULTS_TEXT = "nenhum processo encontrado de acordo com os parâmetros de busca"
 DOCUMENT_VIEW_ONCLICK_RE = re.compile(
     r"""window[.]open[(]\s*(['"])(/public/jsp/processos/"""
     r"""documento_visualizacao[.]jsf[?]idDoc=\d+)\1\s*[,)]"""
@@ -157,7 +158,19 @@ def parse_process_search_page(
 
     text = soup.get_text(" ", strip=True)
     count_match = re.search(r"(\d+)\s+Registro\(s\)\s+Encontrado\(s\)", text, re.I)
-    total_results = int(count_match.group(1)) if count_match else len(results)
+    no_results = NO_RESULTS_TEXT in text.casefold()
+    if not results and no_results:
+        total_results = 0
+    elif not results:
+        raise SipacParseError("SIPAC search page has no official empty-result marker")
+    elif count_match is None:
+        raise SipacParseError(
+            "SIPAC search page has no result count or empty-result marker"
+        )
+    else:
+        total_results = int(count_match.group(1))
+        if total_results > 0 and not results:
+            raise SipacParseError("SIPAC reported results but no process rows were parsed")
     page_select = _pagination_select(soup)
     total_pages = len(page_select.find_all("option")) if page_select else (1 if results else 0)
     if page < 1 or (total_pages and page > total_pages):
@@ -214,7 +227,10 @@ def parse_process_detail_url(
             if link is None:
                 raise SipacParseError("SIPAC process result has no detail link")
             return _public_url(link.get("href"), base_url=base_url)
-    return None
+    text = soup.get_text(" ", strip=True).casefold()
+    if NO_RESULTS_TEXT in text:
+        return None
+    raise SipacParseError("SIPAC process result page has no matching row or empty marker")
 
 
 def parse_public_process(

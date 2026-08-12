@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-from collections import OrderedDict
-from copy import deepcopy
 from dataclasses import asdict
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 import threading
 import time
-from typing import Any, Callable, MutableMapping
+from typing import Callable
 from urllib.parse import urljoin, urlparse
 
 import httpx
@@ -33,8 +31,8 @@ PROCESS_SEARCH_URL = f"{PUBLIC_HOST}/public/jsp/processos/consulta_processo.jsf"
 _REDIRECT_STATUSES = {301, 302, 303, 307, 308}
 _TRANSIENT_STATUSES = {429, 500, 502, 503, 504}
 _MAX_REDIRECTS = 5
-_DEFAULT_CACHE_TTL = 60.0
-_DEFAULT_CACHE_MAX_ENTRIES = 128
+_MAX_AUTOMATIC_RETRY_AFTER = 30.0
+_MAX_SHARED_COOLDOWN = 3600.0
 
 
 class _RateLimiter:
@@ -49,21 +47,32 @@ class _RateLimiter:
         self.clock = clock
         self.sleep = sleep
         self.last_request_at: float | None = None
+        self.blocked_until = 0.0
         self.lock = threading.Lock()
 
     def wait(self) -> None:
+        while True:
+            with self.lock:
+                now = self.clock()
+                embargo_delay = self.blocked_until - now
+                if self.last_request_at is not None:
+                    interval_delay = self.interval - (now - self.last_request_at)
+                else:
+                    interval_delay = 0.0
+                delay = max(embargo_delay, interval_delay)
+                if delay <= 0:
+                    self.last_request_at = now
+                    return
+            # Do not hold the lock while sleeping: a concurrent 429 must be able
+            # to extend the embargo before this request is allowed through.
+            self.sleep(delay)
+
+    def defer(self, delay: float) -> None:
+        """Apply one server-requested cooldown to every client sharing this limiter."""
         with self.lock:
-            now = self.clock()
-            if self.last_request_at is not None:
-                delay = self.interval - (now - self.last_request_at)
-                if delay > 0:
-                    self.sleep(delay)
-                    now = self.clock()
-            self.last_request_at = now
+            self.blocked_until = max(self.blocked_until, self.clock() + delay)
 
 
-_SHARED_CACHE: OrderedDict[str, tuple[float, Any]] = OrderedDict()
-_SHARED_CACHE_LOCK = threading.Lock()
 _SHARED_RATE_LIMITER = _RateLimiter(
     0.25,
     clock=time.monotonic,
@@ -85,11 +94,8 @@ class SipacClient:
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
         min_request_interval: float = 0.25,
-        cache_ttl: float = _DEFAULT_CACHE_TTL,
-        cache_max_entries: int = _DEFAULT_CACHE_MAX_ENTRIES,
         max_retries: int = 2,
         retry_backoff: float = 0.25,
-        cache: MutableMapping[str, tuple[float, Any]] | None = None,
     ):
         owns_client = client is None
         self._client = client or httpx.Client(
@@ -99,19 +105,8 @@ class SipacClient:
         )
         self._clock = clock
         self._sleep = sleep
-        self._cache_ttl = max(0.0, cache_ttl)
-        self._cache_max_entries = max(0, cache_max_entries)
         self._max_retries = max(0, max_retries)
         self._retry_backoff = max(0.0, retry_backoff)
-        if cache is not None:
-            self._cache = cache
-            self._cache_lock = threading.Lock()
-        elif owns_client:
-            self._cache = _SHARED_CACHE
-            self._cache_lock = _SHARED_CACHE_LOCK
-        else:
-            self._cache = OrderedDict()
-            self._cache_lock = threading.Lock()
         self._rate_limiter = (
             _SHARED_RATE_LIMITER
             if owns_client
@@ -127,11 +122,6 @@ class SipacClient:
 
     def get_public_process(self, process_number: str) -> SipacProcess:
         number = normalize_process_number(process_number)
-        cache_key = f"process:{number}"
-        cached = self._get_cached(cache_key)
-        if cached is not None:
-            return cached
-
         form = self._request("GET", PROCESS_SEARCH_URL)
         form.raise_for_status()
         payload = build_process_search_payload(form.text, number)
@@ -147,7 +137,6 @@ class SipacClient:
         process = parse_public_process(detail.text, public_url=detail_url)
         if process.number != number:
             raise SipacParseError("SIPAC returned a different process than requested")
-        self._put_cached(cache_key, process)
         return process
 
     def search_public_processes(
@@ -162,15 +151,6 @@ class SipacClient:
         query_type, query = normalize_interested_search(
             name=name, identifier=identifier
         )
-        cache_key = (
-            f"search:{query_type}:{query.casefold()}:{page}"
-            if query_type == "name"
-            else None
-        )
-        cached = self._get_cached(cache_key) if cache_key is not None else None
-        if cached is not None:
-            return cached
-
         form = self._request("GET", PROCESS_SEARCH_URL)
         form.raise_for_status()
         payload_type, payload_query, payload = build_interested_search_payload(
@@ -190,8 +170,6 @@ class SipacClient:
         parsed = parse_process_search_page(
             results_html, query_type=query_type, query=query, page=page
         )
-        if cache_key is not None:
-            self._put_cached(cache_key, parsed)
         return parsed
 
     def _request(self, method: str, url: str, **kwargs) -> httpx.Response:
@@ -245,28 +223,36 @@ class SipacClient:
                 if attempt == self._max_retries:
                     raise
             else:
-                if (
-                    response.status_code not in _TRANSIENT_STATUSES
-                    or attempt == self._max_retries
-                ):
+                if response.status_code not in _TRANSIENT_STATUSES:
                     return response
-                retry_delay = self._retry_delay(response, attempt)
-                if retry_delay is None:
+                if response.status_code == 429:
+                    retry_after = self._retry_after_seconds(response)
+                    if retry_after is None:
+                        return response
+                    self._rate_limiter.defer(retry_after)
+                    if (
+                        attempt == self._max_retries
+                        or retry_after > _MAX_AUTOMATIC_RETRY_AFTER
+                    ):
+                        return response
+                    response.close()
+                    continue
+                if attempt == self._max_retries:
                     return response
                 response.close()
             self._sleep(retry_delay)
         raise AssertionError("unreachable")  # pragma: no cover
 
-    def _retry_delay(self, response: httpx.Response, attempt: int) -> float | None:
-        backoff = self._retry_backoff * (2**attempt)
-        if response.status_code != 429:
-            return backoff
+    @staticmethod
+    def _retry_after_seconds(response: httpx.Response) -> float | None:
         header = response.headers.get("retry-after")
         if header is None:
             return None
-        try:
-            requested = float(header)
-        except ValueError:
+        if header.isascii() and header.isdecimal():
+            if len(header) > 10:
+                return None
+            requested = float(int(header))
+        else:
             try:
                 retry_at = parsedate_to_datetime(header)
                 if retry_at.tzinfo is None:
@@ -274,7 +260,8 @@ class SipacClient:
                 requested = (retry_at - datetime.now(timezone.utc)).total_seconds()
             except (TypeError, ValueError, OverflowError):
                 return None
-        return max(backoff, min(max(0.0, requested), 30.0))
+        requested = max(0.0, requested)
+        return requested if requested <= _MAX_SHARED_COOLDOWN else None
 
     @staticmethod
     def _validated_url(url: str) -> str:
@@ -288,40 +275,6 @@ class SipacClient:
         ):
             raise ValueError("SIPAC refused a redirect outside its public HTTPS host")
         return url
-
-    def _get_cached(self, key: str) -> Any | None:
-        if self._cache_ttl <= 0 or self._cache_max_entries <= 0:
-            return None
-        now = self._clock()
-        with self._cache_lock:
-            self._prune_expired_locked(now)
-            cached = self._cache.get(key)
-            if cached is None:
-                return None
-            expires_at, process = cached
-            if expires_at <= now:
-                del self._cache[key]
-                return None
-            if isinstance(self._cache, OrderedDict):
-                self._cache.move_to_end(key)
-            return deepcopy(process)
-
-    def _put_cached(self, key: str, value: Any) -> None:
-        if self._cache_ttl <= 0 or self._cache_max_entries <= 0:
-            return
-        with self._cache_lock:
-            now = self._clock()
-            self._prune_expired_locked(now)
-            self._cache[key] = (now + self._cache_ttl, deepcopy(value))
-            if isinstance(self._cache, OrderedDict):
-                self._cache.move_to_end(key)
-                while len(self._cache) > self._cache_max_entries:
-                    self._cache.popitem(last=False)
-
-    def _prune_expired_locked(self, now: float) -> None:
-        expired = [key for key, (expires_at, _) in self._cache.items() if expires_at <= now]
-        for key in expired:
-            del self._cache[key]
 
     def close(self) -> None:
         self._client.close()
