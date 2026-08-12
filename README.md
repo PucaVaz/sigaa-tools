@@ -42,6 +42,27 @@ sync, and can configure MCP and scheduled polling for you.
 Public SIPAC process queries do not need credentials and never read the stored
 SIGAA username or password.
 
+## Public SIPAC process lookup
+
+Use this feature to follow UFPB administrative processes without opening each SIPAC page manually. It returns the current status, subject, interested parties, public documents, routing movements, status changes, and attached files.
+
+```bash
+sigaa sipac process 23074.056437/2026-26
+sigaa sipac process 23074.056437/2026-26 --json
+```
+
+Example summary:
+
+```text
+23074.056437/2026-26  [ATIVO]
+  ANÁLISE DE PROPOSTA DE RESOLUÇÃO SOBRE DISTRIBUIÇÃO DE ENCARGOS DIDÁTICOS
+  Origin: CI - DIREÇÃO DE CENTRO (11.01.45.01)
+  Opened: 12/06/2026 17:26
+  Interested parties: 1 | Documents: 14 | Movements: 6
+```
+
+Agents can call `sipac_get_public_process` with `{"number": "23074.056437/2026-26"}` and receive the same `schema_version: 1` contract as the CLI JSON output. The lookup does not authenticate, bypass restricted documents, change processes, or persist results. See the [SIPAC process guide](docs/sipac-processes.mdx) for fields, use cases, and error handling.
+
 Headless fallback: `export SIGAA_USER=... SIGAA_PASS=...`.
 Optional `SIGAA_DB=/path/to/sigaa.db` to override the store location.
 
