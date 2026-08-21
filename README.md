@@ -2,11 +2,12 @@
 
 > [!IMPORTANT]
 > This is an unofficial personal project and is not affiliated with, endorsed
-> by, or supported by UFPB or SIGAA. Use it responsibly, keep request rates low,
+> by, or supported by UFPB, SIGAA, or SIPAC. Use it responsibly, keep request rates low,
 > and follow the rules that apply to your SIGAA account.
 
-User-friendly client for **SIGAA UFPB** (sigaa.ufpb.br) built for automation:
-a **CLI** and an **MCP server** over a layered Python core. Scope: single user.
+User-friendly client for **SIGAA UFPB** and the **SIPAC/UFPB public process
+portal**, built for automation: a **CLI** and an **MCP server** over a layered
+Python core. Authenticated SIGAA features remain single-user and local-first.
 
 SIGAA has no official API. This wraps the JSF web flow: login (cookie jar +
 `ViewState`, no JWT, no CAPTCHA), enrolled classes, academic progress and CRA,
@@ -32,13 +33,37 @@ sigaa init
 ## Credentials
 
 Keyring-first, env-second. Never commit credentials, cookies, downloaded live
-HTML, SQLite databases, exported PDFs, or `.env` files. Recommended
-=======
+HTML, SQLite databases, exported PDFs, or `.env` files.
 
 Run `sigaa init`. It prompts for your SIGAA username and password, stores the
 password in your OS keyring when available, verifies the login, runs the first
 sync, and can configure MCP and scheduled polling for you.
->>>>>>> 86efdfc5c737216768d4fbd4fc659a3e74ec6b93
+
+Public SIPAC process queries do not need credentials and never read the stored
+SIGAA username or password.
+
+## Public SIPAC process lookup
+
+Use this feature to follow UFPB administrative processes without opening each SIPAC page manually. Look up one process by its complete number or find processes by an interested party name or identifier. Process details include the current status, subject, interested parties, public documents, routing movements, status changes, and attached files.
+
+```bash
+sigaa sipac process 23074.056437/2026-26
+sigaa sipac process 23074.056437/2026-26 --json
+sigaa sipac search --name "Fulano de Tal"
+sigaa sipac search --identifier "12345678901" --page 2 --json
+```
+
+Example summary:
+
+```text
+23074.056437/2026-26  [ATIVO]
+  ANÁLISE DE PROPOSTA DE RESOLUÇÃO SOBRE DISTRIBUIÇÃO DE ENCARGOS DIDÁTICOS
+  Origin: CI - DIREÇÃO DE CENTRO (11.01.45.01)
+  Opened: 12/06/2026 17:26
+  Interested parties: 1 | Documents: 14 | Movements: 6
+```
+
+Agents can call `sipac_get_public_process` with `{"number": "23074.056437/2026-26"}`. To search, call `sipac_search_public_processes` with either `name` or `identifier`. Both interfaces use the same `schema_version: 1` contracts as the CLI JSON output. Public SIPAC commands do not authenticate, bypass restricted documents, change processes, or persist results. See the [SIPAC process guide](docs/sipac-processes.mdx) for fields, use cases, privacy guidance, and error handling.
 
 Headless fallback: `export SIGAA_USER=... SIGAA_PASS=...`.
 Optional `SIGAA_DB=/path/to/sigaa.db` to override the store location.
@@ -56,6 +81,8 @@ sigaa deadlines            # assessment/task due dates
 sigaa ics --out sigaa.ics  # export classes + deadlines as a calendar
 sigaa curriculum           # live CRA, enrolled + required pending components
 sigaa cra --json           # official CRA as JSON from the academic transcript
+sigaa sipac process 23074.056437/2026-26 --json # public SIPAC process lookup
+sigaa sipac search --name "Fulano de Tal" --json # find public processes
 sigaa historico --out h.pdf # download the academic transcript PDF (networked)
 sigaa declaracao-vinculo --out declaracao-vinculo.pdf # enrollment declaration PDF (networked)
 sigaa atestado-matricula --out atestado-matricula.html # enrollment certificate HTML (networked)
@@ -63,7 +90,8 @@ sigaa watch --interval 900 # foreground loop
 ```
 
 Store-backed listing commands are fast and offline. Login, sync/watch, live
-lookups, and downloads access SIGAA over the network.
+lookups, and downloads access the network. `sigaa sipac process` reads only
+SIPAC's public portal and does not authenticate.
 
 ## MCP server (for code agents)
 
@@ -73,10 +101,23 @@ server without manual absolute-path editing.
 Tools: `sigaa_list_classes`, `sigaa_list_news`, `sigaa_get_news_body`,
 `sigaa_get_schedule`, `sigaa_list_grades`, `sigaa_list_deadlines`,
 `sigaa_get_curriculum`, `sigaa_get_cra`, `sigaa_export_ics`,
+`sipac_get_public_process`, `sipac_search_public_processes`,
 `sigaa_download_historico`,
 `sigaa_download_declaracao_vinculo`, `sigaa_download_atestado_matricula`,
 `sigaa_sync`. Store-backed reads are offline; sync, live lookups, and downloads
 touch the network.
+
+`sipac_get_public_process(number)` returns the public process metadata exposed
+by UFPB: general data, interested parties, documents and public download links,
+movements, status changes, and attached files. It shares schema version 1 with
+`sigaa sipac process --json` and does not require credentials.
+
+`sipac_search_public_processes(name?, identifier?, page=1)` finds public
+processes by one interested-party field. Pass exactly one of `name` or
+`identifier`. Each response contains at most the 15 results exposed by one
+portal page. Results are not retained after the request finishes.
+Identifiers such as CPF, registration number, and CNPJ are personal data. Query
+them only for a legitimate purpose and avoid copying them into logs.
 
 `sigaa_get_curriculum` is networked and uses the same normalized contract and
 filters as `sigaa curriculum`: `status`, `required_only`, `period`,
@@ -167,8 +208,9 @@ sigaa/
   http.py       session: cookie jar, ViewState, re-login + retry
   auth.py       login flow
   client.py     SigaaClient -> domain models
+  sipac.py      unauthenticated public SIPAC process client + JSON contract
   models.py     Student, Turma, NewsItem, Schedule, CurriculumStatus
-  parsers/      portal, news, schedule, curriculum, transcript
+  parsers/      portal, news, schedule, curriculum, transcript, SIPAC process
   store/        SQLite db + repository (dedup, queries)
   services/     sync (fetch -> diff -> persist)
   cli.py        command line
@@ -179,6 +221,7 @@ Adding a feature (materials, attendance) = a parser + client method and a
 CLI/MCP surface, plus store columns when it is persisted. HTML changes touch
 only `parsers/`. Implemented so far: classes, news (+bodies), grades, deadlines,
 curriculum progress, official CRA, academic documents, and ICS export.
+Public SIPAC administrative-process consultation is also available live.
 
 `exporters/` turns store data into interchange formats (currently `ics`).
 
@@ -200,6 +243,9 @@ Single-user, local-first tool. `config.py` reads credentials from keyring first
 and environment variables second. The SQLite db is local and may contain student
 data copied from SIGAA. `.gitignore` excludes `*.db`, `.env`, and live HTML
 dumps, but review generated files before sharing logs, issues, or screenshots.
+The SIPAC process feature is read-only and public; it does not send stored
+credentials, but its responses can contain names and identifiers already shown
+by the public portal, so handle exported JSON responsibly.
 
 ## License
 
