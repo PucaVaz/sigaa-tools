@@ -25,9 +25,16 @@ from .exporters.ics import build_calendar
 from .http import AuthError
 from .parsers.curriculum import CurriculumDataError
 from .parsers.schedule import day_name, decode_schedule
+from .parsers.sipac import SipacParseError
 from .parsers.transcript import CraUnavailableError, TranscriptParseError
 from .services import whatsnew
 from .services.sync import sync
+from .sipac import (
+    SipacClient,
+    SipacProcessNotFound,
+    public_process_search_to_dict,
+    public_process_to_dict,
+)
 from .store.db import connect
 from .store.repository import Repository
 
@@ -38,11 +45,14 @@ def main(argv: list[str] | None = None) -> int:
     if not getattr(args, "func", None):
         parser.print_help()
         return 1
-    settings = Settings()
-    if getattr(args, "user", None):
-        settings.username = args.user
-    if getattr(args, "db", None):
-        settings.db_path = args.db
+    if getattr(args, "public_without_settings", False):
+        settings = None
+    else:
+        settings = Settings()
+        if getattr(args, "user", None):
+            settings.username = args.user
+        if getattr(args, "db", None):
+            settings.db_path = args.db
     try:
         return args.func(args, settings)
     except KeyboardInterrupt:
@@ -110,6 +120,37 @@ def _build_parser() -> argparse.ArgumentParser:
     p_cra = sub.add_parser("cra", help="show the official CRA from the transcript")
     p_cra.add_argument("--json", action="store_true")
     p_cra.set_defaults(func=_cmd_cra)
+
+    p_sipac = sub.add_parser(
+        "sipac",
+        help="query SIPAC's public administrative-process portal",
+    )
+    sipac_sub = p_sipac.add_subparsers(dest="sipac_command")
+    p_sipac_process = sipac_sub.add_parser(
+        "process",
+        help="look up one public process by its full number",
+    )
+    p_sipac_process.add_argument("number", help="e.g. 23074.056437/2026-26")
+    p_sipac_process.add_argument("--json", action="store_true")
+    p_sipac_process.set_defaults(
+        func=_cmd_sipac_process,
+        public_without_settings=True,
+    )
+    p_sipac_search = sipac_sub.add_parser(
+        "search",
+        help="search public processes by interested-party name or identifier",
+    )
+    criterion = p_sipac_search.add_mutually_exclusive_group(required=True)
+    criterion.add_argument("--name", help="interested-party name")
+    criterion.add_argument(
+        "--identifier", help="interested-party registration, CPF, or CNPJ (digits only)"
+    )
+    p_sipac_search.add_argument("--page", type=int, default=1)
+    p_sipac_search.add_argument("--json", action="store_true")
+    p_sipac_search.set_defaults(
+        func=_cmd_sipac_search,
+        public_without_settings=True,
+    )
 
     p_dl = sub.add_parser("deadlines", help="list assessment/task deadlines from the store")
     p_dl.add_argument("--class", dest="klass", help="filter by class code")
@@ -345,6 +386,44 @@ def _cmd_cra(args, settings: Settings) -> int:
     else:
         print(f"CRA: {data['value']:.2f}")
         print("Source: official academic transcript")
+    return 0
+
+
+def _cmd_sipac_process(args, settings: Settings) -> int:
+    del settings  # Public SIPAC lookup deliberately ignores stored credentials.
+    try:
+        with SipacClient() as client:
+            process = client.get_public_process(args.number)
+    except (SipacProcessNotFound, SipacParseError, ValueError, httpx.HTTPError) as exc:
+        print(f"SIPAC process lookup failed: {exc}", file=sys.stderr)
+        return 1
+
+    data = public_process_to_dict(process)
+    if args.json:
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+    else:
+        _print_sipac_process(data)
+    return 0
+
+
+def _cmd_sipac_search(args, settings: Settings) -> int:
+    del settings  # Public SIPAC lookup deliberately ignores stored credentials.
+    try:
+        with SipacClient() as client:
+            page = client.search_public_processes(
+                name=args.name,
+                identifier=args.identifier,
+                page=args.page,
+            )
+    except (SipacParseError, ValueError, httpx.HTTPError) as exc:
+        print(f"SIPAC process search failed: {exc}", file=sys.stderr)
+        return 1
+
+    data = public_process_search_to_dict(page)
+    if args.json:
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+    else:
+        _print_sipac_search(data)
     return 0
 
 
@@ -681,6 +760,42 @@ def _progress_bar(percent: float, width: int = 16) -> str:
     bounded = max(0.0, min(float(percent), 100.0))
     filled = round((bounded / 100.0) * width)
     return f"[{'#' * filled}{'-' * (width - filled)}]"
+
+
+def _print_sipac_process(data: dict) -> None:
+    print(f"{data['number']}  [{data['status'] or 'status unavailable'}]")
+    print(f"  {data['detailed_subject'] or data['subject'] or 'No subject reported'}")
+    if data["origin_unit"]:
+        print(f"  Origin: {data['origin_unit']}")
+    if data["opened_at"]:
+        print(f"  Opened: {data['opened_at']}")
+    print(
+        f"  Interested parties: {len(data['interested_parties'])} | "
+        f"Documents: {len(data['documents'])} | "
+        f"Movements: {len(data['movements'])}"
+    )
+    for movement in data["movements"]:
+        print(
+            f"    {movement['sent_at']}: {movement['origin_unit']} "
+            f"-> {movement['destination_unit']}"
+        )
+    print(f"  Public URL: {data['public_url']}")
+
+
+def _print_sipac_search(data: dict) -> None:
+    pagination = data["pagination"]
+    total_pages = pagination["total_pages"] or 1
+    print(
+        f"{pagination['total_results']} public process(es) for "
+        f"{data['query']['type']} {data['query']['value']!r} "
+        f"(page {pagination['page']}/{total_pages})"
+    )
+    for result in data["results"]:
+        print(f"{result['number']}  {result['subject']}")
+        if result["interested_parties"]:
+            print(f"  Interested: {', '.join(result['interested_parties'])}")
+        print(f"  Origin: {result['origin_unit']}")
+        print(f"  Public URL: {result['public_url']}")
 
 
 def _fmt_schedule(raw: str) -> str:
