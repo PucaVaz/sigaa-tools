@@ -6,6 +6,8 @@ import re
 from dataclasses import replace
 from decimal import Decimal
 
+import httpx
+
 from . import config
 from .documents import (
     ATESTADO_MATRICULA,
@@ -41,8 +43,14 @@ from .parsers import transcript as transcript_parser
 
 
 class SigaaClient:
-    def __init__(self, username: str, password: str):
-        self._session = Session(username, password)
+    def __init__(
+        self,
+        username: str,
+        password: str,
+        *,
+        timeout: float | httpx.Timeout = 30.0,
+    ):
+        self._session = Session(username, password, timeout=timeout)
         self._portal_html: str | None = None
 
     def _portal(self) -> str:
