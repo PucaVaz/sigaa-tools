@@ -31,13 +31,20 @@ class AuthError(RuntimeError):
 class Session:
     """Stateful SIGAA session. Construct with credentials, then ``login()``."""
 
-    def __init__(self, username: str, password: str, client: httpx.Client | None = None):
+    def __init__(
+        self,
+        username: str,
+        password: str,
+        client: httpx.Client | None = None,
+        *,
+        timeout: float | httpx.Timeout = 30.0,
+    ):
         self._username = username
         self._password = password
         self._client = client or httpx.Client(
             headers={"User-Agent": config.USER_AGENT},
             follow_redirects=True,
-            timeout=30.0,
+            timeout=timeout,
         )
         self._authenticated = False
 
