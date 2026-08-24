@@ -88,6 +88,8 @@ class CurriculumComponent:
     prerequisite: str | None = None
     corequisite: str | None = None
     period_raw: int | float | str | None = None
+    # Whether the prerequisite expression is satisfied by completed components.
+    prerequisite_met: bool = True
 
 
 @dataclass
