@@ -161,6 +161,12 @@ def _build_parser() -> argparse.ArgumentParser:
     p_ics.add_argument("--out", help="output file (default: stdout)")
     p_ics.set_defaults(func=_cmd_ics)
 
+    p_matr = sub.add_parser("matricula", help="matrícula on-line: list open sections, select, confirm (networked)")
+    p_matr.add_argument("--select", nargs="+", metavar="TURMA_ID", help="add these sections to the enrollment request")
+    p_matr.add_argument("--confirm", action="store_true", help="press CONFIRMAR MATRÍCULAS after selecting (submits the request)")
+    p_matr.add_argument("--json", action="store_true")
+    p_matr.set_defaults(func=_cmd_matricula)
+
     p_hist = sub.add_parser("historico", help="download the academic transcript PDF (networked)")
     p_hist.add_argument("--out", default="historico.pdf", help="output file (default: historico.pdf)")
     p_hist.add_argument("--force", action="store_true", help="overwrite an existing output file")
@@ -473,6 +479,46 @@ def _cmd_ics(args, settings: Settings) -> int:
         print(f"wrote {args.out}")
     else:
         print(ics, end="")
+    return 0
+
+
+def _cmd_matricula(args, settings: Settings) -> int:
+    from .parsers import matricula as matricula_parser
+
+    password = settings.resolve_password()
+    if not settings.username or not password:
+        print("missing credentials (set SIGAA_USER and keyring/SIGAA_PASS)", file=sys.stderr)
+        return 1
+    if args.confirm and not args.select:
+        print("--confirm requires --select", file=sys.stderr)
+        return 1
+    with SigaaClient(settings.username, password) as client:
+        curriculo_html = client.open_matricula_curriculo()
+        if not args.select:
+            turmas = client.list_open_turmas(curriculo_html)
+            if args.json:
+                print(json.dumps([vars(t) for t in turmas], ensure_ascii=False, indent=1))
+                return 0
+            for t in turmas:
+                flags = ("R" if t.has_reservation else "-") + ("A" if t.allowed else "-")
+                print(
+                    f"{t.turma_id} {flags} {t.level or '':3} {t.component_code:9} "
+                    f"{t.component_name[:40]:40} {t.kind[:10]:10} {t.turma_label or '':8} "
+                    f"{t.schedule_raw or '':10} {t.teachers or ''}"
+                )
+            print("\nflags: R = seats reserved for your course, A = matrícula permitida")
+            return 0
+        selecionadas = client.select_matricula_turmas(args.select, curriculo_html)
+        for message in matricula_parser.parse_messages(selecionadas):
+            print(message)
+        if not args.confirm:
+            print("selection staged only; re-run with --confirm to submit")
+            return 0
+        receipt = client.confirm_matricula(selecionadas)
+        for message in matricula_parser.parse_messages(receipt):
+            print(message)
+        number = matricula_parser.parse_request_number(receipt)
+        print(f"solicitação nº {number}" if number else "no request number found; verify in SIGAA")
     return 0
 
 

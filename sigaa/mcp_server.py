@@ -688,6 +688,21 @@ def _read_html_document_resource(token: str) -> bytes:
 
 
 @mcp.tool()
+def sigaa_matricula_open_turmas() -> list[dict]:
+    """Open sections offered for enrollment (matrícula on-line). Networked, read-only.
+
+    Selection/confirmation is intentionally CLI-only ('sigaa matricula --select --confirm')
+    so an agent cannot submit an enrollment request on its own.
+    """
+    settings = Settings()
+    password = settings.resolve_password()
+    if not settings.username or not password:
+        return [{"error": "no credentials available"}]
+    with SigaaClient(settings.username, password) as client:
+        return [vars(t) for t in client.list_open_turmas()]
+
+
+@mcp.tool()
 def sigaa_sync(fetch_bodies: bool = False) -> dict:
     """Refresh the local store from SIGAA."""
     result = run_sync(Settings(), fetch_bodies=fetch_bodies)

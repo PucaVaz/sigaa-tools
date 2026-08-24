@@ -59,7 +59,9 @@ class Session:
     def get(self, url: str) -> str:
         return self._request("GET", url)
 
-    def post(self, url: str, data: dict[str, str]) -> str:
+    def post(self, url: str, data: dict[str, str | list[str]]) -> str:
+        """POST form data. A list value repeats the key (httpx encodes it so;
+        tuples inside the mapping break h11)."""
         return self._request("POST", url, data=data)
 
     def post_bytes(self, url: str, data: dict[str, str]) -> bytes:
