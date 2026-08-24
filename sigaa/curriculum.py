@@ -131,6 +131,7 @@ def _component_to_dict(
         "period_raw": component.period_raw,
         "workload_hours": component.workload_hours,
         "integration_type": component.integration_type,
+        "prerequisite_met": component.prerequisite_met,
     }
     if include_requirements:
         data["prerequisite"] = component.prerequisite

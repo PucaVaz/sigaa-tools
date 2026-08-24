@@ -95,3 +95,23 @@ def test_invalid_payload_raises_without_echoing_body(payload):
     assert "sessao expirada" not in message
     assert "<html>" not in message
     assert "login" not in message
+
+
+def test_prerequisite_met_evaluation():
+    from sigaa.parsers.curriculum import prerequisite_met
+
+    done = {"AAA0001", "BBB0002"}
+    assert prerequisite_met(None, done)
+    assert prerequisite_met("", done)
+    assert prerequisite_met("( AAA0001 ) E ( BBB0002 )", done)
+    assert prerequisite_met("( ZZZ0009 ) OU ( AAA0001 )", done)
+    assert not prerequisite_met("( ZZZ0009 ) E ( AAA0001 )", done)
+
+
+def test_prerequisite_met_rejects_garbage():
+    import pytest
+
+    from sigaa.parsers.curriculum import CurriculumDataError, prerequisite_met
+
+    with pytest.raises(CurriculumDataError):
+        prerequisite_met("( AAA0001 ) E import os", set())

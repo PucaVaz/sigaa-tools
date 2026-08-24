@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from typing import Any
 
 from ..models import CurriculumComponent, CurriculumStatus, WorkloadProgress
@@ -40,6 +41,11 @@ def parse_curriculum(data: object) -> CurriculumStatus:
         _parse_component(item, index)
         for index, item in enumerate(components_data)
     ]
+    completed_codes = {c.code for c in components if c.status == "completed"}
+    for component in components:
+        component.prerequisite_met = prerequisite_met(
+            component.prerequisite, completed_codes
+        )
 
     return CurriculumStatus(
         curriculum=_required_string(payload, "curriculo"),
@@ -223,3 +229,27 @@ def _safe_raw_period(value: object) -> int | float | str | None:
     if isinstance(value, (int, float, str)):
         return value
     return None
+
+
+_COMPONENT_CODE_RE = re.compile(r"[A-Z0-9]{7,9}")
+_SAFE_BOOL_EXPR_RE = re.compile(r"^[\sTrueFalsandor()]+$")
+
+
+def prerequisite_met(expression: str | None, completed_codes: set[str]) -> bool:
+    """Evaluate a SIGAA prerequisite expression like ``( A ) E ( B OU C )``.
+
+    Component codes are substituted with True/False by membership in
+    ``completed_codes``; the substituted expression is validated to contain
+    only boolean tokens before evaluation.
+    """
+    if not expression or not expression.strip():
+        return True
+    expr = _COMPONENT_CODE_RE.sub(
+        lambda match: str(match.group(0) in completed_codes), expression
+    )
+    expr = expr.replace(" E ", " and ").replace(" OU ", " or ")
+    if not _SAFE_BOOL_EXPR_RE.match(expr):
+        raise CurriculumDataError(
+            f"unparseable prerequisite expression: {expression!r}"
+        )
+    return bool(eval(expr, {"__builtins__": {}}, {}))  # noqa: S307 - vetted tokens only
