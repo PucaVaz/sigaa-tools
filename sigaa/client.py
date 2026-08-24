@@ -72,6 +72,67 @@ class SigaaClient:
         html = self._portal_menu_post("Minhas Notas")
         return grades_parser.parse_grades(html)
 
+    def open_matricula_curriculo(self) -> str:
+        """Navigate Portal -> Realizar Matrícula -> Iniciar Seleção; return the
+        'Turmas Abertas do Currículo' page HTML."""
+        intro = self._portal_menu_post("Realizar Matrícula")
+        return self._session.post(
+            config.MATRICULA_INSTRUCOES_URL,
+            {
+                "form": "form",
+                "form:btnIniciarSolicit": "x",
+                "javax.faces.ViewState": extract_viewstate(intro),
+            },
+        )
+
+    def list_open_turmas(self, curriculo_html: str | None = None):
+        """Open sections offered for the student's curriculum."""
+        from .parsers import matricula as matricula_parser
+
+        html = curriculo_html or self.open_matricula_curriculo()
+        return matricula_parser.parse_open_turmas(html)
+
+    def select_matricula_turmas(self, turma_ids: list[str], curriculo_html: str | None = None) -> str:
+        """Add sections to the enrollment request (not yet confirmed).
+
+        Returns the 'Turmas Selecionadas' page HTML; feedback messages on it
+        report which sections were accepted or rejected.
+        """
+        html = curriculo_html or self.open_matricula_curriculo()
+        form_match = re.search(
+            r'<form id="([^"]+)"[^>]*>(?:(?!</form>).)*?name="selecaoTurmas"', html, re.S
+        )
+        if not form_match:
+            raise ValueError("selection form not found on the matrícula page")
+        form = form_match.group(1)
+        return self._session.post(
+            config.MATRICULA_TURMAS_CURRICULO_URL,
+            {
+                form: form,
+                f"{form}:btaoSelecionarTurmas": f"{form}:btaoSelecionarTurmas",
+                "javax.faces.ViewState": extract_viewstate(html),
+                "selecaoTurmas": turma_ids,
+            },
+        )
+
+    def confirm_matricula(self, selecionadas_html: str) -> str:
+        """Press CONFIRMAR MATRÍCULAS on the 'Turmas Selecionadas' page.
+
+        Submits the enrollment request for processing. Returns the receipt
+        page HTML (contains the Solicitação de Matrícula number).
+        """
+        form = "formBotoesSuperiores"
+        return self._session.post(
+            config.MATRICULA_TURMAS_CURRICULO_URL.replace(
+                "turmas_curriculo.jsf", "turmas_selecionadas.jsf"
+            ),
+            {
+                form: form,
+                f"{form}:botaoSubmissao": f"{form}:botaoSubmissao",
+                "javax.faces.ViewState": extract_viewstate(selecionadas_html),
+            },
+        )
+
     def get_cra(self) -> Decimal:
         """Return the official CRA recorded in the academic transcript."""
         return transcript_parser.parse_cra_pdf(self.get_historico_pdf())

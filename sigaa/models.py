@@ -314,3 +314,21 @@ class SipacProcessSearchPage:
     total_pages: int
     total_results: int
     results: list[SipacProcessSearchResult] = field(default_factory=list)
+
+
+@dataclass
+class OpenTurma:
+    """An open section offered for enrollment on the matrícula pages."""
+
+    turma_id: str  # value posted in the selecaoTurmas checkbox
+    component_code: str
+    component_name: str
+    kind: str  # e.g. "Optativa", "Obrig. Currículo"
+    level: str | None = None  # curriculum level label, e.g. "6º"
+    allowed: bool = True  # matrícula permitida icon on the component header
+    has_reservation: bool = False  # turma has seats reserved for the student's course
+    turma_label: str | None = None  # e.g. "Turma 01"
+    teachers: str | None = None
+    schedule_raw: str | None = None
+    room: str | None = None
+    capacity: str | None = None

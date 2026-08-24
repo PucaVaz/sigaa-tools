@@ -94,3 +94,7 @@ class Settings:
             except Exception:
                 pass
         return os.environ.get("SIGAA_PASS")
+
+# Matrícula on-line (enrollment request) flow.
+MATRICULA_INSTRUCOES_URL = f"{BASE}/graduacao/matricula/instrucoes.jsf"
+MATRICULA_TURMAS_CURRICULO_URL = f"{BASE}/graduacao/matricula/turmas_curriculo.jsf"
