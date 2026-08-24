@@ -67,3 +67,8 @@ class Settings:
             except Exception:
                 pass
         return os.environ.get("SIGAA_PASS")
+
+# Integralização (curriculum progress). The dados endpoint returns JSON, but
+# only for XHR-shaped requests, and the body is latin-1 encoded.
+INTEGRALIZACAO_URL = f"{BASE}/portal/discente/integralizacao/"
+INTEGRALIZACAO_DADOS_URL = f"{BASE}/portal/discente/integralizacao/dados/"

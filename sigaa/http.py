@@ -52,6 +52,29 @@ class Session:
     def get(self, url: str) -> str:
         return self._request("GET", url)
 
+    def get_json_latin1(self, url: str, referer: str | None = None) -> str:
+        """GET a JSON endpoint that requires XHR headers and replies in latin-1.
+
+        Returns the decoded JSON text; re-logins and retries once if bounced.
+        """
+        if not self._authenticated:
+            self.login()
+        headers = {
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "X-Requested-With": "XMLHttpRequest",
+        }
+        if referer:
+            headers["Referer"] = referer
+        resp = self._client.get(url, headers=headers)
+        resp.raise_for_status()
+        text = resp.content.decode("latin-1")
+        if self._looks_logged_out(text):
+            self.login()
+            resp = self._client.get(url, headers=headers)
+            resp.raise_for_status()
+            text = resp.content.decode("latin-1")
+        return text
+
     def post(self, url: str, data: dict[str, str]) -> str:
         return self._request("POST", url, data=data)
 

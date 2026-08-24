@@ -50,6 +50,24 @@ class SigaaClient:
         html = self._portal_menu_post("Minhas Notas")
         return grades_parser.parse_grades(html)
 
+    def get_integralizacao(self) -> dict:
+        """Curriculum progress (integralização) as raw JSON data."""
+        import json
+
+        # The dados endpoint 302s to an HTML shell unless the integralização
+        # page was opened first in this session (server-side JSF context).
+        self._session.get(config.INTEGRALIZACAO_URL)
+        text = self._session.get_json_latin1(
+            config.INTEGRALIZACAO_DADOS_URL, referer=config.INTEGRALIZACAO_URL
+        )
+        return json.loads(text)
+
+    def list_curriculum_components(self):
+        """Curriculum components with completion and prerequisite status."""
+        from .parsers import curriculo as curriculo_parser
+
+        return curriculo_parser.parse_components(self.get_integralizacao())
+
     def get_historico_pdf(self) -> bytes:
         """Download the full academic transcript (Histórico) as a PDF."""
         portal = self._portal()

@@ -158,3 +158,18 @@ class Deadline:
     detail: str | None = None  # e.g. "em 10 dias"
     # JSON of the scraped event detail rows (Descrição, Período, ...), cached on demand.
     body: str | None = None
+
+
+@dataclass
+class CurriculumComponent:
+    """A curriculum component from the integralização report."""
+
+    code: str
+    name: str
+    kind: str  # OB / CO / CF / OP / EC
+    period: int
+    hours: int
+    mandatory: bool
+    completed: bool
+    prerequisite: str | None = None
+    prerequisite_met: bool = True

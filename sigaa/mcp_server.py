@@ -382,6 +382,22 @@ def sigaa_download_historico(path: str = "historico.pdf") -> str:
 
 
 @mcp.tool()
+def sigaa_get_curriculo(pending_only: bool = False, mandatory_only: bool = False) -> list[dict]:
+    """Curriculum progress (integralização): components with completion and prereq status. Networked."""
+    settings = Settings()
+    password = settings.resolve_password()
+    if not settings.username or not password:
+        return [{"error": "no credentials available"}]
+    with SigaaClient(settings.username, password) as client:
+        components = client.list_curriculum_components()
+    if pending_only:
+        components = [c for c in components if not c.completed]
+    if mandatory_only:
+        components = [c for c in components if c.mandatory]
+    return [vars(c) for c in components]
+
+
+@mcp.tool()
 def sigaa_sync(fetch_bodies: bool = False) -> dict:
     """Refresh from SIGAA and persist new news. The only networked tool."""
     result = run_sync(Settings(), fetch_bodies=fetch_bodies)

@@ -74,6 +74,12 @@ def _build_parser() -> argparse.ArgumentParser:
     p_ics.add_argument("--out", help="output file (default: stdout)")
     p_ics.set_defaults(func=_cmd_ics)
 
+    p_curr = sub.add_parser("curriculo", help="curriculum progress / integralização (networked)")
+    p_curr.add_argument("--pending", action="store_true", help="only components not yet completed")
+    p_curr.add_argument("--mandatory", action="store_true", help="only mandatory components")
+    p_curr.add_argument("--json", action="store_true")
+    p_curr.set_defaults(func=_cmd_curriculo)
+
     p_hist = sub.add_parser("historico", help="download the academic transcript PDF (networked)")
     p_hist.add_argument("--out", default="historico.pdf", help="output file (default: historico.pdf)")
     p_hist.set_defaults(func=_cmd_historico)
@@ -256,6 +262,26 @@ def _cmd_ics(args, settings: Settings) -> int:
         print(f"wrote {args.out}")
     else:
         print(ics, end="")
+    return 0
+
+
+def _cmd_curriculo(args, settings: Settings) -> int:
+    password = settings.resolve_password()
+    if not settings.username or not password:
+        print("missing credentials (set SIGAA_USER and keyring/SIGAA_PASS)", file=sys.stderr)
+        return 1
+    with SigaaClient(settings.username, password) as client:
+        components = client.list_curriculum_components()
+    if args.pending:
+        components = [c for c in components if not c.completed]
+    if args.mandatory:
+        components = [c for c in components if c.mandatory]
+    if args.json:
+        print(json.dumps([vars(c) for c in components], ensure_ascii=False, indent=1))
+        return 0
+    for c in components:
+        status = "CONCLUIDO" if c.completed else ("PENDENTE" if c.prerequisite_met else "BLOQUEADA")
+        print(f"P{c.period} {c.kind:2} {c.code:9} {c.name[:52]:52} {c.hours:3}h {status}")
     return 0
 
 
