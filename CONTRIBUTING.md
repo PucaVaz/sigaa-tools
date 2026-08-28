@@ -150,3 +150,14 @@ This project handles local academic data. Treat everything that comes from SIGAA
 as sensitive by default. When in doubt, do not publish the data: reproduce the
 format with fake information or ask for guidance in the issue.
 
+## Release Process
+
+Maintainers can publish new releases to PyPI via GitHub Actions:
+
+1. **Update the version** in `sigaa/__init__.py` (e.g., `__version__ = "0.2.0"`).
+2. **Commit and push** the change to `main`.
+3. **Create a git tag** matching the version: `git tag v0.2.0 && git push origin v0.2.0`.
+4. **GitHub Actions** (`publish.yml`) automatically builds the package and pushes to PyPI.
+
+Note: The package version is read from `sigaa/__version__` at build time, so a single source of truth is maintained.
+

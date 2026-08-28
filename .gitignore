@@ -24,6 +24,9 @@ venv/
 /declaracao-vinculo.pdf
 /atestado-matricula.html
 
+# Course materials (keep in ../classes/, not in repo root)
+*.pdf
+
 # OS / editor
 .DS_Store
 .idea/

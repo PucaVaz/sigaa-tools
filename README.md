@@ -5,44 +5,53 @@
 > by, or supported by UFPB, SIGAA, or SIPAC. Use it responsibly, keep request rates low,
 > and follow the rules that apply to your SIGAA account.
 
-User-friendly client for **SIGAA UFPB** and the **SIPAC/UFPB public process
-portal**, built for automation: a **CLI** and an **MCP server** over a layered
-Python core. Authenticated SIGAA features remain single-user and local-first.
+Friendly CLI and MCP server for **SIGAA UFPB** and **SIPAC** public process lookup. Fetch your classes, grades, deadlines, and curriculum all at once without opening the web portal.
 
-SIGAA has no official API. This wraps the JSF web flow: login (cookie jar +
-`ViewState`, no JWT, no CAPTCHA), enrolled classes, academic progress and CRA,
-plus **per-class news channels** persisted to SQLite with stable dedup by news
-id.
+## Quickstart
 
-## Install
-
-Install `pipx` once if you do not already have it:
-
+**Step 1:** Install `pipx` (once only):
 ```bash
 brew install pipx
 # or: python -m pip install --user pipx
 ```
 
-Then install and run the setup wizard:
-
+**Step 2:** Install sigaa:
 ```bash
 pipx install "sigaa-ai-agent[mcp]"
+```
+
+**Step 3:** Run the setup wizard:
+```bash
 sigaa init
 ```
 
-## Credentials
+That's it. The wizard prompts for your SIGAA credentials, stores them securely, syncs your data, and optionally sets up MCP for Claude Code or background polling.
 
-Keyring-first, env-second. Never commit credentials, cookies, downloaded live
-HTML, SQLite databases, exported PDFs, or `.env` files.
+## What you get
 
-Run `sigaa init`. It prompts for your SIGAA username and password, stores the
-password in your OS keyring when available, verifies the login, runs the first
-sync, and can configure MCP and scheduled polling for you.
+- **CLI**: `sigaa classes`, `sigaa news`, `sigaa grades`, `sigaa deadlines`, etc. Fast, offline-first queries from a local SQLite database.
+- **MCP server**: Wire into Claude Code (or any MCP client) to let AI agents fetch your SIGAA data on demand.
+- **SIPAC lookup**: `sigaa sipac process 23074.056437/2026-26` — look up public UFPB administrative processes without a browser.
 
-Public SIPAC process queries do not need credentials and never read the stored
-SIGAA username or password.
+## Common commands
 
-## Public SIPAC process lookup
+```bash
+sigaa sync                 # fetch & persist new news, deadlines, grades
+sigaa sync --bodies        # also fetch full news article text
+sigaa classes --schedule   # enrolled classes with decoded weekly schedule
+sigaa news --class DSCO00022   # news for one class
+sigaa news --unread --mark-seen
+sigaa grades --semester 2025.1 # grades by semester
+sigaa deadlines            # assessment/task due dates
+sigaa ics --out sigaa.ics  # export classes + deadlines as calendar
+sigaa curriculum           # live progress & required courses
+sigaa cra --json           # official CRA as JSON
+sigaa watch --interval 900 # continuous sync in foreground
+```
+
+Store-backed commands (`classes`, `news`, `grades`, `deadlines`) are fast and offline. Network commands (`sync`, `watch`, `curriculum`, `cra`, downloads) need internet.
+
+## SIPAC public process lookup
 
 Use this feature to follow UFPB administrative processes without opening each SIPAC page manually. Look up one process by its complete number or find processes by an interested party name or identifier. Process details include the current status, subject, interested parties, public documents, routing movements, status changes, and attached files.
 
@@ -67,31 +76,6 @@ Agents can call `sipac_get_public_process` with `{"number": "23074.056437/2026-2
 
 Headless fallback: `export SIGAA_USER=... SIGAA_PASS=...`.
 Optional `SIGAA_DB=/path/to/sigaa.db` to override the store location.
-
-## CLI
-
-```bash
-sigaa sync                 # hit SIGAA: persist new news, deadlines, grades
-sigaa sync --bodies        # also fetch full news article text
-sigaa classes --schedule   # enrolled classes with decoded weekly schedule
-sigaa news --class DSCO00022   # news for one class, from the store
-sigaa news --unread --mark-seen
-sigaa grades --semester 2025.1 # grades report by semester
-sigaa deadlines            # assessment/task due dates
-sigaa ics --out sigaa.ics  # export classes + deadlines as a calendar
-sigaa curriculum           # live CRA, enrolled + required pending components
-sigaa cra --json           # official CRA as JSON from the academic transcript
-sigaa sipac process 23074.056437/2026-26 --json # public SIPAC process lookup
-sigaa sipac search --name "Fulano de Tal" --json # find public processes
-sigaa historico --out h.pdf # download the academic transcript PDF (networked)
-sigaa declaracao-vinculo --out declaracao-vinculo.pdf # enrollment declaration PDF (networked)
-sigaa atestado-matricula --out atestado-matricula.html # enrollment certificate HTML (networked)
-sigaa watch --interval 900 # foreground loop
-```
-
-Store-backed listing commands are fast and offline. Login, sync/watch, live
-lookups, and downloads access the network. `sigaa sipac process` reads only
-SIPAC's public portal and does not authenticate.
 
 ## MCP server (for code agents)
 
@@ -144,15 +128,13 @@ not execute the report's active SIGAA markup inline.
 Run `sigaa init`; it can write the launchd plist on macOS or print the cron
 entry for other operating systems.
 
-## Contributing / dev install
+## Credentials
 
-```bash
-git clone https://github.com/PucaVaz/sigaa-for-ai-agents.git
-cd sigaa-for-ai-agents
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[mcp,dev]"
-sigaa --user YOUR_USER login
-```
+Keyring-first, env-second. Never commit credentials, cookies, downloaded live HTML, SQLite databases, exported PDFs, or `.env` files.
+
+`sigaa init` stores your SIGAA password securely in your OS keyring and verifies the login. Public SIPAC queries do not need credentials.
+
+For headless environments: `export SIGAA_USER=username SIGAA_PASS=password`. Optional: `SIGAA_DB=/path/to/sigaa.db` to override the store location.
 
 ## Advanced manual configuration
 
@@ -236,6 +218,10 @@ verify against a turma's "Plano de Curso" before using them for calendar export.
 ```bash
 pytest        # offline: parsers run on fixtures, store on in-memory sqlite
 ```
+
+## Contributing
+
+Interested in hacking on sigaa-ai-agent? See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and release instructions.
 
 ## Security
 

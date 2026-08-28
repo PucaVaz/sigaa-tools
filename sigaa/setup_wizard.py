@@ -52,8 +52,21 @@ def select_institution(input_func: Callable[[str], str] = input) -> Institution:
 
 
 def verify_and_store_login(username: str, password: str) -> LoginResult:
-    with SigaaClient(username, password) as client:
-        student = client.get_student()
+    try:
+        with SigaaClient(username, password) as client:
+            student = client.get_student()
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "unauthorized" in error_msg or "401" in error_msg or "login" in error_msg:
+            raise ValueError(
+                "incorrect username or password. check credentials and try again."
+            ) from e
+        elif "connection" in error_msg or "network" in error_msg or "timeout" in error_msg:
+            raise ValueError(
+                "network error. check your internet connection and try again."
+            ) from e
+        else:
+            raise ValueError(f"login failed: {e}") from e
 
     password_stored = True
     storage_message = "password stored in keyring"

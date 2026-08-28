@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sigaa-ai-agent"
-version = "0.1.0"
+dynamic = ["version"]
 description = "User-friendly SIGAA and public SIPAC UFPB client (CLI + MCP)"
 readme = "README.md"
 license = "MIT"
@@ -32,7 +32,7 @@ Repository = "https://github.com/PucaVaz/sigaa-for-ai-agents"
 
 [project.optional-dependencies]
 mcp = ["mcp>=1.27,<2"]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "ruff>=0.6.0"]
 
 [project.scripts]
 sigaa = "sigaa.cli:main"
@@ -41,5 +41,12 @@ sigaa-mcp = "sigaa.mcp_server:main"
 [tool.setuptools.packages.find]
 include = ["sigaa*"]
 
+[tool.setuptools.dynamic]
+version = {attr = "sigaa.__version__"}
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
