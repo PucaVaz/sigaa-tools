@@ -36,6 +36,12 @@ LOGIN_REDIRECT_MARKER = "logon.jsf"
 KEYRING_SERVICE = "sigaa-ufpb"
 KEYRING_ACTIVE_USERNAME = "__active_username__"
 
+# MCP tool surfaces. Local keeps every tool; hosted is the reduced surface for a
+# shared deployment. Nothing is ever removed from the local/self-hosted build.
+LOCAL_MODE = "local"
+HOSTED_MODE = "hosted"
+SERVER_MODES = (LOCAL_MODE, HOSTED_MODE)
+
 # UFPB class-time slots. Day digits: 2=Mon .. 7=Sat. Shift: M/T/N.
 # NOTE: clock times below are an UNCONFIRMED default; confirm against a turma's
 # "Plano de Curso" before trusting them for calendar/ICS export.
@@ -61,6 +67,23 @@ def default_download_dir() -> Path:
     if override:
         return Path(override).expanduser()
     return default_db_path().parent / "downloads"
+
+
+def default_mode() -> str:
+    """Which tool surface the MCP server exposes (override via SIGAA_MODE).
+
+    ``local`` is the default and exposes everything. ``hosted`` is for a shared,
+    multi-tenant deployment and drops the tools that write to the server's disk.
+    An unrecognized value raises rather than falling back, so a typo cannot start
+    a hosted process with the full surface.
+    """
+    mode = os.environ.get("SIGAA_MODE", "").strip().lower()
+    if not mode:
+        return LOCAL_MODE
+    if mode not in SERVER_MODES:
+        valid = ", ".join(SERVER_MODES)
+        raise ValueError(f"SIGAA_MODE must be one of: {valid} (got {mode!r})")
+    return mode
 
 
 def default_username() -> str | None:
