@@ -139,6 +139,20 @@ def sigaa_list_materials(class_code: str | None = None, kind: str | None = None)
     ]
 
 
+def _validate_requested_filename(requested: str) -> None:
+    """Reject anything that is not already one safe path component.
+
+    Called before the download runs, so an unsafe name fails fast instead of being
+    masked by a lookup or network error.
+    """
+    if (
+        not requested
+        or Path(requested).name != requested
+        or sanitize_download_filename(requested) != requested
+    ):
+        raise ToolError("filename must be one safe file name, not a path")
+
+
 def _write_downloaded_file(content: bytes, *, requested: str | None, server_name: str) -> Path:
     """Write downloaded bytes into the private download dir under a contained, safe name.
 
@@ -146,12 +160,7 @@ def _write_downloaded_file(content: bytes, *, requested: str | None, server_name
     comes from SIGAA's Content-Disposition, so it is sanitized rather than trusted.
     """
     if requested is not None:
-        if (
-            not requested
-            or Path(requested).name != requested
-            or sanitize_download_filename(requested) != requested
-        ):
-            raise ToolError("filename must be one safe file name, not a path")
+        _validate_requested_filename(requested)
         name = requested
     else:
         name = sanitize_download_filename(server_name)
@@ -170,6 +179,8 @@ def _write_downloaded_file(content: bytes, *, requested: str | None, server_name
 @mcp.tool()
 def sigaa_download_material(material_id: str, filename: str | None = None) -> str:
     """Download an uploaded class material (file) by its id. Networked. Returns the path written."""
+    if filename is not None:
+        _validate_requested_filename(filename)
     repo = _repo()
     material = next((m for m in repo.get_materials() if m.id == material_id), None)
     if material is None:
@@ -466,6 +477,8 @@ def sigaa_get_tarefa_body(deadline_id: str) -> dict:
 def sigaa_download_tarefa_anexo(deadline_id: str, filename: str | None = None) -> str:
     """Download a task's teacher attachment (Arquivo do Professor) by its deadline id.
     Networked. Returns the path written, or a message if the task has no attachment."""
+    if filename is not None:
+        _validate_requested_filename(filename)
     repo = _repo()
     item = next((d for d in repo.get_deadlines() if d.id == deadline_id), None)
     if item is None:
