@@ -121,6 +121,21 @@ def sanitize_download_filename(name: str) -> str:
     return normalized
 
 
+def write_private_file(
+    path: str | Path,
+    content: bytes,
+    *,
+    overwrite: bool = False,
+) -> Path:
+    """Write bytes to a 0600 file, atomically when replacing an existing one."""
+    target = Path(path).expanduser()
+    if overwrite:
+        _atomic_replace(target, content)
+    else:
+        _exclusive_write(target, content)
+    return target.resolve()
+
+
 def write_academic_document(
     document: AcademicDocument,
     path: str | Path,
@@ -128,12 +143,7 @@ def write_academic_document(
     overwrite: bool = False,
 ) -> Path:
     """Write private document bytes, atomically when replacing an existing file."""
-    target = Path(path).expanduser()
-    if overwrite:
-        _atomic_replace(target, document.content)
-    else:
-        _exclusive_write(target, document.content)
-    return target.resolve()
+    return write_private_file(path, document.content, overwrite=overwrite)
 
 
 def _exclusive_write(target: Path, content: bytes) -> None:
