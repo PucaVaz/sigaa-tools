@@ -42,7 +42,8 @@ def _configure(monkeypatch, tmp_path, *, server_name: str):
     settings = SimpleNamespace(
         username="configured-user", resolve_password=lambda: "test-password"
     )
-    monkeypatch.setattr(mcp_server, "_repo", lambda: SimpleNamespace(get_materials=lambda: [material]))
+    repo = SimpleNamespace(get_materials=lambda: [material])
+    monkeypatch.setattr(mcp_server, "_repo", lambda: repo)
     monkeypatch.setattr(mcp_server, "Settings", lambda: settings)
     monkeypatch.setattr(mcp_server, "SigaaClient", FakeClient)
     monkeypatch.setattr(mcp_server, "default_download_dir", lambda: tmp_path)
