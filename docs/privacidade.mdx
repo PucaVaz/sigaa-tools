@@ -1,0 +1,83 @@
+---
+title: "Privacidade e segurança"
+description: "O que este projeto faz com seus dados do SIGAA, o que ele nunca guarda, e como apagar tudo."
+---
+
+<Warning>
+  **Projeto não oficial.** Não tem vínculo com a UFPB, o SIGAA ou o SIPAC, e não é
+  endossado nem mantido por eles. É um projeto pessoal, de código aberto, feito por
+  um estudante. Ao usar, você concorda em seguir as regras que valem para a sua
+  própria conta do SIGAA.
+</Warning>
+
+Esta página vale para o **serviço hospedado** (o conector que você conecta ao Claude).
+Se você roda o projeto na sua própria máquina pelo CLI, nada sai do seu computador e
+nada aqui se aplica — suas credenciais ficam no chaveiro do seu sistema operacional.
+
+## O que é guardado
+
+- **Uma sessão do SIGAA** (o cookie que o SIGAA devolve depois do login), criptografada.
+  Ela expira sozinha em algumas horas, exatamente como acontece quando você fecha o
+  navegador.
+- **Uma cópia dos seus dados acadêmicos** que o serviço já leu: turmas, notícias das
+  turmas, materiais, prazos, notas e frequência. Serve para responder rápido e para
+  saber o que é novo desde a última verificação.
+
+## O que nunca é guardado
+
+- **Sua senha do SIGAA.** Ela é usada uma vez, no momento do login, para obter a sessão,
+  e não é gravada em lugar nenhum.
+- Nada é enviado para serviços de análise ou rastreamento. A página de conexão não tem
+  analytics de terceiros.
+- Cookies e credenciais nunca aparecem nos logs do servidor.
+
+Quando a sessão expirar, o serviço vai avisar e pedir que você conecte de novo. Isso é
+proposital: significa que o que está guardado tem prazo de validade curto.
+
+## O que o serviço pode fazer na sua conta
+
+Somente **leitura**. Nenhuma ferramenta disponível para a IA altera qualquer coisa no
+SIGAA — em nenhuma versão do projeto. Matrícula em turmas, por exemplo: a IA consegue
+listar as turmas abertas, mas selecionar e confirmar só é possível pela linha de comando,
+na sua própria máquina, feito por você. Uma sessão vazada pode expor informação; não pode
+mexer na sua vida acadêmica.
+
+A versão hospedada vai além e também não escreve arquivos: as ferramentas de download
+(histórico, atestado, materiais de aula) ficam desligadas no servidor compartilhado. Elas
+continuam existindo para quem roda o projeto na própria máquina.
+
+Isso não é uma promessa só de texto: o servidor hospedado roda com `SIGAA_MODE=hosted`,
+que remove essas ferramentas na inicialização, e existe um teste que tenta chamá-las
+mesmo assim e exige que a chamada falhe.
+
+## Apagar seus dados
+
+Tem um botão de apagar na página da sua conta. Ele remove a sessão e todos os dados
+acadêmicos guardados, na hora, sem precisar mandar e-mail para ninguém.
+
+## O que não dá para prometer
+
+Isso aqui é um projeto de estudante rodando em um servidor pequeno. Não há auditoria de
+segurança, certificação, nem garantia de disponibilidade. A criptografia dos dados
+protege contra vazamento de disco ou de backup — ela não protegeria contra alguém que
+comprometesse o servidor em execução, porque o próprio serviço precisa conseguir
+descriptografar para funcionar.
+
+Se isso te incomoda, e é razoável que incomode: o código é aberto, você pode ler
+exatamente o que acontece com o seu login, e pode rodar tudo na sua própria máquina.
+
+## Rodar por conta própria
+
+O CLI faz o mesmo trabalho localmente, sem servidor nenhum:
+
+```bash
+pipx install "sigaa-ai-agent[mcp]"
+sigaa init
+```
+
+Veja [Começando](/getting-started).
+
+## Contato
+
+Problemas, dúvidas ou pedido de remoção de dados:
+[github.com/PucaVaz/sigaa-for-ai-agents/issues](https://github.com/PucaVaz/sigaa-for-ai-agents/issues)
