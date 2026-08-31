@@ -21,7 +21,7 @@ from mcp.server.fastmcp.exceptions import ToolError
 from mcp.types import CallToolResult, ResourceLink, TextContent
 
 from .client import SigaaClient
-from .config import Settings, default_download_dir
+from .config import HOSTED_MODE, Settings, default_download_dir, default_mode
 from .curriculum import curriculum_to_dict
 from .documents import (
     ATESTADO_MATRICULA,
@@ -51,6 +51,19 @@ from .store.db import connect
 from .store.repository import Repository
 
 mcp = FastMCP("sigaa-ufpb")
+
+# Tools hidden in hosted mode. All five write files to the server's disk, and a shared
+# deployment has no per-tenant download directory yet, so none of them belong there.
+# Nothing is hidden in local mode: a self-hosted install keeps the full surface.
+HOSTED_HIDDEN_TOOLS = frozenset(
+    {
+        "sigaa_download_material",
+        "sigaa_download_tarefa_anexo",
+        "sigaa_download_historico",
+        "sigaa_download_declaracao_vinculo",
+        "sigaa_download_atestado_matricula",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -761,6 +774,29 @@ def sigaa_sync(fetch_bodies: bool = False) -> dict:
             for d in result.new_deadlines
         ],
     }
+
+
+def hidden_tools_for_mode(mode: str) -> frozenset[str]:
+    """Tool names to withhold in the given mode. Pure; the deny list lives here."""
+    return HOSTED_HIDDEN_TOOLS if mode == HOSTED_MODE else frozenset()
+
+
+def apply_mode(server: FastMCP, mode: str) -> None:
+    """Remove the tools the mode withholds.
+
+    remove_tool deletes from the tool manager, so a withheld tool is uncallable and not
+    merely hidden from tools/list. It raises on an unknown name, which keeps the deny
+    list from going stale after a rename.
+
+    The sigaa-document:// resource handlers stay registered in every mode. When their
+    minting tools are gone the token table stays empty and every read fails closed,
+    and FastMCP offers no remove_resource to unregister them with.
+    """
+    for name in sorted(hidden_tools_for_mode(mode)):
+        server.remove_tool(name)
+
+
+apply_mode(mcp, default_mode())
 
 
 def main() -> None:
