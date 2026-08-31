@@ -31,6 +31,7 @@ from .documents import (
     document_spec,
     sanitize_download_filename,
     write_academic_document,
+    write_private_file,
 )
 from .exporters.ics import build_calendar
 from .http import AuthError
@@ -138,8 +139,36 @@ def sigaa_list_materials(class_code: str | None = None, kind: str | None = None)
     ]
 
 
+def _write_downloaded_file(content: bytes, *, requested: str | None, server_name: str) -> Path:
+    """Write downloaded bytes into the private download dir under a contained, safe name.
+
+    ``requested`` is caller-supplied and must already be one safe component. ``server_name``
+    comes from SIGAA's Content-Disposition, so it is sanitized rather than trusted.
+    """
+    if requested is not None:
+        if (
+            not requested
+            or Path(requested).name != requested
+            or sanitize_download_filename(requested) != requested
+        ):
+            raise ToolError("filename must be one safe file name, not a path")
+        name = requested
+    else:
+        name = sanitize_download_filename(server_name)
+
+    download_dir = default_download_dir().resolve()
+    target = download_dir / name
+    if target.exists() or target.is_symlink():
+        raise ToolError(f"download already exists: {name}")
+    download_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        return write_private_file(target, content)
+    except FileExistsError:
+        raise ToolError(f"download already exists: {name}") from None
+
+
 @mcp.tool()
-def sigaa_download_material(material_id: str, path: str | None = None) -> str:
+def sigaa_download_material(material_id: str, filename: str | None = None) -> str:
     """Download an uploaded class material (file) by its id. Networked. Returns the path written."""
     repo = _repo()
     material = next((m for m in repo.get_materials() if m.id == material_id), None)
@@ -156,11 +185,9 @@ def sigaa_download_material(material_id: str, path: str | None = None) -> str:
         turma = next((t for t in client.list_turmas() if t.id_turma == material.id_turma), None)
         if turma is None:
             return "could not locate the class for this material"
-        content, filename = client.download_material(turma, material_id)
-    out = path or filename
-    with open(out, "wb") as fh:
-        fh.write(content)
-    return f"wrote {out} ({len(content)} bytes)"
+        content, server_name = client.download_material(turma, material_id)
+    written = _write_downloaded_file(content, requested=filename, server_name=server_name)
+    return f"wrote {written} ({len(content)} bytes)"
 
 
 @mcp.tool()
@@ -436,7 +463,7 @@ def sigaa_get_tarefa_body(deadline_id: str) -> dict:
 
 
 @mcp.tool()
-def sigaa_download_tarefa_anexo(deadline_id: str, path: str | None = None) -> str:
+def sigaa_download_tarefa_anexo(deadline_id: str, filename: str | None = None) -> str:
     """Download a task's teacher attachment (Arquivo do Professor) by its deadline id.
     Networked. Returns the path written, or a message if the task has no attachment."""
     repo = _repo()
@@ -452,11 +479,9 @@ def sigaa_download_tarefa_anexo(deadline_id: str, path: str | None = None) -> st
         result = client.download_tarefa_attachment(deadline_id)
     if result is None:
         return "no teacher attachment on this task (or it is not a tarefa)"
-    content, filename = result
-    out = path or filename
-    with open(out, "wb") as fh:
-        fh.write(content)
-    return f"wrote {out} ({len(content)} bytes)"
+    content, server_name = result
+    written = _write_downloaded_file(content, requested=filename, server_name=server_name)
+    return f"wrote {written} ({len(content)} bytes)"
 
 
 @mcp.tool()
