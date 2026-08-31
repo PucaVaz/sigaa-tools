@@ -24,7 +24,7 @@ def build_calendar(
     term_start: date | None = None,
     year: int | None = None,
 ) -> str:
-    lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//sigaa-ai-agent//PT-BR", "CALSCALE:GREGORIAN"]
+    lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//sigaa-tools//PT-BR", "CALSCALE:GREGORIAN"]
     anchor = term_start or date.today()
     for turma in turmas:
         lines.extend(_class_events(turma, anchor))

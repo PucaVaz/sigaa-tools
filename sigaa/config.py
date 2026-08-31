@@ -52,7 +52,7 @@ def default_db_path() -> Path:
     if override:
         return Path(override).expanduser()
     base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
-    return base / "sigaa-ai-agent" / "sigaa.db"
+    return base / "sigaa-tools" / "sigaa.db"
 
 
 def default_download_dir() -> Path:

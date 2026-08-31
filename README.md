@@ -1,4 +1,4 @@
-# sigaa-ai-agent
+# sigaa-tools
 
 > [!IMPORTANT]
 > This is an unofficial personal project and is not affiliated with, endorsed
@@ -17,7 +17,7 @@ brew install pipx
 
 **Step 2:** Install sigaa:
 ```bash
-pipx install "sigaa-ai-agent[mcp]"
+pipx install "sigaa-tools[mcp]"
 ```
 
 **Step 3:** Run the setup wizard:
@@ -221,7 +221,7 @@ pytest        # offline: parsers run on fixtures, store on in-memory sqlite
 
 ## Contributing
 
-Interested in hacking on sigaa-ai-agent? See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and release instructions.
+Interested in hacking on sigaa-tools? See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and release instructions.
 
 ## Security
 

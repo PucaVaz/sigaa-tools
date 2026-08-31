@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "sigaa-ai-agent"
+name = "sigaa-tools"
 dynamic = ["version"]
 description = "User-friendly SIGAA and public SIPAC UFPB client (CLI + MCP)"
 readme = "README.md"

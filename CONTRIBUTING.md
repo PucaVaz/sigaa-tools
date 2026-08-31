@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for wanting to help `sigaa-ai-agent`. This is an unofficial open-source
+Thanks for wanting to help `sigaa-tools`. This is an unofficial open-source
 project that makes SIGAA UFPB data more useful in local workflows, including a
 CLI and an MCP server for agents.
 
@@ -17,6 +17,33 @@ clearer error messages, tests for real cases, or well-described issues all help.
   databases, downloaded PDFs, screenshots with academic data, or `.env` files.
 - When opening issues or pull requests, remove names, student IDs, sensitive
   class details, and any third-party data.
+
+## Fork and Pull Request Workflow
+
+We use the standard fork-and-PR workflow to keep contributions organized:
+
+1. **Fork** the repository on GitHub.
+2. **Clone** your fork locally:
+   ```bash
+   git clone https://github.com/YOUR-USERNAME/sigaa-for-ai-agents.git
+   cd sigaa-for-ai-agents
+   ```
+3. **Create a branch** for your change:
+   ```bash
+   git checkout -b fix/description-of-change
+   ```
+4. **Make your changes**, test them, and commit:
+   ```bash
+   git add .
+   git commit -m "description of what you fixed"
+   ```
+5. **Push** to your fork:
+   ```bash
+   git push origin fix/description-of-change
+   ```
+6. **Open a Pull Request** on GitHub. The PR template and CI checks will guide you.
+
+CI tests and linting run automatically on every PR. If tests fail, push fixes to the same branch—the PR updates automatically.
 
 ## Development Setup
 
@@ -56,6 +83,18 @@ sigaa init
 
 You can also use `SIGAA_USER`, `SIGAA_PASS`, and `SIGAA_DB`, but keep those
 values out of Git.
+
+### First-Time Contributor?
+
+Welcome! If this is your first contribution, here's what to expect:
+
+- **CI checks run automatically** on your PR. The workflow runs tests and linting
+  (see `.github/workflows/ci.yml`). If it fails, you'll see details in the PR
+  status—push fixes to your branch and the PR updates automatically.
+- **At least one review is required** before merging. This keeps code quality high
+  and is not personal—reviewers are here to help.
+- **Start small.** A parser fix, a new test case, or improved documentation is
+  easier to review than a large feature. Questions? Open an issue first.
 
 ## Running Tests
 
