@@ -6,8 +6,10 @@ from types import SimpleNamespace
 from sigaa import setup_wizard
 from sigaa.config import KEYRING_ACTIVE_USERNAME, KEYRING_SERVICE, Settings
 from sigaa.setup_wizard import (
+    MCP_PACKAGE_SPEC,
     build_cron_line,
     build_launchd_plist,
+    build_mcp_server,
     merge_mcp_config,
     resolve_script,
 )
@@ -57,6 +59,34 @@ def test_login_persists_username_for_the_next_process(monkeypatch):
     ]
 
 
+def test_build_mcp_server_prefers_uvx_when_uv_is_installed(monkeypatch):
+    monkeypatch.setattr("sigaa.setup_wizard.shutil.which", lambda name: "/opt/bin/uv")
+
+    assert build_mcp_server() == {
+        "command": "uvx",
+        "args": ["--from", MCP_PACKAGE_SPEC, "sigaa-mcp"],
+    }
+
+
+def test_build_mcp_server_falls_back_to_console_script_without_uv(monkeypatch):
+    monkeypatch.setattr(
+        "sigaa.setup_wizard.shutil.which",
+        lambda name: None if name == "uv" else f"/opt/bin/{name}",
+    )
+
+    assert build_mcp_server() == {"command": "/opt/bin/sigaa-mcp"}
+
+
+def test_build_mcp_server_sets_username_only_when_keyring_cannot_hold_it(monkeypatch):
+    monkeypatch.setattr("sigaa.setup_wizard.shutil.which", lambda name: "/opt/bin/uv")
+
+    assert build_mcp_server(username="alice") == {
+        "command": "uvx",
+        "args": ["--from", MCP_PACKAGE_SPEC, "sigaa-mcp"],
+        "env": {"SIGAA_USER": "alice"},
+    }
+
+
 def test_merge_mcp_config_preserves_existing_servers(tmp_path):
     path = tmp_path / ".mcp.json"
     path.write_text(
@@ -71,32 +101,80 @@ def test_merge_mcp_config_preserves_existing_servers(tmp_path):
         encoding="utf-8",
     )
 
-    changed = merge_mcp_config(path, command="/opt/bin/sigaa-mcp", username="alice")
+    changed = merge_mcp_config(path, server={"command": "uvx", "args": ["sigaa-mcp"]})
 
     assert changed is True
     data = json.loads(path.read_text(encoding="utf-8"))
     assert data["mcpServers"]["other"] == {"command": "/bin/other"}
-    assert data["mcpServers"]["sigaa"] == {
-        "command": "/opt/bin/sigaa-mcp",
-        "env": {"SIGAA_USER": "alice"},
-    }
+    assert data["mcpServers"]["sigaa"] == {"command": "uvx", "args": ["sigaa-mcp"]}
 
 
 def test_merge_mcp_config_creates_parent_and_file(tmp_path):
     path = tmp_path / "project" / ".mcp.json"
 
-    changed = merge_mcp_config(path, command="/opt/bin/sigaa-mcp", username="alice")
+    changed = merge_mcp_config(path, server={"command": "/opt/bin/sigaa-mcp"})
 
     assert changed is True
     data = json.loads(path.read_text(encoding="utf-8"))
-    assert data == {
-        "mcpServers": {
-            "sigaa": {
-                "command": "/opt/bin/sigaa-mcp",
-                "env": {"SIGAA_USER": "alice"},
-            }
-        }
+    assert data == {"mcpServers": {"sigaa": {"command": "/opt/bin/sigaa-mcp"}}}
+
+
+def test_merge_mcp_config_reports_unchanged_when_server_already_matches(tmp_path):
+    path = tmp_path / ".mcp.json"
+    server = {"command": "uvx", "args": ["sigaa-mcp"]}
+    merge_mcp_config(path, server=server)
+
+    assert merge_mcp_config(path, server=server) is False
+
+
+def _run_init_writing_mcp(monkeypatch, tmp_path, *, password_stored: bool) -> dict:
+    """Drive run_init far enough to write .mcp.json, declining everything else."""
+    login = setup_wizard.LoginResult(
+        name="ALICE",
+        matricula="00000000000",
+        password_stored=password_stored,
+        storage_message="stored",
+        password="test-password",
+    )
+    monkeypatch.setattr(setup_wizard, "_prompt_login_until_ok", lambda *a, **k: login)
+    monkeypatch.setattr(
+        setup_wizard,
+        "sync",
+        lambda settings: SimpleNamespace(ok=True, turma_count=1, new_items=[], error=None),
+    )
+    monkeypatch.setattr("sigaa.setup_wizard.shutil.which", lambda name: "/opt/bin/uv")
+
+    mcp_path = tmp_path / ".mcp.json"
+    answers = ["1"]  # institution
+    if not password_stored:
+        answers.append("n")  # .env template, only offered when keyring failed
+    answers += [
+        "y",  # wire MCP
+        str(mcp_path),  # config path
+        "n",  # scheduled sync
+    ]
+    replies = iter(answers)
+    settings = Settings(db_path=tmp_path / "sigaa.db", username="alice")
+
+    assert setup_wizard.run_init(settings, lambda _prompt: next(replies)) == 0
+
+    return json.loads(mcp_path.read_text(encoding="utf-8"))["mcpServers"]["sigaa"]
+
+
+def test_run_init_writes_mcp_config_without_personal_data(monkeypatch, tmp_path):
+    server = _run_init_writing_mcp(monkeypatch, tmp_path, password_stored=True)
+
+    assert "env" not in server
+    assert server == {
+        "command": "uvx",
+        "args": ["--from", MCP_PACKAGE_SPEC, "sigaa-mcp"],
     }
+
+
+def test_run_init_pins_username_when_keyring_is_unavailable(monkeypatch, tmp_path):
+    server = _run_init_writing_mcp(monkeypatch, tmp_path, password_stored=False)
+
+    assert server["env"] == {"SIGAA_USER": "alice"}
 
 
 def test_build_launchd_plist_uses_resolved_command_and_username():

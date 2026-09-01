@@ -9,15 +9,15 @@ Friendly CLI and MCP server for **SIGAA UFPB** and **SIPAC** public process look
 
 ## Quickstart
 
-**Step 1:** Install `pipx` (once only):
+**Step 1:** Install [uv](https://docs.astral.sh/uv/) (once only):
 ```bash
-brew install pipx
-# or: python -m pip install --user pipx
+brew install uv
+# or: curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
 **Step 2:** Install sigaa:
 ```bash
-pipx install "sigaa-tools[mcp]"
+uv tool install "sigaa-tools[mcp] @ git+https://github.com/PucaVaz/sigaa-tools"
 ```
 
 **Step 3:** Run the setup wizard:
@@ -149,12 +149,21 @@ Run with `sigaa-mcp` (stdio). Wire into Claude Code via `.mcp.json`:
 {
   "mcpServers": {
     "sigaa": {
-      "command": "/abs/path/.venv/bin/sigaa-mcp",
-      "env": { "SIGAA_USER": "your_user" }
+      "command": "uvx",
+      "args": [
+        "--from",
+        "sigaa-tools[mcp] @ git+https://github.com/PucaVaz/sigaa-tools",
+        "sigaa-mcp"
+      ]
     }
   }
 }
 ```
+
+This form carries no machine-specific path, so the file stays valid when
+committed and shared with your team. `sigaa init` writes it for you. The server
+reads the active account from your keyring; add
+`"env": { "SIGAA_USER": "your_user" }` only if keyring is unavailable.
 
 ### Manual scheduled polling
 
@@ -170,7 +179,7 @@ Run with `sigaa-mcp` (stdio). Wire into Claude Code via `.mcp.json`:
   <key>Label</key><string>ai.sigaa.sync</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/abs/path/.venv/bin/sigaa</string>
+    <string>/Users/you/.local/bin/sigaa</string>
     <string>sync</string>
   </array>
   <key>EnvironmentVariables</key>
@@ -179,7 +188,10 @@ Run with `sigaa-mcp` (stdio). Wire into Claude Code via `.mcp.json`:
 </dict></plist>
 ```
 
-**Linux (cron)**: `*/30 * * * * SIGAA_USER=you /abs/.venv/bin/sigaa sync`
+`uv tool install` puts `sigaa` in `~/.local/bin`; launchd needs it spelled out in
+full, since it does not expand `~`. Run `which sigaa` to confirm yours.
+
+**Linux (cron)**: `*/30 * * * * SIGAA_USER=you $HOME/.local/bin/sigaa sync`
 (password from keyring, or add `SIGAA_PASS`).
 
 ## Architecture

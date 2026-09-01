@@ -111,16 +111,39 @@ def resolve_script(name: str) -> str:
     return str(Path(sys.executable).resolve().parent / f"{name}{suffix}")
 
 
-def merge_mcp_config(path: Path, *, command: str, username: str) -> bool:
+# Source uvx resolves the server from. Switch to "sigaa-tools[mcp]" once the
+# package is published to PyPI; the generated config keeps working either way.
+MCP_PACKAGE_SPEC = "sigaa-tools[mcp] @ git+https://github.com/PucaVaz/sigaa-tools"
+
+
+def build_mcp_server(*, username: str | None = None) -> dict[str, object]:
+    """Return an MCP server entry, preferring a portable ``uvx`` invocation.
+
+    Pass ``username`` only when keyring cannot store the active account; the
+    server otherwise reads it back itself, keeping the config free of personal
+    data so it can be committed alongside the project.
+    """
+    if shutil.which("uv"):
+        server: dict[str, object] = {
+            "command": "uvx",
+            "args": ["--from", MCP_PACKAGE_SPEC, "sigaa-mcp"],
+        }
+    else:
+        server = {"command": resolve_script("sigaa-mcp")}
+    if username:
+        server["env"] = {"SIGAA_USER": username}
+    return server
+
+
+def merge_mcp_config(path: Path, *, server: dict[str, object]) -> bool:
     path = path.expanduser()
     if path.exists():
         data = json.loads(path.read_text(encoding="utf-8"))
     else:
         data = {}
     servers = data.setdefault("mcpServers", {})
-    desired = {"command": command, "env": {"SIGAA_USER": username}}
-    changed = servers.get("sigaa") != desired
-    servers["sigaa"] = desired
+    changed = servers.get("sigaa") != server
+    servers["sigaa"] = server
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return changed
@@ -188,8 +211,10 @@ def run_init(settings: Settings, input_func: Callable[[str], str] = input) -> in
         default_mcp = Path.cwd() / ".mcp.json"
         answer = input_func(f"MCP config path [{default_mcp}]: ").strip()
         mcp_path = Path(answer).expanduser() if answer else default_mcp
-        command = resolve_script("sigaa-mcp")
-        merge_mcp_config(mcp_path, command=command, username=username)
+        # The active account comes back from keyring, so only pin it in the
+        # config when keyring could not store it.
+        server = build_mcp_server(username=None if login.password_stored else username)
+        merge_mcp_config(mcp_path, server=server)
         print(f"wrote MCP server config to {mcp_path}")
 
     if _confirm("Install scheduled sync? [y/N]: ", input_func):
