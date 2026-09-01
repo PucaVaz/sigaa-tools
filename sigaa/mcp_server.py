@@ -71,7 +71,11 @@ def _repo() -> Repository:
 
 @mcp.tool()
 def sigaa_list_classes() -> list[dict]:
-    """List enrolled classes from the local store."""
+    """List enrolled classes, with their teachers, from the local store."""
+    repo = _repo()
+    professors: dict[str, list[str]] = {}
+    for prof in repo.get_professors():
+        professors.setdefault(prof.id_turma, []).append(prof.name)
     return [
         {
             "code": t.code,
@@ -79,8 +83,23 @@ def sigaa_list_classes() -> list[dict]:
             "room": t.room,
             "schedule_raw": t.schedule_raw,
             "id_turma": t.id_turma,
+            "professors": professors.get(t.id_turma, []),
         }
-        for t in _repo().get_turmas()
+        for t in repo.get_turmas()
+    ]
+
+
+@mcp.tool()
+def sigaa_list_professors(class_code: str | None = None) -> list[dict]:
+    """List class teachers (name, e-mail, department) from the store, optionally for one class."""
+    repo = _repo()
+    id_turma = None
+    if class_code:
+        turma = repo.get_turma(class_code)
+        id_turma = turma.id_turma if turma else class_code
+    return [
+        {"class_id": p.id_turma, "name": p.name, "email": p.email, "department": p.department}
+        for p in repo.get_professors(id_turma=id_turma)
     ]
 
 

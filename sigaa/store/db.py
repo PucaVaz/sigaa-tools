@@ -25,6 +25,15 @@ CREATE TABLE IF NOT EXISTS turma (
     updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS professor (
+    id_turma   TEXT NOT NULL REFERENCES turma(id_turma),
+    name       TEXT NOT NULL,
+    department TEXT,
+    email      TEXT,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (id_turma, name)
+);
+
 CREATE TABLE IF NOT EXISTS news (
     id         TEXT PRIMARY KEY,
     id_turma   TEXT NOT NULL REFERENCES turma(id_turma),

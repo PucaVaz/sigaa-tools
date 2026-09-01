@@ -41,6 +41,20 @@ class Turma:
 
 
 @dataclass
+class Professor:
+    """A teacher of one turma, from the Turma Virtual 'Participantes' page.
+
+    Only the teaching staff is modelled; the enrolled students listed on the
+    same page are never parsed or stored.
+    """
+
+    id_turma: str
+    name: str
+    department: str | None = None
+    email: str | None = None
+
+
+@dataclass
 class NewsItem:
     """A class announcement. ``id`` is SIGAA's stable news id (dedup key)."""
 
