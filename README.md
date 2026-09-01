@@ -4,6 +4,7 @@
 > This is an unofficial personal project and is not affiliated with, endorsed
 > by, or supported by UFPB, SIGAA, or SIPAC. Use it responsibly, keep request rates low,
 > and follow the rules that apply to your SIGAA account.
+> See [Privacidade e segurança](docs/privacidade.mdx) for what is stored and what is never stored.
 
 Friendly CLI and MCP server for **SIGAA UFPB** and **SIPAC** public process lookup. Fetch your classes, grades, deadlines, and curriculum all at once without opening the web portal.
 
@@ -112,8 +113,12 @@ completed. `sigaa_get_cra` is also networked and reads the official CRA from the
 academic transcript; a new student may receive `source: "unavailable"` until
 SIGAA reports one. Neither response exposes SIGAA's internal student id.
 
-Document tools accept a safe filename (not an arbitrary path), never overwrite,
-and write under the app's private `downloads` directory. Set
+Every download tool accepts a safe filename (not an arbitrary path), never
+overwrites, and writes under the app's private `downloads` directory. This
+covers the three academic documents plus `sigaa_download_material` and
+`sigaa_download_tarefa_anexo`; on those two the parameter is named `filename`
+and no longer accepts a path. Filenames SIGAA supplies in `Content-Disposition`
+are sanitized rather than trusted. Set
 `SIGAA_DOWNLOAD_DIR` on the MCP server to choose another directory. A successful
 call returns both structured metadata (filename, MIME type, and size) and
 an opaque MCP `ResourceLink`. Clients that support resource links can present the
@@ -122,6 +127,38 @@ MCP without putting its bytes in the original tool response. The resource link i
 valid for the current server session, while the local file remains on disk. HTML
 certificates are exposed as download-only binary resources so an MCP client does
 not execute the report's active SIGAA markup inline.
+
+### Tool surface: `SIGAA_MODE`
+
+`SIGAA_MODE` picks which tools the MCP server exposes. It defaults to `local`,
+which exposes all 24 tools — **nothing is ever removed from a local or
+self-hosted install**.
+
+`SIGAA_MODE=hosted` is for a shared, multi-tenant deployment. It withholds the
+five tools that write files to the server's disk:
+
+| Withheld in hosted | Why |
+| --- | --- |
+| `sigaa_download_material` | Unbounded file writes; a class can hold hundreds of MB |
+| `sigaa_download_tarefa_anexo` | Same |
+| `sigaa_download_historico` | Needs a per-tenant download directory, which does not exist yet |
+| `sigaa_download_declaracao_vinculo` | Same |
+| `sigaa_download_atestado_matricula` | Same |
+
+Everything else stays, including `sigaa_sync` — without it a tenant's store is
+empty and every store-backed tool returns nothing. Its writes are confined to
+`SIGAA_DB`. No MCP tool mutates SIGAA state in any mode: enrollment
+selection and confirmation are deliberately CLI-only.
+
+The mode is applied at import, so it holds whether the server is started via
+`sigaa-mcp`, `python -m sigaa.mcp_server`, or by importing `mcp` from
+`sigaa.mcp_server` and mounting it. Withheld tools are removed from the tool
+manager, so they are uncallable rather than merely hidden. An unrecognized
+`SIGAA_MODE` raises at startup instead of falling back to `local`.
+
+A hosted deployment must also set `SIGAA_DB` and `SIGAA_DOWNLOAD_DIR` per
+tenant. Restoring the three academic-document tools in hosted mode depends on
+that isolation existing first.
 
 ## Scheduled polling
 

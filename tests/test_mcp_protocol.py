@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import sys
 
 import pytest
@@ -12,13 +11,9 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 
-def test_mcp_stdio_exposes_safe_document_schemas_and_errors(tmp_path):
+def test_mcp_stdio_exposes_safe_document_schemas_and_errors(tmp_path, mcp_subprocess_env):
     async def exercise_server():
-        environment = dict(os.environ)
-        environment.pop("SIGAA_USER", None)
-        environment.pop("SIGAA_PASS", None)
-        environment["PYTHON_KEYRING_BACKEND"] = "keyring.backends.null.Keyring"
-        environment["SIGAA_DOWNLOAD_DIR"] = str(tmp_path)
+        environment = mcp_subprocess_env(tmp_path)
         parameters = StdioServerParameters(
             command=sys.executable,
             args=["-m", "sigaa.mcp_server"],
@@ -53,3 +48,36 @@ def test_mcp_stdio_exposes_safe_document_schemas_and_errors(tmp_path):
 
     asyncio.run(exercise_server())
     assert not (tmp_path.parent / "outside.pdf").exists()
+
+
+def test_mcp_stdio_rejects_a_path_in_the_material_download_filename(tmp_path, mcp_subprocess_env):
+    async def exercise_server():
+        environment = mcp_subprocess_env(tmp_path)
+        parameters = StdioServerParameters(
+            command=sys.executable,
+            args=["-m", "sigaa.mcp_server"],
+            env=environment,
+        )
+
+        async with stdio_client(parameters) as (read_stream, write_stream):
+            async with ClientSession(read_stream, write_stream) as session:
+                await session.initialize()
+                listed = await session.list_tools()
+                downloaders = {
+                    tool.name: tool
+                    for tool in listed.tools
+                    if tool.name in {"sigaa_download_material", "sigaa_download_tarefa_anexo"}
+                }
+                assert len(downloaders) == 2
+                for tool in downloaders.values():
+                    assert "filename" in tool.inputSchema.get("properties", {})
+                    assert "path" not in tool.inputSchema.get("properties", {})
+
+                rejected = await session.call_tool(
+                    "sigaa_download_material",
+                    {"material_id": "any", "filename": "../outside.bin"},
+                )
+                assert rejected.isError is True
+
+    asyncio.run(exercise_server())
+    assert not (tmp_path.parent / "outside.bin").exists()

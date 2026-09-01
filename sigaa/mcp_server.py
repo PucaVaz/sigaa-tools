@@ -21,7 +21,7 @@ from mcp.server.fastmcp.exceptions import ToolError
 from mcp.types import CallToolResult, ResourceLink, TextContent
 
 from .client import SigaaClient
-from .config import Settings, default_download_dir
+from .config import HOSTED_MODE, Settings, default_download_dir, default_mode
 from .curriculum import curriculum_to_dict
 from .documents import (
     ATESTADO_MATRICULA,
@@ -31,6 +31,7 @@ from .documents import (
     document_spec,
     sanitize_download_filename,
     write_academic_document,
+    write_private_file,
 )
 from .exporters.ics import build_calendar
 from .http import AuthError
@@ -50,6 +51,19 @@ from .store.db import connect
 from .store.repository import Repository
 
 mcp = FastMCP("sigaa-ufpb")
+
+# Tools hidden in hosted mode. All five write files to the server's disk, and a shared
+# deployment has no per-tenant download directory yet, so none of them belong there.
+# Nothing is hidden in local mode: a self-hosted install keeps the full surface.
+HOSTED_HIDDEN_TOOLS = frozenset(
+    {
+        "sigaa_download_material",
+        "sigaa_download_tarefa_anexo",
+        "sigaa_download_historico",
+        "sigaa_download_declaracao_vinculo",
+        "sigaa_download_atestado_matricula",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -138,9 +152,48 @@ def sigaa_list_materials(class_code: str | None = None, kind: str | None = None)
     ]
 
 
+def _validate_requested_filename(requested: str) -> None:
+    """Reject anything that is not already one safe path component.
+
+    Called before the download runs, so an unsafe name fails fast instead of being
+    masked by a lookup or network error.
+    """
+    if (
+        not requested
+        or Path(requested).name != requested
+        or sanitize_download_filename(requested) != requested
+    ):
+        raise ToolError("filename must be one safe file name, not a path")
+
+
+def _write_downloaded_file(content: bytes, *, requested: str | None, server_name: str) -> Path:
+    """Write downloaded bytes into the private download dir under a contained, safe name.
+
+    ``requested`` is caller-supplied and must already be one safe component. ``server_name``
+    comes from SIGAA's Content-Disposition, so it is sanitized rather than trusted.
+    """
+    if requested is not None:
+        _validate_requested_filename(requested)
+        name = requested
+    else:
+        name = sanitize_download_filename(server_name)
+
+    download_dir = default_download_dir().resolve()
+    target = download_dir / name
+    if target.exists() or target.is_symlink():
+        raise ToolError(f"download already exists: {name}")
+    download_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        return write_private_file(target, content)
+    except FileExistsError:
+        raise ToolError(f"download already exists: {name}") from None
+
+
 @mcp.tool()
-def sigaa_download_material(material_id: str, path: str | None = None) -> str:
+def sigaa_download_material(material_id: str, filename: str | None = None) -> str:
     """Download an uploaded class material (file) by its id. Networked. Returns the path written."""
+    if filename is not None:
+        _validate_requested_filename(filename)
     repo = _repo()
     material = next((m for m in repo.get_materials() if m.id == material_id), None)
     if material is None:
@@ -156,11 +209,9 @@ def sigaa_download_material(material_id: str, path: str | None = None) -> str:
         turma = next((t for t in client.list_turmas() if t.id_turma == material.id_turma), None)
         if turma is None:
             return "could not locate the class for this material"
-        content, filename = client.download_material(turma, material_id)
-    out = path or filename
-    with open(out, "wb") as fh:
-        fh.write(content)
-    return f"wrote {out} ({len(content)} bytes)"
+        content, server_name = client.download_material(turma, material_id)
+    written = _write_downloaded_file(content, requested=filename, server_name=server_name)
+    return f"wrote {written} ({len(content)} bytes)"
 
 
 @mcp.tool()
@@ -436,9 +487,11 @@ def sigaa_get_tarefa_body(deadline_id: str) -> dict:
 
 
 @mcp.tool()
-def sigaa_download_tarefa_anexo(deadline_id: str, path: str | None = None) -> str:
+def sigaa_download_tarefa_anexo(deadline_id: str, filename: str | None = None) -> str:
     """Download a task's teacher attachment (Arquivo do Professor) by its deadline id.
     Networked. Returns the path written, or a message if the task has no attachment."""
+    if filename is not None:
+        _validate_requested_filename(filename)
     repo = _repo()
     item = next((d for d in repo.get_deadlines() if d.id == deadline_id), None)
     if item is None:
@@ -452,11 +505,9 @@ def sigaa_download_tarefa_anexo(deadline_id: str, path: str | None = None) -> st
         result = client.download_tarefa_attachment(deadline_id)
     if result is None:
         return "no teacher attachment on this task (or it is not a tarefa)"
-    content, filename = result
-    out = path or filename
-    with open(out, "wb") as fh:
-        fh.write(content)
-    return f"wrote {out} ({len(content)} bytes)"
+    content, server_name = result
+    written = _write_downloaded_file(content, requested=filename, server_name=server_name)
+    return f"wrote {written} ({len(content)} bytes)"
 
 
 @mcp.tool()
@@ -723,6 +774,29 @@ def sigaa_sync(fetch_bodies: bool = False) -> dict:
             for d in result.new_deadlines
         ],
     }
+
+
+def hidden_tools_for_mode(mode: str) -> frozenset[str]:
+    """Tool names to withhold in the given mode. Pure; the deny list lives here."""
+    return HOSTED_HIDDEN_TOOLS if mode == HOSTED_MODE else frozenset()
+
+
+def apply_mode(server: FastMCP, mode: str) -> None:
+    """Remove the tools the mode withholds.
+
+    remove_tool deletes from the tool manager, so a withheld tool is uncallable and not
+    merely hidden from tools/list. It raises on an unknown name, which keeps the deny
+    list from going stale after a rename.
+
+    The sigaa-document:// resource handlers stay registered in every mode. When their
+    minting tools are gone the token table stays empty and every read fails closed,
+    and FastMCP offers no remove_resource to unregister them with.
+    """
+    for name in sorted(hidden_tools_for_mode(mode)):
+        server.remove_tool(name)
+
+
+apply_mode(mcp, default_mode())
 
 
 def main() -> None:
