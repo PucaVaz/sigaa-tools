@@ -1,10 +1,8 @@
 {
   "mcpServers": {
     "sigaa": {
-      "command": "/Users/pucavaz/Developer/puca/sigaa-ai-agent/.venv/bin/sigaa-mcp",
-      "env": {
-        "SIGAA_USER": "pucavaz"
-      }
+      "command": "uv",
+      "args": ["run", "--extra", "mcp", "sigaa-mcp"]
     }
   }
 }

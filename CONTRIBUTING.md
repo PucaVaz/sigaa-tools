@@ -84,6 +84,12 @@ sigaa init
 You can also use `SIGAA_USER`, `SIGAA_PASS`, and `SIGAA_DB`, but keep those
 values out of Git.
 
+The repository's committed `.mcp.json` runs the MCP server from your checkout
+via `uv run --extra mcp sigaa-mcp`, so agents you point at this repo exercise
+your local changes rather than a published build. Install
+[uv](https://docs.astral.sh/uv/) if you want that; the venv flow above works
+fine without it.
+
 ### First-Time Contributor?
 
 Welcome! If this is your first contribution, here's what to expect:
