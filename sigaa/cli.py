@@ -79,6 +79,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p_classes = sub.add_parser("classes", help="list classes from the store")
     p_classes.add_argument("--schedule", action="store_true", help="decode schedule codes")
+    p_classes.add_argument("--professors", action="store_true", help="show each class's teachers")
+    p_classes.add_argument(
+        "--professor", help="only classes taught by a teacher whose name contains this text"
+    )
     p_classes.add_argument("--json", action="store_true")
     p_classes.set_defaults(func=_cmd_classes)
 
@@ -270,12 +274,22 @@ def _cmd_sync(args, settings: Settings) -> int:
 
 def _cmd_classes(args, settings: Settings) -> int:
     repo = Repository(connect(settings.db_path))
-    turmas = repo.get_turmas()
+    stored = repo.get_turmas()
+    professors = _professors_by_turma(repo)
+    turmas = _filter_by_professor(stored, professors, args.professor) if args.professor else stored
+    show_professors = args.professors or bool(args.professor)
     if args.json:
-        print(json.dumps([_turma_json(t, args.schedule) for t in turmas], ensure_ascii=False, indent=2))
+        print(json.dumps(
+            [_turma_json(t, args.schedule, professors.get(t.id_turma, []) if show_professors else None)
+             for t in turmas],
+            ensure_ascii=False, indent=2,
+        ))
+        return 0
+    if not stored:
+        print("no classes in store — run `sigaa sync` first")
         return 0
     if not turmas:
-        print("no classes in store — run `sigaa sync` first")
+        print(f"no class taught by a teacher matching {args.professor!r}")
         return 0
     for t in turmas:
         line = f"{t.code or '?':12} {t.name}"
@@ -284,7 +298,25 @@ def _cmd_classes(args, settings: Settings) -> int:
         elif t.schedule_raw:
             line += f"  ({t.schedule_raw})"
         print(line)
+        if show_professors:
+            for prof in professors.get(t.id_turma, []):
+                print(f"             {prof.name}")
     return 0
+
+
+def _professors_by_turma(repo: Repository) -> dict[str, list]:
+    grouped: dict[str, list] = {}
+    for prof in repo.get_professors():
+        grouped.setdefault(prof.id_turma, []).append(prof)
+    return grouped
+
+
+def _filter_by_professor(turmas: list, professors: dict[str, list], query: str) -> list:
+    needle = query.casefold()
+    return [
+        t for t in turmas
+        if any(needle in p.name.casefold() for p in professors.get(t.id_turma, []))
+    ]
 
 
 def _cmd_news(args, settings: Settings) -> int:
@@ -870,8 +902,12 @@ def _sync_json(result) -> dict:
     }
 
 
-def _turma_json(t, with_schedule: bool) -> dict:
+def _turma_json(t, with_schedule: bool, professors: list | None = None) -> dict:
     data = {"code": t.code, "name": t.name, "room": t.room, "schedule_raw": t.schedule_raw}
+    if professors is not None:
+        data["professors"] = [
+            {"name": p.name, "email": p.email, "department": p.department} for p in professors
+        ]
     if with_schedule:
         data["schedule"] = [
             {"days": s.days, "shift": s.shift, "slots": s.slots}

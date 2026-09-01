@@ -27,6 +27,7 @@ from .models import (
     Grade,
     Material,
     NewsItem,
+    Professor,
     Student,
     Turma,
     TurmaGrade,
@@ -37,6 +38,7 @@ from .parsers import grades as grades_parser
 from .parsers import plano as plano_parser
 from .parsers import materials as materials_parser
 from .parsers import news as news_parser
+from .parsers import participantes as participantes_parser
 from .parsers import portal as portal_parser
 from .parsers import tarefa as tarefa_parser
 from .parsers import transcript as transcript_parser
@@ -263,6 +265,11 @@ class SigaaClient:
         """Plano de Curso: class schedule (cronograma) and evaluation dates."""
         html = self._turma_menu_post(turma, "Plano de Curso", turma_html)
         return plano_parser.parse_course_plan(html, turma.id_turma)
+
+    def list_professors(self, turma: Turma, turma_html: str | None = None) -> list[Professor]:
+        """Teaching staff of a turma (Participantes)."""
+        html = self._turma_menu_post(turma, "Participantes", turma_html)
+        return participantes_parser.parse_professors(html, turma.id_turma)
 
     def list_news(self, turma: Turma, turma_html: str | None = None) -> list[NewsItem]:
         html = turma_html or self.enter_turma(turma)

@@ -12,6 +12,7 @@ from ..models import (
     Grade,
     Material,
     NewsItem,
+    Professor,
     Student,
     Turma,
     TurmaGrade,
@@ -61,6 +62,24 @@ class Repository:
             (code_or_id, code_or_id),
         ).fetchone()
         return _turma(row) if row else None
+
+    # --- professors ------------------------------------------------------
+    def replace_professors(self, id_turma: str, professors: list[Professor]) -> None:
+        """Set a class's teaching staff, dropping anyone no longer listed."""
+        self._conn.execute("DELETE FROM professor WHERE id_turma = ?", (id_turma,))
+        self._conn.executemany(
+            """INSERT INTO professor (id_turma, name, department, email, updated_at)
+               VALUES (?, ?, ?, ?, datetime('now'))""",
+            [(p.id_turma, p.name, p.department, p.email) for p in professors],
+        )
+        self._conn.commit()
+
+    def get_professors(self, id_turma: str | None = None) -> list[Professor]:
+        where, params = ("WHERE id_turma = ?", [id_turma]) if id_turma else ("", [])
+        rows = self._conn.execute(
+            f"SELECT * FROM professor {where} ORDER BY id_turma, name", params
+        ).fetchall()
+        return [_professor(r) for r in rows]
 
     # --- news ------------------------------------------------------------
     def known_news_ids(self, id_turma: str) -> set[str]:
@@ -348,6 +367,13 @@ def _turma(row: sqlite3.Row) -> Turma:
     return Turma(
         id_turma=row["id_turma"], name=row["name"], code=row["code"], room=row["room"],
         schedule_raw=row["schedule_raw"], semester=row["semester"],
+    )
+
+
+def _professor(row: sqlite3.Row) -> Professor:
+    return Professor(
+        id_turma=row["id_turma"], name=row["name"], department=row["department"],
+        email=row["email"],
     )
 
 

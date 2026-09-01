@@ -12,7 +12,16 @@ from dataclasses import dataclass, field
 
 from ..client import SigaaClient
 from ..config import Settings
-from ..models import Attendance, Deadline, Material, NewsItem, Student, Turma, TurmaGrade
+from ..models import (
+    Attendance,
+    Deadline,
+    Material,
+    NewsItem,
+    Professor,
+    Student,
+    Turma,
+    TurmaGrade,
+)
 from ..store.db import connect
 from ..store.repository import Repository
 
@@ -64,6 +73,7 @@ def sync(settings: Settings, fetch_bodies: bool = False) -> SyncResult:
                 result.attendance_updates.extend(
                     _sync_turma_attendance(client, repo, turma, turma_html)
                 )
+                _sync_turma_professors(client, repo, turma, turma_html)
 
             for deadline in client.list_deadlines():
                 if repo.upsert_deadline(deadline):
@@ -162,6 +172,19 @@ def _sync_turma_attendance(
     if attendance is None:
         return []
     return [attendance] if repo.upsert_attendance(attendance) else []
+
+
+def _sync_turma_professors(
+    client: SigaaClient, repo: Repository, turma: Turma, turma_html: str
+) -> list[Professor]:
+    """Best-effort: persist the turma's teaching staff (Participantes)."""
+    try:
+        professors = client.list_professors(turma, turma_html)
+    except Exception:  # noqa: BLE001 - per-turma participants page is optional
+        return []
+    if professors:
+        repo.replace_professors(turma.id_turma, professors)
+    return professors
 
 
 def _slug(text: str) -> str:
