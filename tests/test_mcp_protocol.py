@@ -10,10 +10,8 @@ pytest.importorskip("mcp")
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from tests.conftest import mcp_subprocess_env
 
-
-def test_mcp_stdio_exposes_safe_document_schemas_and_errors(tmp_path):
+def test_mcp_stdio_exposes_safe_document_schemas_and_errors(tmp_path, mcp_subprocess_env):
     async def exercise_server():
         environment = mcp_subprocess_env(tmp_path)
         parameters = StdioServerParameters(
@@ -52,7 +50,7 @@ def test_mcp_stdio_exposes_safe_document_schemas_and_errors(tmp_path):
     assert not (tmp_path.parent / "outside.pdf").exists()
 
 
-def test_mcp_stdio_rejects_a_path_in_the_material_download_filename(tmp_path):
+def test_mcp_stdio_rejects_a_path_in_the_material_download_filename(tmp_path, mcp_subprocess_env):
     async def exercise_server():
         environment = mcp_subprocess_env(tmp_path)
         parameters = StdioServerParameters(
