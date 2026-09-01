@@ -1,24 +1,33 @@
-name: Publish
+name: cd
 
 on:
   push:
     tags:
-      - "v*"
+      - "v*"  # on a new release/version
 
 jobs:
   publish:
+    name: cd
     runs-on: ubuntu-latest
+
     permissions:
       id-token: write
       contents: read
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout the code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
       - name: Install build
         run: python -m pip install --upgrade build
+
       - name: Build distributions
         run: python -m build
+
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
