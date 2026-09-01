@@ -1,4 +1,4 @@
-name: CI
+name: ci
 
 on:
   pull_request:
@@ -8,18 +8,32 @@ on:
 
 jobs:
   test:
+    name: Tests
     runs-on: ubuntu-latest
+
     strategy:
       matrix:
         python-version: ["3.11", "3.12"]
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout the code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
       - name: Install dependencies
-        run: pip install -e ".[mcp,dev]"
+        run: uv pip install -e ".[mcp,dev]" --system
+
       - name: Run tests
         run: pytest
+
       - name: Lint with ruff
         run: ruff check .
