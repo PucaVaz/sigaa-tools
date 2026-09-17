@@ -89,14 +89,31 @@ Busca o SIGAA e grava as novidades no banco local.
 | `--bodies` | também busca o texto completo das notícias |
 | `--json` | saída em JSON |
 
+Em caso de falha, a saída JSON traz `"ok": false` e `error_stage`
+(`auth`, `network`, `parse` ou `sync`); `class_summaries` mostra, por turma,
+quantas notícias foram encontradas e quais erros ocorreram.
+
 ### `watch`
 
-Roda `sync` repetidamente num intervalo.
+Sincroniza e emite eventos do que mudou desde a última execução do `watch`.
+Toda execução termina com um evento `sync` cujo `status` é `changes`,
+`no_changes`, `failed` ou `baseline`. Uma falha nunca aparece como `no_changes`.
+Contrato completo em [Notificações automáticas](/notificacoes).
+
+```bash
+sigaa watch --once --bodies --json --fail-on-error   # cron / systemd timer
+sigaa watch --interval 30m --jsonl                   # processo contínuo
+```
 
 | Flag | Descrição |
 |---|---|
-| `--interval N` | segundos entre syncs (padrão 900) |
+| `--once` | roda uma vez e sai |
+| `--interval N` | intervalo entre execuções: segundos, ou `45s` / `30m` / `1h` (padrão 900) |
+| `--json` | com `--once`: um único documento JSON |
+| `--jsonl` | um evento JSON por linha |
 | `--bodies` | igual a `sync --bodies` |
+| `--fail-on-error` | sai com código 1 quando a execução falha (o loop para na primeira falha) |
+| `--baseline` | marca tudo que já está no banco como reportado, sem emitir |
 
 ### `historico`
 

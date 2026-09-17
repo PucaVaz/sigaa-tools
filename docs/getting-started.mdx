@@ -43,7 +43,9 @@ sigaa --user SEU_USUARIO login
 O comando pede a senha, valida no SIGAA e mostra seu nome e matrícula se deu certo.
 
 <Accordion title="Sem keychain? Use variáveis de ambiente">
-Se o keychain não estiver disponível (ex.: servidor/headless), exporte as credenciais:
+Se o keychain não estiver disponível (ex.: servidor/headless), exporte as credenciais.
+Com o keychain disponível, `sigaa login` basta: não é preciso `SIGAA_USER` nem
+`SIGAA_PASS`. Evite guardar a senha em arquivos `.env` em texto puro.
 
 ```bash
 export SIGAA_USER=seu_usuario
