@@ -115,6 +115,14 @@ CREATE TABLE IF NOT EXISTS sync_run (
     ok          INTEGER NOT NULL DEFAULT 1,
     detail      TEXT
 );
+
+-- What ``sigaa watch`` has already emitted: one row per item, keyed by
+-- ``<type>:<SIGAA id>``, with a fingerprint of the fields worth re-notifying.
+CREATE TABLE IF NOT EXISTS watch_state (
+    key         TEXT PRIMARY KEY,
+    fingerprint TEXT NOT NULL,
+    emitted_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 

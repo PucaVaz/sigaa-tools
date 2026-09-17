@@ -5,14 +5,18 @@ from __future__ import annotations
 import httpx
 
 from . import config
+from .errors import LoginRejectedError, MissingCredentialsError
 from .http import extract_viewstate
 
 
 def perform_login(client: httpx.Client, username: str, password: str) -> str:
     """Authenticate and return the rendered portal HTML (with the turma list).
 
-    Raises ``ValueError`` if the resulting portal is not authenticated.
+    Raises ``LoginRejectedError`` (a ``ValueError``) if the resulting portal is
+    not authenticated.
     """
+    if not username or not password:
+        raise MissingCredentialsError("missing SIGAA username or password")
     login_page = client.get(config.LOGON_URL)
     login_page.raise_for_status()
 
@@ -38,5 +42,5 @@ def perform_login(client: httpx.Client, username: str, password: str) -> str:
     portal = client.get(config.PORTAL_ENTRY_URL)
     portal.raise_for_status()
     if config.AUTH_MARKER not in portal.text:
-        raise ValueError("login failed (check credentials / CAPTCHA)")
+        raise LoginRejectedError("login failed: SIGAA rejected the credentials or showed a CAPTCHA")
     return portal.text

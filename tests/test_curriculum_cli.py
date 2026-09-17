@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from sigaa import cli as cli_module
+from sigaa.config import Settings
 from sigaa.parsers.curriculum import parse_curriculum
 from sigaa.parsers.transcript import CraUnavailableError
 
@@ -129,8 +130,9 @@ def test_cra_command_returns_unavailable_as_valid_state(monkeypatch, capsys):
     }
 
 
-def test_curriculum_requires_credentials(capsys):
-    settings = SimpleNamespace(username=None, resolve_password=lambda: None)
+def test_curriculum_requires_credentials(capsys, monkeypatch, tmp_path):
+    monkeypatch.delenv("SIGAA_PASS", raising=False)
+    settings = Settings(db_path=tmp_path / "t.db", username=None)
     args = cli_module._build_parser().parse_args(["curriculum"])
 
     assert cli_module._cmd_curriculum(args, settings) == 1

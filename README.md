@@ -47,7 +47,7 @@ sigaa deadlines            # assessment/task due dates
 sigaa ics --out sigaa.ics  # export classes + deadlines as calendar
 sigaa curriculum           # live progress & required courses
 sigaa cra --json           # official CRA as JSON
-sigaa watch --interval 900 # continuous sync in foreground
+sigaa watch --once --json  # sync and report changes as JSON (see Notifications)
 ```
 
 Store-backed commands (`classes`, `news`, `grades`, `deadlines`) are fast and offline. Network commands (`sync`, `watch`, `curriculum`, `cra`, downloads) need internet.
@@ -165,13 +165,39 @@ that isolation existing first.
 Run `sigaa init`; it can write the launchd plist on macOS or print the cron
 entry for other operating systems.
 
+## Notifications
+
+`sigaa watch` is the integration point for cron, systemd, and chat bridges. It
+syncs, then prints what changed since its previous run as JSON events; no LLM is
+involved in deciding whether something changed.
+
+```bash
+sigaa login                                          # password + account into the OS keyring
+sigaa sync --bodies --json                           # expect "ok": true
+sigaa watch --once --baseline --json                 # optional: skip what is already stored
+sigaa watch --once --bodies --json --fail-on-error   # schedule this
+```
+
+- stdout carries only JSON; human messages go to stderr.
+- A run with nothing new reports `"status": "no_changes"`.
+- A failed run reports `"status": "failed"` plus `error` events tagged with a
+  `stage` (`auth`, `network`, `parse`, `sync`) and, with `--fail-on-error`,
+  exits 1. A failure is never reported as `no_changes`.
+- A class page whose news panel cannot be read is a `parse` error, not an empty class.
+- Unchanged state prints identical bytes, so hash-based monitors are safe.
+
+`--jsonl` prints one event per line (for `--interval 30m` loops). Event schema
+and a consumer example: [docs/notificacoes.mdx](docs/notificacoes.mdx).
+
 ## Credentials
 
 Keyring-first, env-second. Never commit credentials, cookies, downloaded live HTML, SQLite databases, exported PDFs, or `.env` files.
 
 `sigaa init` stores your SIGAA password securely in your OS keyring and verifies the login. Public SIPAC queries do not need credentials.
 
-For headless environments: `export SIGAA_USER=username SIGAA_PASS=password`. Optional: `SIGAA_DB=/path/to/sigaa.db` to override the store location.
+After `sigaa login`, no environment variables are needed. For headless
+environments without a keyring: `export SIGAA_USER=username SIGAA_PASS=password`
+(plaintext password files are not recommended). Optional: `SIGAA_DB=/path/to/sigaa.db` to override the store location.
 
 ## Advanced manual configuration
 
@@ -228,8 +254,8 @@ reads the active account from your keyring; add
 `uv tool install` puts `sigaa` in `~/.local/bin`; launchd needs it spelled out in
 full, since it does not expand `~`. Run `which sigaa` to confirm yours.
 
-**Linux (cron)**: `*/30 * * * * SIGAA_USER=you $HOME/.local/bin/sigaa sync`
-(password from keyring, or add `SIGAA_PASS`).
+**Linux (cron)**: `*/30 * * * * $HOME/.local/bin/sigaa watch --once --bodies --jsonl --fail-on-error`
+(account and password from `sigaa login`; `SIGAA_USER`/`SIGAA_PASS` only where no keyring is reachable).
 
 ## Architecture
 

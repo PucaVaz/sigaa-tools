@@ -355,6 +355,31 @@ class Repository:
         )
         self._conn.commit()
 
+    def last_sync(self) -> dict | None:
+        row = self._conn.execute(
+            "SELECT started_at, new_count, ok, detail FROM sync_run ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "started_at": row["started_at"], "new_count": row["new_count"],
+            "ok": bool(row["ok"]), "detail": row["detail"],
+        }
+
+    # --- watcher state ---------------------------------------------------
+    def watch_fingerprints(self) -> dict[str, str]:
+        rows = self._conn.execute("SELECT key, fingerprint FROM watch_state").fetchall()
+        return {r["key"]: r["fingerprint"] for r in rows}
+
+    def save_watch_fingerprints(self, fingerprints: dict[str, str]) -> None:
+        self._conn.executemany(
+            """INSERT INTO watch_state (key, fingerprint) VALUES (?, ?)
+               ON CONFLICT(key) DO UPDATE SET
+                 fingerprint=excluded.fingerprint, emitted_at=datetime('now')""",
+            sorted(fingerprints.items()),
+        )
+        self._conn.commit()
+
 
 def _student(row: sqlite3.Row) -> Student:
     return Student(
