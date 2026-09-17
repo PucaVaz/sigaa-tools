@@ -2,40 +2,56 @@
 
 Each news row carries a stable id (hidden ``name="id"``) plus a per-row JSF form
 whose postback to /sigaa/ava/index.jsf opens the full body.
+
+An empty result is only trusted when SIGAA says so ("Não há notícias
+cadastradas"). A page without the panel, or a panel whose rows are not
+recognized, raises ``NewsParseError`` so a markup change can never pass for a
+quiet class.
 """
 
 from __future__ import annotations
 
 import re
+import unicodedata
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, NavigableString
 
+from ..errors import ParseError
 from ..models import NewsItem
 
 _PANEL_HEADER_RE = re.compile(r"Not(?:&iacute;|í)cias")
 _JSFCLJS_PARAM_RE = re.compile(r"jsfcljs\([^,]+,\{'([^']+)':'([^']+)'\}")
+_EMPTY_PANEL_RE = re.compile(r"nao ha noticias")
+_DATE_RE = re.compile(r"\d{2}/\d{2}/\d{4} \d{2}:\d{2}")
+
+
+class NewsParseError(ParseError):
+    pass
 
 
 def parse_news_list(turma_html: str, id_turma: str) -> list[NewsItem]:
     panel = _news_panel(turma_html)
     if panel is None:
-        return []
+        raise NewsParseError(f"news panel not found on the class page (class {id_turma})")
 
     items: list[NewsItem] = []
     for form in panel.find_all("form"):
         id_input = form.find("input", attrs={"name": "id"})
         if not id_input or not id_input.get("value"):
             continue
-        news_id = id_input["value"]
         date, title = _date_and_title(form)
         items.append(
             NewsItem(
-                id=news_id,
+                id=id_input["value"],
                 id_turma=id_turma,
                 date=date,
                 title=title,
                 form_id=form.get("id"),
             )
+        )
+    if not items and not _declares_no_news(panel):
+        raise NewsParseError(
+            f"news panel has no recognizable rows and no empty-panel notice (class {id_turma})"
         )
     return items
 
@@ -60,7 +76,12 @@ def build_body_postback(turma_html: str, news_id: str, viewstate: str) -> dict |
 
 
 def parse_news_body(body_html: str) -> str:
-    """Extract the news article text from the Visualizar response page."""
+    """Extract the news article text from the Visualizar response page.
+
+    Link targets are kept inline: teachers write remote-class links as
+    ``<a href="https://meet...">clique aqui</a>``, and plain text extraction
+    would drop the only part that matters.
+    """
     soup = BeautifulSoup(body_html, "lxml")
     container = (
         soup.find("div", class_=re.compile("descricao"))
@@ -68,6 +89,10 @@ def parse_news_body(body_html: str) -> str:
         or soup.find("div", id=re.compile("conteudo", re.I))
     )
     target = container or soup
+    for anchor in target.find_all("a", href=True):
+        href = anchor["href"].strip()
+        if href.startswith(("http://", "https://")) and href not in anchor.get_text():
+            anchor.append(f" ({href})")
     return target.get_text("\n", strip=True)
 
 
@@ -82,18 +107,31 @@ def _news_panel(turma_html: str):
     return None
 
 
-_DATE_RE = re.compile(r"\d{2}/\d{2}/\d{4} \d{2}:\d{2}")
+def _declares_no_news(panel) -> bool:
+    return bool(_EMPTY_PANEL_RE.search(_fold(panel.get_text(" ", strip=True))))
+
+
+def _fold(text: str) -> str:
+    ascii_text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
+    return ascii_text.casefold()
 
 
 def _date_and_title(form) -> tuple[str, str]:
-    """Date and title sit as ``<date text><br><i>title</i>`` before the form."""
+    """Date and title sit as ``<date text><br><i>title</i>`` before the form.
+
+    The scan stops at the previous row's form, so a row without its own title
+    never borrows the title of the announcement above it.
+    """
     date, title = "", ""
-    italic = form.find_previous("i")
-    if italic:
-        title = italic.get_text(strip=True)
-        for sibling in italic.previous_siblings:
-            match = _DATE_RE.search(str(sibling))
+    for node in form.previous_elements:
+        if getattr(node, "name", None) == "form":
+            break
+        if not title and getattr(node, "name", None) == "i":
+            title = node.get_text(strip=True)
+        elif isinstance(node, NavigableString) and not date and node.parent.name != "i":
+            match = _DATE_RE.search(str(node))
             if match:
                 date = match.group(0)
-                break
+        if date and title:
+            break
     return date, title
