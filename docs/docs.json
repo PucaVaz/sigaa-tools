@@ -11,7 +11,7 @@
     "groups": [
       {
         "group": "Começando",
-        "pages": ["introduction", "getting-started", "sipac-processes"]
+        "pages": ["introduction", "getting-started", "notificacoes", "sipac-processes"]
       },
       {
         "group": "Referência",

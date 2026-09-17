@@ -1,0 +1,137 @@
+---
+title: "Notificações automáticas"
+description: "Rode `sigaa watch` no cron ou no systemd e consuma eventos JSON, sem LLM e sem senha em arquivo."
+meta:
+  contentType: "How-to"
+  category: "Começando"
+---
+
+`sigaa watch` sincroniza o SIGAA e emite, em JSON, o que mudou desde a última
+execução: notícias, prazos, materiais, notas e frequência. Um sistema de
+notificação (bot do Telegram, script, systemd) lê esses eventos diretamente.
+Não é preciso um LLM para decidir se algo mudou.
+
+## 1. Guardar as credenciais no keychain
+
+```bash
+sigaa --user SEU_USUARIO login
+```
+
+O comando valida a senha no SIGAA e guarda a senha **e** o usuário ativo no
+keychain do sistema. Depois disso, nenhum comando precisa de `SIGAA_USER` ou
+`SIGAA_PASS`. Confira:
+
+```bash
+sigaa sync --bodies --json
+```
+
+A saída deve ter `"ok": true`. Com `"ok": false`, o campo `error_stage` diz o motivo.
+
+## 2. Registrar o estado atual (opcional)
+
+Na primeira execução, o `watch` reporta tudo que já está no banco. Para começar
+a notificar só o que mudar daqui para frente:
+
+```bash
+sigaa watch --once --baseline --json
+```
+
+## 3. Agendar
+
+```bash
+sigaa watch --once --bodies --json --fail-on-error
+```
+
+- **stdout** traz apenas JSON válido; mensagens para humanos vão para stderr.
+- Sem novidades, o documento tem `"status": "no_changes"`.
+- Em falha, o status é `"failed"`, há eventos `error` com `stage` e o código de saída é `1`.
+- As credenciais continuam no keychain; o comando não lê nem grava senha em arquivo.
+
+Cron (a cada 30 minutos):
+
+```cron
+*/30 * * * * $HOME/.local/bin/sigaa watch --once --bodies --jsonl --fail-on-error >> $HOME/.local/state/sigaa-watch.jsonl
+```
+
+Processo contínuo, uma linha por evento:
+
+```bash
+sigaa watch --interval 30m --bodies --jsonl --fail-on-error
+```
+
+<Warning>
+O cron e o systemd rodam fora da sua sessão gráfica. No Linux sem desktop, o
+keychain (Secret Service) normalmente não está disponível para eles. Nesse
+caso, `SIGAA_PASS` funciona como alternativa, por exemplo num `EnvironmentFile`
+com permissão `600` lido pelo systemd. Arquivos com senha em texto puro não são
+recomendados: prefira o keychain sempre que ele estiver disponível.
+</Warning>
+
+## Formato dos eventos
+
+Com `--jsonl`, cada linha é um evento e a última é sempre o resumo `sync`.
+Com `--once --json`, sai um único documento: o resumo `sync` com a lista `events`.
+
+Notícia nova:
+
+```json
+{"type": "news", "status": "new", "class_id": "900001", "class_code": "TEST0001", "item_id": "90000001", "title": "Aula remota", "published_at": "13/09/2026 21:58", "body": "…", "url": "https://meet.google.com/aaa-bbbb-ccc", "detected_at": "2026-09-14T01:40:00+00:00"}
+```
+
+Nada mudou:
+
+```json
+{"type": "sync", "status": "no_changes", "event_count": 0, "classes": [{"class_id": "900001", "class_code": "TEST0001", "news_found": 1, "news_new": 0, "materials_new": 0, "deadlines_new": 0, "grades_changed": 0, "attendance_changed": 0, "errors": []}]}
+```
+
+Falha:
+
+```json
+{"type": "error", "status": "failed", "stage": "auth", "message": "missing credentials: no SIGAA account configured (run `sigaa login`, or set SIGAA_USER)", "class_id": null, "class_code": null}
+{"type": "sync", "status": "failed", "event_count": 1, "classes": []}
+```
+
+| Campo | Significado |
+|---|---|
+| `type` | `news`, `deadline`, `attendance`, `grade`, `material`, `error` ou `sync` |
+| `status` | itens: `new` ou `changed`; `sync`: `changes`, `no_changes`, `failed` ou `baseline`; `error`: `failed` |
+| `class_id`, `class_code` | turma do item (`null` para prazos ou erros sem turma) |
+| `item_id` | id estável do SIGAA; a turma, para `grade` e `attendance` |
+| `title`, `published_at`, `body`, `url` | conteúdo do item; `url` é o primeiro link do texto da notícia |
+| `detected_at` | quando o `watch` emitiu o item (UTC) |
+| `stage` | em `error`: `auth`, `network`, `parse` ou `sync` |
+| `classes` | em `sync`: contagens por turma e erros de leitura |
+
+Prazos trazem também `kind` e `due`; materiais, `kind` e `topic`; notas e
+frequência, os valores atuais.
+
+## Garantias
+
+- **Sem duplicatas.** Cada item é lembrado pelo id do SIGAA na tabela
+  `watch_state`. Um item só volta a aparecer, com `status: changed`, se mudar o
+  que importa nele: título ou data (notícias e prazos), título ou link
+  (materiais), valores (notas e frequência). O `watch` não mexe no feed do `sigaa whatsnew` nem do MCP.
+- **Falha nunca vira silêncio.** Credenciais ausentes, login recusado, erro de
+  rede ou uma página de turma que não pôde ser lida geram `failed`, execução
+  após execução, até o problema ser resolvido. Uma turma sem notícias só conta
+  como vazia quando o SIGAA mostra "Não há notícias cadastradas".
+- **Saída determinística.** Com o estado inalterado, duas execuções imprimem
+  exatamente os mesmos bytes. Um monitor baseado em hash funciona com segurança.
+- **Códigos de saída.** `0` em sucesso. Com `--fail-on-error`, `1` em falha;
+  sem a flag, a falha aparece só nos eventos. `2` para uso inválido
+  (`--json` sem `--once`).
+
+## Exemplo de consumidor
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+if ! out=$(sigaa watch --once --bodies --jsonl --fail-on-error); then
+  notify "SIGAA: $(jq -r 'select(.type=="error") | "\(.stage): \(.message)"' <<<"$out")"
+  exit 1
+fi
+jq -r 'select(.type=="news") | "\(.class_code): \(.title) \(.url // "")"' <<<"$out" |
+  while read -r line; do notify "$line"; done
+```
+
+Troque `notify` pelo seu envio (Telegram, e-mail, ntfy).
