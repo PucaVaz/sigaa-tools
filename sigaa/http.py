@@ -13,6 +13,7 @@ import re
 import httpx
 
 from . import config
+from .errors import STAGE_AUTH, SigaaError
 
 _VIEWSTATE_RE = re.compile(
     r'name="javax\.faces\.ViewState"[^>]*value="([^"]+)"'
@@ -24,8 +25,8 @@ def extract_viewstate(html: str, default: str = "j_id1") -> str:
     return match.group(1) if match else default
 
 
-class AuthError(RuntimeError):
-    pass
+class AuthError(SigaaError):
+    stage = STAGE_AUTH
 
 
 class Session:
