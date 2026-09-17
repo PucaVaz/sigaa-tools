@@ -118,6 +118,36 @@ class Settings:
                 pass
         return os.environ.get("SIGAA_PASS")
 
+    def require_credentials(self) -> tuple[str, str]:
+        """Return ``(username, password)`` or raise ``MissingCredentialsError``.
+
+        The message names what is missing and how to fix it, never a secret.
+        """
+        from .errors import MissingCredentialsError
+
+        if not self.username:
+            raise MissingCredentialsError(
+                "missing credentials: no SIGAA account configured "
+                "(run `sigaa login`, or set SIGAA_USER)"
+            )
+        password = self.resolve_password()
+        if not password:
+            raise MissingCredentialsError(
+                f"missing credentials: no password for account {self.username!r} "
+                "in the keyring (run `sigaa login`; SIGAA_PASS is an optional fallback)"
+            )
+        return self.username, password
+
+    def credentials_problem(self) -> str | None:
+        """Why credentials cannot be resolved, or None when they can."""
+        from .errors import MissingCredentialsError
+
+        try:
+            self.require_credentials()
+        except MissingCredentialsError as exc:
+            return str(exc)
+        return None
+
 # Matrícula on-line (enrollment request) flow.
 MATRICULA_INSTRUCOES_URL = f"{BASE}/graduacao/matricula/instrucoes.jsf"
 MATRICULA_TURMAS_CURRICULO_URL = f"{BASE}/graduacao/matricula/turmas_curriculo.jsf"

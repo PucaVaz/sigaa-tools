@@ -1,9 +1,13 @@
-"""Command-line interface. ``sync`` hits SIGAA; the rest read the local store."""
+"""Command-line interface. ``sync`` and ``watch`` hit SIGAA; most others read the local store.
+
+Commands that print JSON keep stdout pure JSON; human messages go to stderr.
+"""
 
 from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import time
 import unicodedata
@@ -28,7 +32,7 @@ from .parsers.curriculum import CurriculumDataError
 from .parsers.schedule import day_name, decode_schedule
 from .parsers.sipac import SipacParseError
 from .parsers.transcript import CraUnavailableError, TranscriptParseError
-from .services import whatsnew
+from .services import watch, whatsnew
 from .services.sync import sync
 from .sipac import (
     SipacClient,
@@ -38,6 +42,11 @@ from .sipac import (
 )
 from .store.db import connect
 from .store.repository import Repository
+
+DEFAULT_WATCH_INTERVAL_SECONDS = 900
+EXIT_WATCH_FAILED = 1
+_INTERVAL_RE = re.compile(r"^(\d+)([smh]?)$")
+_INTERVAL_UNIT_SECONDS = {"": 1, "s": 1, "m": 60, "h": 3600}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -53,7 +62,7 @@ def main(argv: list[str] | None = None) -> int:
         if getattr(args, "user", None):
             settings.username = args.user
         if getattr(args, "db", None):
-            settings.db_path = args.db
+            settings.db_path = Path(args.db).expanduser()
     try:
         return args.func(args, settings)
     except KeyboardInterrupt:
@@ -73,7 +82,12 @@ def _build_parser() -> argparse.ArgumentParser:
     p_init = sub.add_parser("init", help="interactive first-run setup wizard")
     p_init.set_defaults(func=_cmd_init)
 
-    p_sync = sub.add_parser("sync", help="fetch SIGAA and persist new news")
+    p_sync = sub.add_parser(
+        "sync",
+        help="fetch SIGAA and persist new news",
+        description="Fetch SIGAA and persist changes. Credentials come from `sigaa login` "
+        "(OS keyring); SIGAA_USER/SIGAA_PASS are optional overrides.",
+    )
     p_sync.add_argument("--bodies", action="store_true", help="also fetch full news bodies")
     p_sync.add_argument("--json", action="store_true")
     p_sync.set_defaults(func=_cmd_sync)
@@ -232,9 +246,33 @@ def _build_parser() -> argparse.ArgumentParser:
     p_whatsnew.add_argument("--json", action="store_true")
     p_whatsnew.set_defaults(func=_cmd_whatsnew)
 
-    p_watch = sub.add_parser("watch", help="sync repeatedly on an interval")
-    p_watch.add_argument("--interval", type=int, default=900, help="seconds (default 900)")
-    p_watch.add_argument("--bodies", action="store_true")
+    p_watch = sub.add_parser(
+        "watch",
+        help="sync and emit change events (for cron, systemd, notification bridges)",
+        description="Sync SIGAA and report what changed since the last watch run. "
+        "Every run ends with a sync event whose status is changes, no_changes, "
+        "failed, or baseline; a failure is never reported as no_changes. "
+        "Setup: `sigaa login`, then `sigaa watch --once --bodies --json --fail-on-error`.",
+    )
+    p_watch.add_argument(
+        "--interval", type=_parse_interval, default=DEFAULT_WATCH_INTERVAL_SECONDS,
+        help="time between runs: seconds, or 45s / 30m / 1h (default 900)",
+    )
+    p_watch.add_argument("--once", action="store_true", help="run a single time and exit")
+    output = p_watch.add_mutually_exclusive_group()
+    output.add_argument(
+        "--json", action="store_true", help="with --once: print one JSON document"
+    )
+    output.add_argument("--jsonl", action="store_true", help="print one JSON event per line")
+    p_watch.add_argument("--bodies", action="store_true", help="also fetch full news bodies")
+    p_watch.add_argument(
+        "--fail-on-error", action="store_true",
+        help=f"exit {EXIT_WATCH_FAILED} when a run fails (a loop stops at the first failure)",
+    )
+    p_watch.add_argument(
+        "--baseline", action="store_true",
+        help="mark everything currently stored as already reported, without emitting it",
+    )
     p_watch.set_defaults(func=_cmd_watch)
     return parser
 
@@ -254,7 +292,7 @@ def _cmd_sync(args, settings: Settings) -> int:
         print(json.dumps(_sync_json(result), ensure_ascii=False, indent=2))
         return 0 if result.ok else 1
     if not result.ok:
-        print(f"sync failed: {result.error}", file=sys.stderr)
+        print(f"sync failed ({result.error_stage}): {result.error}", file=sys.stderr)
         return 1
     print(
         f"synced {result.turma_count} classes, {result.grade_count} grade rows — "
@@ -370,7 +408,7 @@ def _cmd_grades(args, settings: Settings) -> int:
 def _cmd_curriculum(args, settings: Settings) -> int:
     password = settings.resolve_password()
     if not settings.username or not password:
-        print("missing credentials (set SIGAA_USER and keyring/SIGAA_PASS)", file=sys.stderr)
+        print(settings.credentials_problem(), file=sys.stderr)
         return 1
 
     try:
@@ -404,7 +442,7 @@ def _cmd_curriculum(args, settings: Settings) -> int:
 def _cmd_cra(args, settings: Settings) -> int:
     password = settings.resolve_password()
     if not settings.username or not password:
-        print("missing credentials (set SIGAA_USER and keyring/SIGAA_PASS)", file=sys.stderr)
+        print(settings.credentials_problem(), file=sys.stderr)
         return 1
 
     try:
@@ -526,7 +564,7 @@ def _cmd_matricula(args, settings: Settings) -> int:
 
     password = settings.resolve_password()
     if not settings.username or not password:
-        print("missing credentials (set SIGAA_USER and keyring/SIGAA_PASS)", file=sys.stderr)
+        print(settings.credentials_problem(), file=sys.stderr)
         return 1
     if args.confirm and not args.select:
         print("--confirm requires --select", file=sys.stderr)
@@ -567,7 +605,7 @@ def _cmd_academic_document(args, settings: Settings) -> int:
         return 1
     password = settings.resolve_password()
     if not settings.username or not password:
-        print("missing credentials (set SIGAA_USER and keyring/SIGAA_PASS)", file=sys.stderr)
+        print(settings.credentials_problem(), file=sys.stderr)
         return 1
     try:
         with SigaaClient(settings.username, password) as client:
@@ -612,7 +650,7 @@ def _cmd_materials(args, settings: Settings) -> int:
 def _download_materials(args, settings: Settings, repo: Repository, id_turma) -> int:
     password = settings.resolve_password()
     if not settings.username or not password:
-        print("missing credentials (set SIGAA_USER and keyring/SIGAA_PASS)", file=sys.stderr)
+        print(settings.credentials_problem(), file=sys.stderr)
         return 1
 
     stored = repo.get_materials(id_turma=id_turma, kind="file")
@@ -643,7 +681,7 @@ def _live_turma(args, settings: Settings):
     """Resolve --class to (client, live Turma) or (None, None) after printing an error."""
     password = settings.resolve_password()
     if not settings.username or not password:
-        print("missing credentials (set SIGAA_USER and keyring/SIGAA_PASS)", file=sys.stderr)
+        print(settings.credentials_problem(), file=sys.stderr)
         return None, None
     repo = Repository(connect(settings.db_path))
     stored = repo.get_turma(args.klass)
@@ -720,8 +758,17 @@ def _cmd_plan(args, settings: Settings) -> int:
 def _cmd_whatsnew(args, settings: Settings) -> int:
     repo = Repository(connect(settings.db_path))
     feed = whatsnew.collect(repo)
+    last_sync = repo.last_sync()
+    if last_sync and not last_sync["ok"]:
+        # This command only reads the store; a failed last sync means it may be stale.
+        print(
+            f"warning: last sync failed at {last_sync['started_at']}: {last_sync['detail']}",
+            file=sys.stderr,
+        )
     if args.json:
-        print(json.dumps(_whatsnew_json(repo, feed), ensure_ascii=False, indent=2))
+        print(json.dumps(
+            {**_whatsnew_json(repo, feed), "last_sync": last_sync}, ensure_ascii=False, indent=2
+        ))
     elif feed.total() == 0:
         print("nothing new — run `sigaa sync` to check")
     else:
@@ -745,19 +792,66 @@ def _cmd_whatsnew(args, settings: Settings) -> int:
     return 0
 
 
+def _parse_interval(raw: str) -> int:
+    match = _INTERVAL_RE.match(raw.strip().lower())
+    seconds = int(match.group(1)) * _INTERVAL_UNIT_SECONDS[match.group(2)] if match else 0
+    if seconds <= 0:
+        raise argparse.ArgumentTypeError(f"invalid interval {raw!r} (use e.g. 900, 45s, 30m, 1h)")
+    return seconds
+
+
 def _cmd_watch(args, settings: Settings) -> int:
-    print(f"watching: sync every {args.interval}s (Ctrl-C to stop)")
+    if args.json and not args.once:
+        print("--json needs --once; use --jsonl for a continuous stream", file=sys.stderr)
+        return 2
+    machine_output = args.json or args.jsonl
+    if not args.once:
+        banner = f"watching: sync every {args.interval}s (Ctrl-C to stop)"
+        print(banner, file=sys.stderr if machine_output else sys.stdout)
     try:
         while True:
-            result = sync(settings, fetch_bodies=args.bodies)
-            status = "ok" if result.ok else f"error: {result.error}"
-            print(f"[{time.strftime('%H:%M:%S')}] {len(result.new_items)} new — {status}")
-            for item in result.new_items:
-                print(f"  + [{item.date}] {item.title}")
+            run = watch.run_once(settings, fetch_bodies=args.bodies, baseline=args.baseline)
+            _print_watch_run(args, run)
+            if run.failed and args.fail_on_error:
+                return EXIT_WATCH_FAILED
+            if args.once:
+                return 0
             time.sleep(args.interval)
     except KeyboardInterrupt:
-        print("\nstopped")
+        print("\nstopped", file=sys.stderr if machine_output else sys.stdout)
     return 0
+
+
+def _print_watch_run(args, run: watch.WatchRun) -> None:
+    if args.json:
+        print(json.dumps(run.document(), ensure_ascii=False, indent=2))
+    elif args.jsonl:
+        for event in [*run.events, run.summary_event()]:
+            print(json.dumps(event, ensure_ascii=False))
+    else:
+        _print_watch_human(run)
+    sys.stdout.flush()
+
+
+def _print_watch_human(run: watch.WatchRun) -> None:
+    stamp = time.strftime("%H:%M:%S")
+    if run.status == watch.STATUS_FAILED:
+        print(f"[{stamp}] FAILED")
+    elif run.status == watch.STATUS_BASELINE:
+        print(f"[{stamp}] baseline recorded; later runs report only changes")
+    elif run.status == watch.STATUS_NO_CHANGES:
+        print(f"[{stamp}] no changes")
+    else:
+        print(f"[{stamp}] {len(run.events)} change(s)")
+    for event in run.events:
+        if event["type"] == watch.EVENT_ERROR:
+            where = f" {event['class_code'] or event['class_id']}" if event["class_id"] else ""
+            print(f"  error ({event['stage']}){where}: {event['message']}")
+            continue
+        when = event.get("published_at") or event.get("due")
+        date = f" [{when}]" if when else ""
+        print(f"  {event['type']} {event['status']}{date} {event['class_code'] or ''} "
+              f"{event['title']}".rstrip())
 
 
 def _print_curriculum(data: dict) -> None:
@@ -906,6 +1000,8 @@ def _sync_json(result) -> dict:
         ],
         "new_deadlines": [_deadline_json(d) for d in result.new_deadlines],
         "attendance_updates": [_attendance_json(a) for a in result.attendance_updates],
+        "error_stage": result.error_stage,
+        "class_summaries": watch.class_summaries(result),
     }
 
 

@@ -2,6 +2,10 @@
 
 Idempotent. A news id already in the store is not new, so re-running is safe and
 reports zero new items once caught up.
+
+Every failure is recorded in ``sync_run`` and tagged with a stage (see
+``sigaa.errors``). A class whose news panel cannot be parsed is reported in its
+``ClassSummary`` and fails the run, while the other classes still sync.
 """
 
 from __future__ import annotations
@@ -13,6 +17,7 @@ from dataclasses import dataclass, field
 
 from ..client import SigaaClient
 from ..config import Settings
+from ..errors import STAGE_PARSE, ParseError, error_stage
 from ..models import (
     Attendance,
     Deadline,
@@ -30,6 +35,27 @@ UNTITLED_EVALUATION_SLUG = "avaliacao"
 
 
 @dataclass
+class SyncIssue:
+    stage: str
+    message: str
+
+
+@dataclass
+class ClassSummary:
+    """Per-class counts for one run; ``errors`` is empty when the class synced cleanly."""
+
+    id_turma: str
+    code: str | None = None
+    news_found: int = 0
+    news_new: int = 0
+    materials_new: int = 0
+    deadlines_new: int = 0
+    grades_changed: int = 0
+    attendance_changed: int = 0
+    errors: list[SyncIssue] = field(default_factory=list)
+
+
+@dataclass
 class SyncResult:
     student: Student | None = None
     turma_count: int = 0
@@ -41,75 +67,110 @@ class SyncResult:
     grade_count: int = 0
     ok: bool = True
     error: str | None = None
+    # auth / network / parse / sync; set whenever ok is False.
+    error_stage: str | None = None
+    classes: list[ClassSummary] = field(default_factory=list)
 
 
 def sync(settings: Settings, fetch_bodies: bool = False) -> SyncResult:
-    password = settings.resolve_password()
-    if not settings.username or not password:
-        return SyncResult(ok=False, error="missing credentials (set SIGAA_USER and keyring/SIGAA_PASS)")
-
     conn = connect(settings.db_path)
     repo = Repository(conn)
     result = SyncResult()
     try:
-        with SigaaClient(settings.username, password) as client:
+        username, password = settings.require_credentials()
+        with SigaaClient(username, password) as client:
             result.student = client.get_student()
             repo.upsert_student(result.student)
 
             turmas = client.list_turmas()
             result.turma_count = len(turmas)
             for turma in turmas:
-                repo.upsert_turma(turma)
-                turma_html = client.enter_turma(turma)  # one fetch feeds all parsers
-                result.new_items.extend(
-                    _sync_turma_news(client, repo, turma, fetch_bodies, turma_html)
-                )
-                result.new_materials.extend(
-                    _sync_turma_materials(client, repo, turma, turma_html)
-                )
-                result.grade_updates.extend(
-                    _sync_turma_grades(client, repo, turma, turma_html)
-                )
-                result.new_deadlines.extend(
-                    _sync_turma_plan(client, repo, turma, turma_html)
-                )
-                result.attendance_updates.extend(
-                    _sync_turma_attendance(client, repo, turma, turma_html)
-                )
-                _sync_turma_professors(client, repo, turma, turma_html)
+                result.classes.append(_sync_turma(client, repo, turma, fetch_bodies, result))
+            summaries = {summary.id_turma: summary for summary in result.classes}
 
             for deadline in client.list_deadlines():
                 if repo.upsert_deadline(deadline):
                     result.new_deadlines.append(deadline)
+                    if deadline.id_turma in summaries:
+                        summaries[deadline.id_turma].deadlines_new += 1
 
             grades = client.get_grades()
             for grade in grades:
                 repo.upsert_grade(grade)
             result.grade_count = len(grades)
 
-        repo.record_sync(len(result.new_items))
-    except Exception as exc:  # noqa: BLE001 - record and surface the failure
-        result.ok = False
-        result.error = str(exc)
-        repo.record_sync(len(result.new_items), ok=False, detail=str(exc))
+        _fail_on_class_errors(result)
+    except Exception as exc:  # noqa: BLE001 - every failure is recorded and staged
+        _fail(result, exc)
     finally:
+        repo.record_sync(len(result.new_items), ok=result.ok, detail=result.error)
         conn.close()
     return result
 
 
+def _sync_turma(
+    client: SigaaClient, repo: Repository, turma: Turma, fetch_bodies: bool, result: SyncResult
+) -> ClassSummary:
+    summary = ClassSummary(id_turma=turma.id_turma, code=turma.code)
+    repo.upsert_turma(turma)
+    turma_html = client.enter_turma(turma)  # one fetch feeds all parsers
+    try:
+        found, fresh_news = _sync_turma_news(client, repo, turma, fetch_bodies, turma_html)
+        summary.news_found = len(found)
+    except ParseError as exc:
+        fresh_news = []
+        summary.errors.append(SyncIssue(stage=exc.stage, message=str(exc)))
+    fresh_materials = _sync_turma_materials(client, repo, turma, turma_html)
+    grade_updates = _sync_turma_grades(client, repo, turma, turma_html)
+    plan_deadlines = _sync_turma_plan(client, repo, turma, turma_html)
+    attendance_updates = _sync_turma_attendance(client, repo, turma, turma_html)
+    _sync_turma_professors(client, repo, turma, turma_html)
+
+    summary.news_new = len(fresh_news)
+    summary.materials_new = len(fresh_materials)
+    summary.grades_changed = len(grade_updates)
+    summary.deadlines_new = len(plan_deadlines)
+    summary.attendance_changed = len(attendance_updates)
+    result.new_items.extend(fresh_news)
+    result.new_materials.extend(fresh_materials)
+    result.grade_updates.extend(grade_updates)
+    result.new_deadlines.extend(plan_deadlines)
+    result.attendance_updates.extend(attendance_updates)
+    return summary
+
+
+def _fail(result: SyncResult, exc: Exception) -> None:
+    result.ok = False
+    result.error = str(exc)
+    result.error_stage = error_stage(exc)
+
+
+def _fail_on_class_errors(result: SyncResult) -> None:
+    """A class that could not be read fails the run, even though the rest synced."""
+    broken = [s for s in result.classes if s.errors]
+    if not broken:
+        return
+    details = "; ".join(f"{s.code or s.id_turma}: {s.errors[0].message}" for s in broken)
+    result.ok = False
+    result.error = f"{len(broken)} class(es) could not be parsed: {details}"
+    result.error_stage = STAGE_PARSE
+
+
 def _sync_turma_news(
     client: SigaaClient, repo: Repository, turma: Turma, fetch_bodies: bool, turma_html: str
-) -> list[NewsItem]:
+) -> tuple[list[NewsItem], list[NewsItem]]:
+    """Return ``(all news on the page, the ones not stored before)``."""
     known = repo.known_news_ids(turma.id_turma)
+    found = client.list_news(turma, turma_html)
     fresh: list[NewsItem] = []
-    for item in client.list_news(turma, turma_html):
+    for item in found:
         if item.id in known:
             continue
         if fetch_bodies:
             item.body = client.get_news_body(turma, item.id, turma_html)
         repo.insert_news(item)
         fresh.append(item)
-    return fresh
+    return found, fresh
 
 
 def _sync_turma_materials(
