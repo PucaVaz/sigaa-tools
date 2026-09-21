@@ -315,31 +315,29 @@ class SigaaClient:
         html = turma_html or self.enter_turma(turma)
         return news_parser.parse_news_list(html, turma.id_turma)
 
-    def get_news_body(self, turma: Turma, news_id: str, turma_html: str | None = None) -> str | None:
+    def get_news_body(self, turma: Turma, news_id: str, turma_html: str | None = None) -> str:
         html = self._principal_for_postback(turma, turma_html)
         fields = news_parser.build_body_postback(
             html, news_id, extract_viewstate(html, default="j_id2")
         )
         if fields is None:
-            return None
+            raise NavigationError(f"news body postback not found: {news_id!r}")
         body_html = self._session.post(self.profile.ava_url, fields)
         return news_parser.parse_news_body(body_html)
 
-    def _open_event(self, event_id: str) -> str | None:
+    def _open_event(self, event_id: str) -> str:
         """Replay the portal deadline anchor's postback to render the event page."""
         return self.navigator.open_event(self._session, self._portal(), event_id)
 
-    def get_tarefa_body(self, event_id: str) -> dict | None:
+    def get_tarefa_body(self, event_id: str) -> dict:
         """Open a portal deadline event (tarefa/atividade) and scrape its details.
 
         The deadline's portal anchor carries the idTurma, so only the event id is
-        needed. Returns the detail rows as a dict, or None if the event has no
-        scrapeable form (e.g. it is not a tarefa).
+        needed. Returns the detail rows as a dict. An event page without a detail
+        form (e.g. an avaliação) raises ``UnrecognizedPageError``, and an event
+        that is no longer on the portal raises ``NavigationError``.
         """
-        html = self._open_event(event_id)
-        if html is None:
-            return None
-        return tarefa_parser.parse_tarefa_body(html)
+        return tarefa_parser.parse_tarefa_body(self._open_event(event_id))
 
     def download_tarefa_attachment(self, event_id: str) -> tuple[bytes, str] | None:
         """Download a tarefa's teacher attachment (Arquivo do Professor).
@@ -348,8 +346,6 @@ class SigaaClient:
         attachment. The filename falls back to the task's own name + extension.
         """
         html = self._open_event(event_id)
-        if html is None:
-            return None
         href = tarefa_parser.find_professor_attachment(html)
         if href is None:
             return None

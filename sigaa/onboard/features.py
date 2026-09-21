@@ -54,10 +54,7 @@ def _task(client, turma):
     event = next((e for e in events if e.kind in {"tarefa", "atividade"}), None)
     if event is None:
         raise CaptureUnavailable("no task to capture")
-    html = client._open_event(event.id)
-    if html is None:
-        raise CaptureUnavailable("task link unavailable")
-    return html
+    return client._open_event(event.id)
 
 
 def _matricula(client, turma):

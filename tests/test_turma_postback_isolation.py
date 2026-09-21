@@ -29,7 +29,7 @@ def _principal(marker: str) -> str:
     return (
         f'<html><body data-page="{marker}"><form id="formMenu">{menu}'
         '<input id="javax.faces.ViewState" name="javax.faces.ViewState" value="j_id2"/>'
-        "</form></body></html>"
+        '</form><form id="news_form_1"><input name="id" value="1"/></form></body></html>'
     )
 
 

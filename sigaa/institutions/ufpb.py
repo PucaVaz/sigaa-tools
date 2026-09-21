@@ -123,5 +123,5 @@ class UfpbNavigator:
         from ..parsers.tarefa import build_event_postback
         fields = build_event_postback(portal, event_id, extract_viewstate(portal))
         if fields is None:
-            return None
+            raise NavigationError(f"portal event not found: {event_id!r}")
         return session.post(self.profile.portal_action_url, fields)
