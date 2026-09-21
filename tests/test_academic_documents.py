@@ -22,11 +22,13 @@ from sigaa.documents import (
     write_academic_document,
 )
 from sigaa.http import AuthError, Session
+from sigaa.institutions import get
 from sigaa.parsers import portal as portal_parser
 
 FIXTURES = Path(__file__).parent / "fixtures"
 PORTAL = (FIXTURES / "portal_documents.html").read_text(encoding="utf-8")
 ATESTADO = (FIXTURES / "atestado_matricula.html").read_text(encoding="utf-8")
+PROFILE = get("ufpb").profile
 
 
 @pytest.mark.parametrize(
@@ -72,6 +74,7 @@ def test_validate_pdf_document(kind):
         kind,
         content,
         "application/pdf",
+        profile=PROFILE,
     )
 
     assert document.content == content
@@ -88,7 +91,7 @@ def test_validate_pdf_document(kind):
 )
 def test_validate_pdf_rejects_http_200_error_pages(content, content_type):
     with pytest.raises(AcademicDocumentError, match="valid PDF"):
-        validate_academic_document(HISTORICO, content, content_type)
+        validate_academic_document(HISTORICO, content, content_type, profile=PROFILE)
 
 
 def test_validate_atestado_preserves_encoding_and_adds_asset_base():
@@ -97,6 +100,7 @@ def test_validate_atestado_preserves_encoding_and_adds_asset_base():
         ATESTADO_MATRICULA,
         content,
         "text/html;charset=ISO-8859-1",
+        profile=PROFILE,
     )
 
     assert document.content != content
@@ -116,6 +120,7 @@ def test_validate_atestado_rejects_unexpected_html():
             ATESTADO_MATRICULA,
             b"<html><h3>Portal</h3></html>",
             "text/html;charset=ISO-8859-1",
+            profile=PROFILE,
         )
 
 
@@ -140,6 +145,7 @@ class _DocumentSession:
 
 def _client_with(session, portal=PORTAL):
     client = object.__new__(SigaaClient)
+    client.profile = PROFILE
     client._session = session
     client._portal_html = portal
     return client
@@ -201,7 +207,14 @@ def test_session_can_delegate_auth_retry_to_jsf_operation():
 
     transport = httpx.MockTransport(handler)
     raw_client = httpx.Client(transport=transport)
-    session = Session("example", "not-a-real-password", client=raw_client)
+    provider = get("ufpb")
+    session = Session(
+        "example",
+        "not-a-real-password",
+        client=raw_client,
+        profile=provider.profile,
+        navigator=provider.navigator,
+    )
     session._authenticated = True
     try:
         with pytest.raises(AuthError, match="expired"):
@@ -212,10 +225,10 @@ def test_session_can_delegate_auth_retry_to_jsf_operation():
 
 def test_write_document_refuses_overwrite_unless_explicit(tmp_path):
     first = validate_academic_document(
-        HISTORICO, b"%PDF-1.7\nfirst", "application/pdf"
+        HISTORICO, b"%PDF-1.7\nfirst", "application/pdf", profile=PROFILE
     )
     second = validate_academic_document(
-        HISTORICO, b"%PDF-1.7\nsecond", "application/pdf"
+        HISTORICO, b"%PDF-1.7\nsecond", "application/pdf", profile=PROFILE
     )
     target = tmp_path / "historico.pdf"
 
@@ -253,6 +266,7 @@ def test_cli_download_writes_only_validated_document(monkeypatch, tmp_path, caps
         DECLARACAO_VINCULO,
         b"%PDF-1.7\nprivate document bytes",
         "application/pdf",
+        profile=PROFILE,
     )
 
     class FakeClient:
@@ -270,7 +284,8 @@ def test_cli_download_writes_only_validated_document(monkeypatch, tmp_path, caps
             assert kind == DECLARACAO_VINCULO
             return document
 
-    settings = SimpleNamespace(institution="ufpb",
+    settings = SimpleNamespace(
+        institution="ufpb",
         username="configured-user", resolve_password=lambda: "test-password"
     )
     target = tmp_path / "declaracao.pdf"
@@ -318,7 +333,8 @@ def test_cli_invalid_response_does_not_create_output(monkeypatch, tmp_path, caps
         def download_academic_document(self, kind):
             raise AcademicDocumentError("SIGAA did not return a valid PDF")
 
-    settings = SimpleNamespace(institution="ufpb",
+    settings = SimpleNamespace(
+        institution="ufpb",
         username="configured-user", resolve_password=lambda: "test-password"
     )
     target = tmp_path / "historico.pdf"
