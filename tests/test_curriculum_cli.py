@@ -23,6 +23,7 @@ def _curriculum():
 
 def _settings():
     return SimpleNamespace(
+        institution="ufpb",
         username="configured-user",
         resolve_password=lambda: "test-password",
     )
@@ -43,7 +44,7 @@ def test_cli_registers_curriculum_and_cra_commands():
 
 def test_curriculum_json_uses_shared_filtered_contract(monkeypatch, capsys):
     class FakeClient:
-        def __init__(self, username, password):
+        def __init__(self, username, password, **kwargs):
             assert (username, password) == ("configured-user", "test-password")
 
         def __enter__(self):
@@ -78,7 +79,7 @@ def test_curriculum_human_view_is_compact_and_explains_optional_choices(
     capsys,
 ):
     class FakeClient:
-        def __init__(self, username, password):
+        def __init__(self, username, password, **kwargs):
             pass
 
         def __enter__(self):
@@ -108,7 +109,7 @@ def test_curriculum_human_view_is_compact_and_explains_optional_choices(
 
 def test_cra_command_returns_unavailable_as_valid_state(monkeypatch, capsys):
     class FakeClient:
-        def __init__(self, username, password):
+        def __init__(self, username, password, **kwargs):
             pass
 
         def __enter__(self):

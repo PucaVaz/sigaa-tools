@@ -8,11 +8,10 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
 
-from ..config import SLOT_TIMES_UNCONFIRMED
+from ..institutions import Capability, InstitutionProfile, get
 from ..models import Deadline, Turma
 from ..parsers.schedule import decode_schedule
 
-_SLOT_MINUTES = 50
 # SIGAA day digit -> (python weekday, ICS BYDAY token). 2=Mon .. 7=Sat, 1=Sun.
 _DAY_MAP = {2: (0, "MO"), 3: (1, "TU"), 4: (2, "WE"), 5: (3, "TH"),
             6: (4, "FR"), 7: (5, "SA"), 1: (6, "SU")}
@@ -23,11 +22,15 @@ def build_calendar(
     deadlines: list[Deadline],
     term_start: date | None = None,
     year: int | None = None,
+    *,
+    institution: str,
 ) -> str:
+    profile = get(institution).profile
+    profile.require(Capability.CALENDAR)
     lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//sigaa-tools//PT-BR", "CALSCALE:GREGORIAN"]
     anchor = term_start or date.today()
     for turma in turmas:
-        lines.extend(_class_events(turma, anchor))
+        lines.extend(_class_events(turma, anchor, profile))
     for deadline in deadlines:
         event = _deadline_event(deadline, year or anchor.year)
         if event:
@@ -36,10 +39,10 @@ def build_calendar(
     return "\r\n".join(lines) + "\r\n"
 
 
-def _class_events(turma: Turma, anchor: date) -> list[str]:
+def _class_events(turma: Turma, anchor: date, profile: InstitutionProfile) -> list[str]:
     out: list[str] = []
     for session in decode_schedule(turma.schedule_raw):
-        times = SLOT_TIMES_UNCONFIRMED.get(session.shift)
+        times = profile.slot_times.get(session.shift)
         if not times or not session.slots or not session.days:
             continue
         start_clock = times.get(min(session.slots))
@@ -47,7 +50,7 @@ def _class_events(turma: Turma, anchor: date) -> list[str]:
         if not start_clock or not end_slot:
             continue
         start_t = _parse_time(start_clock)
-        end_t = _add_minutes(_parse_time(end_slot), _SLOT_MINUTES)
+        end_t = _add_minutes(_parse_time(end_slot), profile.slot_minutes)
         for day in session.days:
             if day not in _DAY_MAP:
                 continue

@@ -5,6 +5,7 @@ from __future__ import annotations
 import getpass
 import json
 import platform
+import shlex
 import shutil
 import sys
 from dataclasses import dataclass, field
@@ -15,13 +16,8 @@ from xml.sax.saxutils import escape
 from . import config
 from .client import SigaaClient
 from .config import Settings
+from .institutions import InstitutionProfile, all, get
 from .services.sync import sync
-
-
-@dataclass(frozen=True)
-class Institution:
-    key: str
-    label: str
 
 
 @dataclass(frozen=True)
@@ -33,27 +29,32 @@ class LoginResult:
     password: str = field(repr=False)
 
 
-INSTITUTIONS = (Institution(key="ufpb", label="UFPB"),)
-
-
-def select_institution(input_func: Callable[[str], str] = input) -> Institution:
+def select_institution(
+    input_func: Callable[[str], str] = input, *, default: str | None = None
+) -> InstitutionProfile:
+    institutions = tuple(provider.profile for provider in all())
+    fallback = next(
+        (index for index, profile in enumerate(institutions) if profile.key == default), 0
+    )
     print("Institution:")
-    for index, institution in enumerate(INSTITUTIONS, start=1):
+    for index, institution in enumerate(institutions, start=1):
         print(f"  {index}. {institution.label}")
-    answer = input_func("Choose institution [1]: ").strip()
+    answer = input_func(f"Choose institution [{fallback + 1}]: ").strip()
     if not answer:
-        return INSTITUTIONS[0]
+        return institutions[fallback]
     try:
-        selected = INSTITUTIONS[int(answer) - 1]
+        selected = institutions[int(answer) - 1]
     except (ValueError, IndexError):
-        print(f"Unknown choice {answer!r}; using {INSTITUTIONS[0].label}.")
-        return INSTITUTIONS[0]
+        print(f"Unknown choice {answer!r}; using {institutions[fallback].label}.")
+        return institutions[fallback]
     return selected
 
 
-def verify_and_store_login(username: str, password: str) -> LoginResult:
+def verify_and_store_login(
+    username: str, password: str, *, institution: str | None = None
+) -> LoginResult:
     try:
-        with SigaaClient(username, password) as client:
+        with SigaaClient(username, password, institution=institution) as client:
             student = client.get_student()
     except Exception as e:
         error_msg = str(e).lower()
@@ -73,11 +74,17 @@ def verify_and_store_login(username: str, password: str) -> LoginResult:
     try:
         import keyring
 
-        keyring.set_password(config.KEYRING_SERVICE, username, password)
+        profile = get(institution).profile
+        keyring.set_password(profile.keyring_service, username, password)
         keyring.set_password(
-            config.KEYRING_SERVICE,
+            profile.keyring_service,
             config.KEYRING_ACTIVE_USERNAME,
             username,
+        )
+        keyring.set_password(
+            config.KEYRING_SETTINGS_SERVICE,
+            config.KEYRING_ACTIVE_INSTITUTION,
+            profile.key,
         )
     except Exception:
         password_stored = False
@@ -98,7 +105,7 @@ def prompt_login(settings: Settings, input_func: Callable[[str], str] = input) -
     if not settings.username:
         settings.username = input_func("SIGAA username: ").strip()
     password = getpass.getpass("SIGAA password: ")
-    result = verify_and_store_login(settings.username, password)
+    result = verify_and_store_login(settings.username, password, institution=settings.institution)
     print(f"login ok: {result.name} ({result.matricula}) - {result.storage_message}")
     return result
 
@@ -116,7 +123,9 @@ def resolve_script(name: str) -> str:
 MCP_PACKAGE_SPEC = "sigaa-tools[mcp] @ git+https://github.com/PucaVaz/sigaa-tools"
 
 
-def build_mcp_server(*, username: str | None = None) -> dict[str, object]:
+def build_mcp_server(
+    *, username: str | None = None, institution: str | None = None
+) -> dict[str, object]:
     """Return an MCP server entry, preferring a portable ``uvx`` invocation.
 
     Pass ``username`` only when keyring cannot store the active account; the
@@ -130,8 +139,13 @@ def build_mcp_server(*, username: str | None = None) -> dict[str, object]:
         }
     else:
         server = {"command": resolve_script("sigaa-mcp")}
+    env = {}
     if username:
-        server["env"] = {"SIGAA_USER": username}
+        env["SIGAA_USER"] = username
+    if institution:
+        env["SIGAA_INSTITUTION"] = institution
+    if env:
+        server["env"] = env
     return server
 
 
@@ -149,9 +163,13 @@ def merge_mcp_config(path: Path, *, server: dict[str, object]) -> bool:
     return changed
 
 
-def build_launchd_plist(*, sigaa_cmd: str, username: str) -> str:
+def build_launchd_plist(*, sigaa_cmd: str, username: str, institution: str | None = None) -> str:
     sigaa_cmd_xml = escape(sigaa_cmd)
     username_xml = escape(username)
+    institution_xml = (
+        f"<key>SIGAA_INSTITUTION</key><string>{escape(institution)}</string>"
+        if institution else ""
+    )
     return (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"\n'
@@ -164,14 +182,16 @@ def build_launchd_plist(*, sigaa_cmd: str, username: str) -> str:
         "    <string>sync</string>\n"
         "  </array>\n"
         "  <key>EnvironmentVariables</key>\n"
-        f"  <dict><key>SIGAA_USER</key><string>{username_xml}</string></dict>\n"
+        f"  <dict><key>SIGAA_USER</key><string>{username_xml}</string>{institution_xml}</dict>\n"
         "  <key>StartInterval</key><integer>1800</integer>\n"
         "</dict></plist>\n"
     )
 
 
-def build_cron_line(*, sigaa_cmd: str, username: str) -> str:
-    return f"*/30 * * * * SIGAA_USER={username} {sigaa_cmd} sync"
+def build_cron_line(*, sigaa_cmd: str, username: str, institution: str | None = None) -> str:
+    selection = f" SIGAA_INSTITUTION={shlex.quote(institution)}" if institution else ""
+    user = shlex.quote(username)
+    return f"*/30 * * * * SIGAA_USER={user}{selection} {shlex.quote(sigaa_cmd)} sync"
 
 
 def write_env_template(path: Path, *, username: str) -> None:
@@ -183,9 +203,21 @@ def write_env_template(path: Path, *, username: str) -> None:
     )
 
 
-def run_init(settings: Settings, input_func: Callable[[str], str] = input) -> int:
+def run_init(
+    settings: Settings,
+    input_func: Callable[[str], str] = input,
+    *,
+    settings_for: Callable[[str], Settings] | None = None,
+) -> int:
+    """Run the wizard. ``settings_for`` enables the institution picker; pass it
+    only when the institution was not chosen explicitly."""
     print("sigaa init")
-    institution = select_institution(input_func)
+    if settings_for is None:
+        institution = get(settings.institution).profile
+    else:
+        institution = select_institution(input_func, default=settings.institution)
+        if institution.key != settings.institution:
+            settings = settings_for(institution.key)
     print(f"Using {institution.label}.")
 
     login = _prompt_login_until_ok(settings, input_func)
@@ -213,12 +245,15 @@ def run_init(settings: Settings, input_func: Callable[[str], str] = input) -> in
         mcp_path = Path(answer).expanduser() if answer else default_mcp
         # The active account comes back from keyring, so only pin it in the
         # config when keyring could not store it.
-        server = build_mcp_server(username=None if login.password_stored else username)
+        server = build_mcp_server(
+            username=None if login.password_stored else username,
+            institution=settings.institution,
+        )
         merge_mcp_config(mcp_path, server=server)
         print(f"wrote MCP server config to {mcp_path}")
 
     if _confirm("Install scheduled sync? [y/N]: ", input_func):
-        _write_schedule(username=username)
+        _write_schedule(username=username, institution=settings.institution)
 
     _print_cheatsheet()
     return 0
@@ -243,20 +278,25 @@ def _sync_settings(settings: Settings, login: LoginResult) -> Settings:
         def resolve_password(self) -> str | None:
             return login.password
 
-    return InitSettings(db_path=settings.db_path, username=settings.username)
+    return InitSettings(
+        db_path=settings.db_path,
+        username=settings.username,
+        institution=settings.institution,
+    )
 
 
-def _write_schedule(*, username: str) -> None:
+def _write_schedule(*, username: str, institution: str | None = None) -> None:
     sigaa_cmd = resolve_script("sigaa")
     if platform.system() == "Darwin":
         plist_path = Path.home() / "Library" / "LaunchAgents" / "ai.sigaa.sync.plist"
         plist_path.parent.mkdir(parents=True, exist_ok=True)
-        plist_path.write_text(build_launchd_plist(sigaa_cmd=sigaa_cmd, username=username), encoding="utf-8")
+        plist = build_launchd_plist(sigaa_cmd=sigaa_cmd, username=username, institution=institution)
+        plist_path.write_text(plist, encoding="utf-8")
         print(f"wrote {plist_path}")
         print(f"load it with: launchctl load {plist_path}")
         return
     print("Add this cron entry:")
-    print(build_cron_line(sigaa_cmd=sigaa_cmd, username=username))
+    print(build_cron_line(sigaa_cmd=sigaa_cmd, username=username, institution=institution))
     print("Password must come from keyring or SIGAA_PASS.")
 
 

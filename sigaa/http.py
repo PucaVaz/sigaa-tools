@@ -14,6 +14,7 @@ import httpx
 
 from . import config
 from .errors import STAGE_AUTH, SigaaError
+from .institutions import InstitutionProfile, Navigator
 
 _VIEWSTATE_RE = re.compile(
     r'name="javax\.faces\.ViewState"[^>]*value="([^"]+)"'
@@ -39,21 +40,29 @@ class Session:
         client: httpx.Client | None = None,
         *,
         timeout: float | httpx.Timeout = 30.0,
+        profile: InstitutionProfile,
+        navigator: Navigator,
     ):
+        self.profile = profile
+        self.navigator = navigator
         self._username = username
         self._password = password
         self._client = client or httpx.Client(
             headers={"User-Agent": config.USER_AGENT},
             follow_redirects=True,
             timeout=timeout,
+            event_hooks={"request": [self._validate_request]},
         )
         self._authenticated = False
+        if client is not None:
+            self._client.event_hooks.setdefault("request", []).append(self._validate_request)
+
+    def _validate_request(self, request: httpx.Request) -> None:
+        self.profile.validate_url(str(request.url))
 
     def login(self) -> str:
         """Authenticate and return the rendered portal HTML."""
-        from .auth import perform_login  # lazy import avoids circular dependency
-
-        portal_html = perform_login(self._client, self._username, self._password)
+        portal_html = self.navigator.login(self)
         self._authenticated = True
         return portal_html
 
@@ -88,7 +97,7 @@ class Session:
         resp = self._client.request("POST", url, data=data)
         resp.raise_for_status()
         content_type = resp.headers.get("content-type", "")
-        if content_type.lower().startswith("text/html") and self._looks_logged_out(resp.text):
+        if content_type.lower().startswith("text/html") and self._looks_logged_out(resp):
             if not retry_on_auth:
                 self._authenticated = False
                 raise AuthError("session expired before download postback")
@@ -96,7 +105,7 @@ class Session:
             resp = self._client.request("POST", url, data=data)
             resp.raise_for_status()
             retry_type = resp.headers.get("content-type", "")
-            if retry_type.lower().startswith("text/html") and self._looks_logged_out(resp.text):
+            if retry_type.lower().startswith("text/html") and self._looks_logged_out(resp):
                 self._authenticated = False
                 raise AuthError("session lost and re-login did not restore it")
         return resp.content, resp.headers.get("content-type"), resp.headers.get("content-disposition")
@@ -111,7 +120,7 @@ class Session:
         resp = self._client.request("GET", url)
         resp.raise_for_status()
         content_type = resp.headers.get("content-type", "")
-        if content_type.startswith("text/html") and self._looks_logged_out(resp.text):
+        if content_type.startswith("text/html") and self._looks_logged_out(resp):
             self.login()
             resp = self._client.request("GET", url)
             resp.raise_for_status()
@@ -120,22 +129,21 @@ class Session:
     def _request(self, method: str, url: str, data: dict | None = None) -> str:
         if not self._authenticated:
             self.login()
-        text = self._send(method, url, data)
-        if self._looks_logged_out(text):
+        resp = self._send(method, url, data)
+        if self._looks_logged_out(resp):
             self.login()
-            text = self._send(method, url, data)
-            if self._looks_logged_out(text):
+            resp = self._send(method, url, data)
+            if self._looks_logged_out(resp):
                 raise AuthError("session lost and re-login did not restore it")
-        return text
-
-    def _send(self, method: str, url: str, data: dict | None) -> str:
-        resp = self._client.request(method, url, data=data)
-        resp.raise_for_status()
         return resp.text
 
-    @staticmethod
-    def _looks_logged_out(text: str) -> bool:
-        return config.AUTH_MARKER not in text and config.LOGIN_REDIRECT_MARKER in text
+    def _send(self, method: str, url: str, data: dict | None) -> httpx.Response:
+        resp = self._client.request(method, url, data=data)
+        resp.raise_for_status()
+        return resp
+
+    def _looks_logged_out(self, resp: httpx.Response) -> bool:
+        return self.navigator.looks_logged_out(resp.text, str(resp.url))
 
     def close(self) -> None:
         self._client.close()

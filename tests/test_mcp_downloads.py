@@ -21,7 +21,7 @@ def _configure(monkeypatch, tmp_path, *, server_name: str):
     turma = SimpleNamespace(id_turma="369279")
 
     class FakeClient:
-        def __init__(self, username, password):
+        def __init__(self, username, password, **kwargs):
             assert username == "configured-user"
             assert password == "test-password"
 
@@ -40,6 +40,7 @@ def _configure(monkeypatch, tmp_path, *, server_name: str):
             return MATERIAL_BYTES, server_name
 
     settings = SimpleNamespace(
+        institution="ufpb",
         username="configured-user", resolve_password=lambda: "test-password"
     )
     repo = SimpleNamespace(get_materials=lambda: [material])
@@ -103,7 +104,7 @@ def _configure_attachment(monkeypatch, tmp_path, *, server_name: str, result_pre
     deadline = SimpleNamespace(id=DEADLINE_ID, kind="tarefa", title="Tarefa 1")
 
     class FakeClient:
-        def __init__(self, username, password):
+        def __init__(self, username, password, **kwargs):
             assert username == "configured-user"
             assert password == "test-password"
 
@@ -120,6 +121,7 @@ def _configure_attachment(monkeypatch, tmp_path, *, server_name: str, result_pre
             return ATTACHMENT_BYTES, server_name
 
     settings = SimpleNamespace(
+        institution="ufpb",
         username="configured-user", resolve_password=lambda: "test-password"
     )
     repo = SimpleNamespace(get_deadlines=lambda: [deadline])

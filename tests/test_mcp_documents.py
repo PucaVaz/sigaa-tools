@@ -11,6 +11,9 @@ from mcp.types import ResourceLink
 
 from sigaa import mcp_server
 from sigaa.documents import DECLARACAO_VINCULO, validate_academic_document
+from sigaa.institutions import get
+
+PROFILE = get("ufpb").profile
 
 
 def test_mcp_registers_all_academic_document_tools():
@@ -27,10 +30,11 @@ def test_mcp_document_download_returns_metadata_not_content(monkeypatch, tmp_pat
         DECLARACAO_VINCULO,
         b"%PDF-1.7\nprivate MCP bytes",
         "application/pdf",
+        profile=PROFILE,
     )
 
     class FakeClient:
-        def __init__(self, username, password):
+        def __init__(self, username, password, **kwargs):
             assert username == "configured-user"
             assert password == "test-password"
 
@@ -45,6 +49,7 @@ def test_mcp_document_download_returns_metadata_not_content(monkeypatch, tmp_pat
             return document
 
     settings = SimpleNamespace(
+        institution="ufpb",
         username="configured-user", resolve_password=lambda: "test-password"
     )
     monkeypatch.setattr(mcp_server, "Settings", lambda: settings)
