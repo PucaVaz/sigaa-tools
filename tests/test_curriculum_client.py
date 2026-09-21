@@ -35,6 +35,7 @@ class _CurriculumSession:
 
 def _client_with(session: _CurriculumSession) -> SigaaClient:
     client = object.__new__(SigaaClient)
+    client.profile = ufpb.PROFILE
     client._session = session
     client._portal_html = "<html>stale portal</html>"
     return client

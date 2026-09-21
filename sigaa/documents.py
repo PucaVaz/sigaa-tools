@@ -18,8 +18,7 @@ from pathlib import Path
 
 from bs4 import BeautifulSoup
 
-from .institutions import InstitutionProfile, MenuLabel, get
-from dataclasses import replace
+from .institutions import InstitutionProfile, MenuLabel
 
 HISTORICO = "historico"
 DECLARACAO_VINCULO = "declaracao-vinculo"
@@ -32,7 +31,7 @@ class AcademicDocumentError(RuntimeError):
 
 @dataclass(frozen=True)
 class AcademicDocumentSpec:
-    menu_label: str
+    menu_label: MenuLabel
     media_type: str
 
 
@@ -46,15 +45,15 @@ class AcademicDocument:
 
 DOCUMENT_SPECS = {
     HISTORICO: AcademicDocumentSpec(
-        menu_label=get().profile.menu_labels[MenuLabel.HISTORICO],
+        menu_label=MenuLabel.HISTORICO,
         media_type="application/pdf",
     ),
     DECLARACAO_VINCULO: AcademicDocumentSpec(
-        menu_label=get().profile.menu_labels[MenuLabel.DECLARACAO_VINCULO],
+        menu_label=MenuLabel.DECLARACAO_VINCULO,
         media_type="application/pdf",
     ),
     ATESTADO_MATRICULA: AcademicDocumentSpec(
-        menu_label=get().profile.menu_labels[MenuLabel.ATESTADO],
+        menu_label=MenuLabel.ATESTADO,
         media_type="text/html",
     ),
 }
@@ -70,13 +69,9 @@ _WINDOWS_RESERVED = {
 }
 
 
-def document_spec(kind: str, profile=None) -> AcademicDocumentSpec:
+def document_spec(kind: str) -> AcademicDocumentSpec:
     try:
-        spec = DOCUMENT_SPECS[kind]
-        if profile is not None:
-            label = {HISTORICO: MenuLabel.HISTORICO, DECLARACAO_VINCULO: MenuLabel.DECLARACAO_VINCULO, ATESTADO_MATRICULA: MenuLabel.ATESTADO}[kind]
-            spec = replace(spec, menu_label=profile.menu_labels[label])
-        return spec
+        return DOCUMENT_SPECS[kind]
     except KeyError as exc:
         choices = ", ".join(DOCUMENT_SPECS)
         raise ValueError(f"unknown academic document {kind!r}; choose one of: {choices}") from exc

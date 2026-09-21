@@ -46,13 +46,8 @@ from .parsers import portal as portal_parser
 from .parsers import tarefa as tarefa_parser
 from .parsers import transcript as transcript_parser
 
-EXTENSION_DOCUMENTS_MENU_LABEL = get().profile.menu_labels[MenuLabel.EXTENSION_DOCS]
-
 
 class SigaaClient:
-    profile = get().profile
-    navigator = get().navigator
-
     def __init__(
         self,
         username: str,
@@ -62,9 +57,15 @@ class SigaaClient:
         institution: str | None = None,
     ):
         provider = get(institution)
-        self.profile, self.navigator = provider.profile, provider.navigator
-        options = {"profile": self.profile, "navigator": self.navigator} if institution else {}
-        self._session = Session(username, password, timeout=timeout, **options)
+        self.profile = provider.profile
+        self.navigator = provider.navigator
+        self._session = Session(
+            username,
+            password,
+            timeout=timeout,
+            profile=self.profile,
+            navigator=self.navigator,
+        )
         self._portal_html: str | None = None
         self._spent_principals: set[str] = set()
 
@@ -227,12 +228,13 @@ class SigaaClient:
         and rebuild the payload from the newly rendered portal before retrying.
         """
         self.profile.require(Capability.DOCUMENTS)
-        spec = document_spec(kind, self.profile)
+        spec = document_spec(kind)
+        menu_label = self.profile.menu_labels[spec.menu_label]
         for attempt in range(2):
             portal = self._portal()
-            fields = portal_parser.build_menu_postback(portal, spec.menu_label)
+            fields = portal_parser.build_menu_postback(portal, menu_label)
             if fields is None:
-                raise ValueError(f"portal document menu item not found: {spec.menu_label!r}")
+                raise ValueError(f"portal document menu item not found: {menu_label!r}")
             try:
                 content, content_type, _ = self._session.post_download(
                     self.profile.portal_action_url,

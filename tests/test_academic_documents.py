@@ -145,6 +145,7 @@ class _DocumentSession:
 
 def _client_with(session, portal=PORTAL):
     client = object.__new__(SigaaClient)
+    client.profile = PROFILE
     client._session = session
     client._portal_html = portal
     return client
@@ -206,7 +207,14 @@ def test_session_can_delegate_auth_retry_to_jsf_operation():
 
     transport = httpx.MockTransport(handler)
     raw_client = httpx.Client(transport=transport)
-    session = Session("example", "not-a-real-password", client=raw_client)
+    provider = get("ufpb")
+    session = Session(
+        "example",
+        "not-a-real-password",
+        client=raw_client,
+        profile=provider.profile,
+        navigator=provider.navigator,
+    )
     session._authenticated = True
     try:
         with pytest.raises(AuthError, match="expired"):

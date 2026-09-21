@@ -13,7 +13,7 @@ import re
 import httpx
 
 from . import config
-from .institutions import get
+from .institutions import InstitutionProfile, Navigator
 from .errors import STAGE_AUTH, SigaaError
 
 _VIEWSTATE_RE = re.compile(
@@ -40,11 +40,11 @@ class Session:
         client: httpx.Client | None = None,
         *,
         timeout: float | httpx.Timeout = 30.0,
-        profile=None,
-        navigator=None,
+        profile: InstitutionProfile,
+        navigator: Navigator,
     ):
-        self.profile = profile or get().profile
-        self.navigator = navigator or get(self.profile.key).navigator
+        self.profile = profile
+        self.navigator = navigator
         self._username = username
         self._password = password
         self._client = client or httpx.Client(

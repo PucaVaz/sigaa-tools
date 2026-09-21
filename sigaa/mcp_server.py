@@ -37,6 +37,7 @@ from .errors import ParseError
 from .exporters.ics import build_calendar
 from .extensao import participations_to_dict
 from .http import AuthError
+from .institutions import get
 from .parsers.curriculum import CurriculumDataError
 from .parsers.schedule import day_name, decode_schedule
 from .parsers.sipac import SipacParseError
@@ -680,6 +681,7 @@ def _download_academic_document(kind: str, filename: str) -> CallToolResult:
         "resource_uri": resource_uri,
         "resource_mime_type": resource_media_type,
     }
+    title = get(settings.institution).profile.menu_labels[document_spec(document.kind).menu_label]
     return CallToolResult(
         content=[
             TextContent(
@@ -692,7 +694,7 @@ def _download_academic_document(kind: str, filename: str) -> CallToolResult:
             ResourceLink(
                 type="resource_link",
                 name=filename,
-                title=document_spec(document.kind).menu_label,
+                title=title,
                 uri=resource_uri,
                 description="Academic document downloaded from SIGAA",
                 mimeType=resource_media_type,

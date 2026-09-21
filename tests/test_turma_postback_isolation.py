@@ -5,7 +5,7 @@ first postback opened, so SIGAA answers with whatever turma it currently sits on
 -- the mechanism behind plan rows landing on the wrong turma.
 """
 
-from sigaa.institutions import ufpb
+from sigaa.institutions import get, ufpb
 from sigaa.client import SigaaClient
 from sigaa.models import Turma
 
@@ -46,6 +46,8 @@ class _FakeSession:
 
 def _client() -> tuple[SigaaClient, _FakeSession]:
     client = SigaaClient.__new__(SigaaClient)
+    client.profile = ufpb.PROFILE
+    client.navigator = get("ufpb").navigator
     session = _FakeSession()
     client._session = session
     client._portal_html = PORTAL

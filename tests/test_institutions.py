@@ -58,7 +58,9 @@ def test_redirect_is_rejected_before_request_or_credential_send():
         sent.append(request)
         return httpx.Response(307, headers={"Location": "https://evil.example/"})
     raw = httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True)
-    session = Session("test", secrets.token_urlsafe(), client=raw)
+    provider = get("ufpb")
+    session = Session("test", secrets.token_urlsafe(), client=raw,
+                      profile=provider.profile, navigator=provider.navigator)
     session._authenticated = True
     with session, pytest.raises(UnsafeUrlError):
         session.post(get().profile.logon_url, {"form:senha": secrets.token_urlsafe()})
@@ -71,3 +73,13 @@ def test_unsupported_feature_raises_before_navigation(other):
     with SigaaClient("test", secrets.token_urlsafe(), institution=other.key) as client:
         with pytest.raises(UnsupportedFeatureError, match="unsupported"):
             client.get_curriculum_status()
+
+
+def test_client_hands_its_one_provider_to_the_session(other):
+    from sigaa.client import SigaaClient
+    with SigaaClient("test", secrets.token_urlsafe(), institution=other.key) as client:
+        assert client.profile is other
+        assert client._session.profile is other
+        assert client._session.navigator is client.navigator
+    assert not hasattr(SigaaClient, "profile")
+    assert not hasattr(SigaaClient, "navigator")
