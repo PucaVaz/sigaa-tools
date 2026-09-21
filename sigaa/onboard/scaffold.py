@@ -33,6 +33,7 @@ PROFILE = InstitutionProfile(
     slot_minutes=50,
     menu_labels={{}},
     capabilities=frozenset(),
+    provisional=True,
 )
 
 

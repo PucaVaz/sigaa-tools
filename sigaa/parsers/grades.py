@@ -92,15 +92,15 @@ def parse_turma_grades(soup: BeautifulSoup, id_turma: str) -> TurmaGrade | None:
     if data is None:
         return None
 
-    by_label = dict(zip(headers, data))
+    by_label = dict(zip(map(fold, headers), data))
     units = [v for label, v in by_label.items() if label.lower().startswith("unid") and v]
     return TurmaGrade(
         id_turma=id_turma,
         units=units,
-        exam=_clean(by_label.get("Exame Final", "")),
-        result=_clean(by_label.get("Resultado", "")),
-        absences=_clean(by_label.get("Faltas", "")),
-        status=_clean(by_label.get("Sit.", "")) or _clean(by_label.get("Situação", "")),
+        exam=_clean(by_label.get("exame final", "")),
+        result=_clean(by_label.get("resultado", "")),
+        absences=_clean(by_label.get("faltas", "")),
+        status=_clean(by_label.get("sit.", "")) or _clean(by_label.get("situacao", "")),
     )
 
 

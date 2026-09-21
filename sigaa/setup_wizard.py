@@ -32,7 +32,9 @@ class LoginResult:
 def select_institution(
     input_func: Callable[[str], str] = input, *, default: str | None = None
 ) -> InstitutionProfile:
-    institutions = tuple(provider.profile for provider in all())
+    institutions = tuple(
+        provider.profile for provider in all() if not provider.profile.provisional
+    )
     fallback = next(
         (index for index, profile in enumerate(institutions) if profile.key == default), 0
     )

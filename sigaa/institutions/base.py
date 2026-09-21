@@ -61,6 +61,9 @@ class InstitutionProfile:
     slot_minutes: int
     menu_labels: dict[MenuLabel, str]
     capabilities: frozenset[Capability]
+    # Registered but not yet onboarded from live captures: selectable only with
+    # --institution or SIGAA_INSTITUTION, never offered by the setup wizard.
+    provisional: bool = False
 
     def require(self, capability: Capability) -> None:
         from ..errors import UnsupportedFeatureError

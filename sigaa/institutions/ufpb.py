@@ -75,7 +75,6 @@ class UfpbNavigator:
         self.profile = profile
 
     def login(self, session):
-        from ..auth import perform_login
         return perform_login(
             session._client, session._username, session._password, profile=self.profile
         )
@@ -125,6 +124,48 @@ class UfpbNavigator:
         if fields is None:
             raise NavigationError(f"portal event not found: {event_id!r}")
         return session.post(self.profile.portal_action_url, fields)
+
+
+def perform_login(client, username: str, password: str, *, profile: InstitutionProfile) -> str:
+    """Authenticate and return the rendered portal HTML (with the turma list).
+
+    Raises ``LoginRejectedError`` (a ``ValueError``) if the resulting portal is
+    not authenticated.
+    """
+    import httpx
+
+    from ..errors import LoginRejectedError, MissingCredentialsError
+    from ..http import extract_viewstate
+
+    if not username or not password:
+        raise MissingCredentialsError("missing SIGAA username or password")
+    login_page = client.get(profile.logon_url)
+    login_page.raise_for_status()
+
+    fields = {
+        "form": "form",
+        "form:width": "1280",
+        "form:height": "800",
+        "form:login": username,
+        "form:senha": password,
+        "form:entrar": "Entrar",
+        "javax.faces.ViewState": extract_viewstate(login_page.text),
+    }
+    # The post-login redirect targets the deprecated classic portal, whose
+    # http->https hop drops a trailing slash and 404s. The session cookie is set
+    # regardless, so the status of this response is irrelevant.
+    try:
+        client.post(profile.logon_url, data=fields, follow_redirects=False)
+    except httpx.HTTPError:
+        pass
+
+    # Enter via the slash-terminated classic URL, which 302s to the full beta
+    # portal. A plain GET of the beta URL returns only a loading shell.
+    portal = client.get(profile.portal_entry_url)
+    portal.raise_for_status()
+    if profile.auth_marker not in portal.text:
+        raise LoginRejectedError("login failed: SIGAA rejected the credentials or showed a CAPTCHA")
+    return portal.text
 
 
 NAVIGATOR = UfpbNavigator()

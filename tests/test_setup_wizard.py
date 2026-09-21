@@ -260,5 +260,28 @@ def test_picker_rebuilds_settings_for_another_institution(monkeypatch, tmp_path,
     ) == 1
     output = capsys.readouterr().out
     assert "1. UFPB" in output and "2. EXAMPLE" in output
+    assert "UFCG" not in output
     assert "Using EXAMPLE." in output
     assert logins == [rebuilt]
+
+
+def test_provisional_institutions_are_selectable_only_explicitly(monkeypatch):
+    from sigaa import cli
+    from sigaa.institutions import get
+
+    assert get("ufcg").profile.provisional and not get("ufpb").profile.provisional
+    picked = []
+    def run_init(settings, **kwargs):
+        picked.append(settings.institution)
+        return 0
+
+    monkeypatch.setattr(setup_wizard, "run_init", run_init)
+    monkeypatch.delenv("SIGAA_INSTITUTION", raising=False)
+    assert cli.main(["init", "--institution", "ufcg"]) == 0
+    monkeypatch.setenv("SIGAA_INSTITUTION", "ufcg")
+    assert cli.main(["init"]) == 0
+    assert picked == ["ufcg", "ufcg"]
+
+    replies = iter([""])
+    offered = setup_wizard.select_institution(lambda _prompt: next(replies), default="ufcg")
+    assert offered.key == "ufpb"
