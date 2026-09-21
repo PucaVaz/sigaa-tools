@@ -87,7 +87,8 @@ def test_capture_preserves_http_bytes_metadata_and_two_class_contexts(monkeypatc
         url = UFPB.profile.portal_entry_url
         client._session._authenticated = True
         client._session.login = lambda: client._session._client.get(url).text
-        client.list_turmas = lambda: [Turma(id_turma="1", name="First"), Turma(id_turma="2", name="Second")]
+        turmas = [Turma(id_turma="1", name="First"), Turma(id_turma="2", name="Second")]
+        client.list_turmas = lambda: turmas
         return client
     feature = Feature("class", Capability.PORTAL,
                       lambda client, turma: client._session.post(client.profile.ava_url,
