@@ -93,3 +93,20 @@ def test_page_parsers_build_the_soup_once(feature, fixture, monkeypatch):
     monkeypatch.setattr(BeautifulSoup, "__init__", counting)
     parser.parse(html, "123")
     assert len(built) == 1
+
+
+def test_grades_report_without_semester_tables_is_empty():
+    soup = BeautifulSoup((FIXTURES / "grades.html").read_text(), "lxml")
+    for table in soup.select("table.tabelaRelatorio"):
+        table.decompose()
+
+    assert parse_grades(str(soup)) == []
+
+
+def test_page_without_report_heading_or_tables_is_unrecognized():
+    soup = BeautifulSoup((FIXTURES / "grades.html").read_text(), "lxml")
+    for node in soup.select("table.tabelaRelatorio, h3"):
+        node.decompose()
+
+    with pytest.raises(UnrecognizedPageError):
+        parse_grades(str(soup))

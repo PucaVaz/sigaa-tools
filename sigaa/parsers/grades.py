@@ -117,10 +117,24 @@ def _clean(value: str) -> str | None:
     return None if value in ("", "--") else value
 
 
+def _is_grades_report(soup):
+    """The Relatório de Notas page itself, recognized even with no semester table.
+
+    Not yet seen live for a student with no grades: the heading is the marker
+    the report carries above its tables (see ACCEPTANCE.md).
+    """
+    return any(
+        "relatorio de notas" in fold(node.get_text(" ", strip=True))
+        for node in soup.select("h1, h2, h3, h4, legend, caption")
+    )
+
+
 def _matches_grades(soup):
     tables = _grade_tables(soup)
-    return bool(tables) and all({"codigo", "disciplina", "resultado", "faltas", "situacao"}
-                               .issubset(_grade_headers(t)) for t in tables)
+    if not tables:
+        return _is_grades_report(soup)
+    return all({"codigo", "disciplina", "resultado", "faltas", "situacao"}
+               .issubset(_grade_headers(t)) for t in tables)
 
 
 def _grades_by_header(soup):
