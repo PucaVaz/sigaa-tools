@@ -16,30 +16,35 @@ _JUSTIFIED_RE = re.compile(r"Total de Faltas Justificadas:\s*(\d+)")
 _MAX_RE = re.compile(r"M[áa]ximo de Faltas Permitido:\s*(\d+)")
 
 
-def _recognized_map(soup):
-    return any("mapa de frequ" in fold(lg.get_text()) for lg in soup.select("fieldset legend"))
+def _map_fieldset(soup: BeautifulSoup):
+    """The fieldset under the 'Mapa de Frequências' legend; every read is scoped to it."""
+    legend = next(
+        (lg for lg in soup.find_all("legend") if "mapa de frequ" in fold(lg.get_text())),
+        None,
+    )
+    return legend.find_parent("fieldset") if legend is not None else None
 
 
 def _valid_map(result, soup):
-    if result is None:
-        return False
-    headers = {fold(th.get_text()) for th in soup.select("table th")}
-    return {"data", "situacao"}.issubset(headers) and (
-        len(result.records) == len(soup.select("table tbody tr")) and bool(soup.select("table tbody"))
-    )
+    """A map without a table or without rows is the state the parser has always
+    accepted (nothing posted yet; not yet seen live). A table that labels its
+    columns must start with the two the positional reader relies on."""
+    table = _map_fieldset(soup).find("table")
+    if table is None:
+        return True
+    headers = [fold(th.get_text(" ", strip=True)) for th in table.select("th")]
+    return not headers or headers[:2] == ["data", "situacao"]
 
 
-@page_parser("attendance", _recognized_map, validate=_valid_map, name="frequency-map")
+@page_parser(
+    "attendance",
+    lambda soup: _map_fieldset(soup) is not None,
+    validate=_valid_map,
+    name="frequency-map",
+)
 def parse_attendance(soup: BeautifulSoup, id_turma: str) -> Attendance | None:
     """Extract the attendance map. Returns None if the page has no map."""
-    legend = next(
-        (lg for lg in soup.find_all("legend")
-         if "mapa de frequ" in lg.get_text(strip=True).casefold()),
-        None,
-    )
-    if legend is None:
-        return None
-    fieldset = legend.find_parent("fieldset")
+    fieldset = _map_fieldset(soup)
     if fieldset is None:
         return None
 
