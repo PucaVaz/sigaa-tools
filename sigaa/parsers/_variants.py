@@ -1,7 +1,9 @@
 """Recognize a page before parsing it; unmatched markup always fails loudly."""
+import re
 from dataclasses import dataclass
 from functools import wraps
 from typing import Callable
+
 from bs4 import BeautifulSoup
 
 from ..errors import UnrecognizedPageError
@@ -15,10 +17,29 @@ class Variant:
     parse: Callable
 
 
+_LOGIN_FIELD_RE = re.compile(r"login|user|usuario", re.I)
+
+
+def _is_login_form(soup) -> bool:
+    """A password field in a form with a login/username field: a session bounce.
+
+    A password field alone (for example a confirmation on an authenticated
+    page) does not make the page a login page.
+    """
+    for password in soup.select('input[type="password"]'):
+        form = password.find_parent("form")
+        if form is None:
+            continue
+        for field in form.select('input[type="text"], input[type="email"], input:not([type])'):
+            if _LOGIN_FIELD_RE.search(f"{field.get('name', '')} {field.get('id', '')}"):
+                return True
+    return False
+
+
 def resolve_variant(feature, html, variants):
     soup = html if isinstance(html, BeautifulSoup) else BeautifulSoup(html, "lxml")
     # Never let a login form satisfy a permissive content selector.
-    if soup.select_one('input[type="password"]'):
+    if _is_login_form(soup):
         raise UnrecognizedPageError(feature, page_fingerprint(soup))
     for variant in variants:
         if variant.matches(soup):

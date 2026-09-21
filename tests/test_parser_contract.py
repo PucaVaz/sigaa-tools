@@ -9,6 +9,7 @@ from sigaa.errors import ParseError, error_stage, UnrecognizedPageError
 from sigaa.onboard.features import FEATURES
 from sigaa.parsers._common import page_fingerprint
 from sigaa.parsers._variants import resolve_variant
+from sigaa.parsers.attendance import parse_attendance
 from sigaa.parsers.grades import parse_grades
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -126,3 +127,26 @@ def test_page_without_report_heading_or_tables_is_unrecognized():
 
     with pytest.raises(UnrecognizedPageError):
         parse_grades(str(soup))
+
+
+def test_a_password_confirmation_field_does_not_make_a_login_page():
+    soup = BeautifulSoup((FIXTURES / "frequencia.html").read_text(), "lxml")
+    confirm = BeautifulSoup(
+        '<form id="confirmar"><input type="password" name="confirmar:senha"/></form>', "lxml"
+    ).form
+    soup.body.append(confirm)
+
+    assert parse_attendance(str(soup), "123").records
+
+
+@pytest.mark.parametrize("login_field", ["form:login", "user.login", "usuario"])
+def test_a_login_form_is_never_parsed_as_content(login_field):
+    soup = BeautifulSoup((FIXTURES / "frequencia.html").read_text(), "lxml")
+    login = BeautifulSoup(
+        f'<form><input type="text" name="{login_field}"/><input type="password" name="senha"/>'
+        "</form>", "lxml"
+    ).form
+    soup.body.append(login)
+
+    with pytest.raises(UnrecognizedPageError):
+        parse_attendance(str(soup), "123")
