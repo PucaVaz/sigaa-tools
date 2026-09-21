@@ -128,6 +128,7 @@ def test_scaffolded_provider_is_discovered_and_inherits_nothing(tmp_path, monkey
     assert profile.host == "https://sigaa.example.edu"
     assert profile.logon_url.startswith(profile.host)
     assert profile.capabilities == frozenset() and profile.menu_labels == {}
+    assert profile.provisional
     urls = [getattr(profile, name) for name in profile.__dataclass_fields__
             if name.endswith("_url") and name != "logon_url"]
     assert urls and not any(urls)

@@ -4,6 +4,8 @@ This profile is provisional. Classic authentication is tested with synthetic
 login and portal fixtures from [JucaGF/sigaa-tools-ufcg](https://github.com/JucaGF/sigaa-tools-ufcg)
 under the repository's MIT license. Pseudo session tokens were removed from the
 copied fixtures. No live UFCG account was used for this change.
+Because it is provisional, `sigaa init` does not offer it; select it with
+`--institution ufcg` or `SIGAA_INSTITUTION=ufcg`.
 
 | Feature | Evidence |
 | --- | --- |

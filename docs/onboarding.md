@@ -9,7 +9,10 @@ chat or commit a capture. Only the student can complete live acceptance.
 2. Run `sigaa onboard init your_key --host https://your-host`. The generated
    provider deliberately has no supported capabilities, empty menu labels and
    URLs, and a navigator whose every step raises until you implement it; it
-   inherits nothing from UFPB. The registry picks the module up by itself.
+   inherits nothing from UFPB. The registry picks the module up by itself. It
+   is marked `provisional`, so `sigaa init` does not offer it; select it with
+   `--institution` or `SIGAA_INSTITUTION`, and drop the flag only once live
+   acceptance passes.
    Implement navigation and declare capabilities only for available features.
 3. Run `SIGAA_INSTITUTION=your_key sigaa onboard capture` with credentials
    available from keyring or the environment. If the student parser is not yet

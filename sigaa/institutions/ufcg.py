@@ -19,6 +19,7 @@ PROFILE = InstitutionProfile(
     keyring_service="sigaa-ufcg", slot_times={shift: {slot: "" for slot in slots}
                                             for shift, slots in SLOT_GRID.items()},
     slot_minutes=50, menu_labels={}, capabilities=frozenset({Capability.PORTAL}),
+    provisional=True,
 )
 
 
