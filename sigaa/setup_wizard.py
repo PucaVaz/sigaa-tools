@@ -5,6 +5,7 @@ from __future__ import annotations
 import getpass
 import json
 import platform
+import shlex
 import shutil
 import sys
 from dataclasses import dataclass, field
@@ -122,7 +123,9 @@ def resolve_script(name: str) -> str:
 MCP_PACKAGE_SPEC = "sigaa-tools[mcp] @ git+https://github.com/PucaVaz/sigaa-tools"
 
 
-def build_mcp_server(*, username: str | None = None) -> dict[str, object]:
+def build_mcp_server(
+    *, username: str | None = None, institution: str | None = None
+) -> dict[str, object]:
     """Return an MCP server entry, preferring a portable ``uvx`` invocation.
 
     Pass ``username`` only when keyring cannot store the active account; the
@@ -136,8 +139,13 @@ def build_mcp_server(*, username: str | None = None) -> dict[str, object]:
         }
     else:
         server = {"command": resolve_script("sigaa-mcp")}
+    env = {}
     if username:
-        server["env"] = {"SIGAA_USER": username}
+        env["SIGAA_USER"] = username
+    if institution:
+        env["SIGAA_INSTITUTION"] = institution
+    if env:
+        server["env"] = env
     return server
 
 
@@ -155,9 +163,13 @@ def merge_mcp_config(path: Path, *, server: dict[str, object]) -> bool:
     return changed
 
 
-def build_launchd_plist(*, sigaa_cmd: str, username: str) -> str:
+def build_launchd_plist(*, sigaa_cmd: str, username: str, institution: str | None = None) -> str:
     sigaa_cmd_xml = escape(sigaa_cmd)
     username_xml = escape(username)
+    institution_xml = (
+        f"<key>SIGAA_INSTITUTION</key><string>{escape(institution)}</string>"
+        if institution else ""
+    )
     return (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"\n'
@@ -170,14 +182,16 @@ def build_launchd_plist(*, sigaa_cmd: str, username: str) -> str:
         "    <string>sync</string>\n"
         "  </array>\n"
         "  <key>EnvironmentVariables</key>\n"
-        f"  <dict><key>SIGAA_USER</key><string>{username_xml}</string></dict>\n"
+        f"  <dict><key>SIGAA_USER</key><string>{username_xml}</string>{institution_xml}</dict>\n"
         "  <key>StartInterval</key><integer>1800</integer>\n"
         "</dict></plist>\n"
     )
 
 
-def build_cron_line(*, sigaa_cmd: str, username: str) -> str:
-    return f"*/30 * * * * SIGAA_USER={username} {sigaa_cmd} sync"
+def build_cron_line(*, sigaa_cmd: str, username: str, institution: str | None = None) -> str:
+    selection = f" SIGAA_INSTITUTION={shlex.quote(institution)}" if institution else ""
+    user = shlex.quote(username)
+    return f"*/30 * * * * SIGAA_USER={user}{selection} {shlex.quote(sigaa_cmd)} sync"
 
 
 def write_env_template(path: Path, *, username: str) -> None:
@@ -231,12 +245,15 @@ def run_init(
         mcp_path = Path(answer).expanduser() if answer else default_mcp
         # The active account comes back from keyring, so only pin it in the
         # config when keyring could not store it.
-        server = build_mcp_server(username=None if login.password_stored else username)
+        server = build_mcp_server(
+            username=None if login.password_stored else username,
+            institution=settings.institution,
+        )
         merge_mcp_config(mcp_path, server=server)
         print(f"wrote MCP server config to {mcp_path}")
 
     if _confirm("Install scheduled sync? [y/N]: ", input_func):
-        _write_schedule(username=username)
+        _write_schedule(username=username, institution=settings.institution)
 
     _print_cheatsheet()
     return 0
@@ -268,17 +285,18 @@ def _sync_settings(settings: Settings, login: LoginResult) -> Settings:
     )
 
 
-def _write_schedule(*, username: str) -> None:
+def _write_schedule(*, username: str, institution: str | None = None) -> None:
     sigaa_cmd = resolve_script("sigaa")
     if platform.system() == "Darwin":
         plist_path = Path.home() / "Library" / "LaunchAgents" / "ai.sigaa.sync.plist"
         plist_path.parent.mkdir(parents=True, exist_ok=True)
-        plist_path.write_text(build_launchd_plist(sigaa_cmd=sigaa_cmd, username=username), encoding="utf-8")
+        plist = build_launchd_plist(sigaa_cmd=sigaa_cmd, username=username, institution=institution)
+        plist_path.write_text(plist, encoding="utf-8")
         print(f"wrote {plist_path}")
         print(f"load it with: launchctl load {plist_path}")
         return
     print("Add this cron entry:")
-    print(build_cron_line(sigaa_cmd=sigaa_cmd, username=username))
+    print(build_cron_line(sigaa_cmd=sigaa_cmd, username=username, institution=institution))
     print("Password must come from keyring or SIGAA_PASS.")
 
 

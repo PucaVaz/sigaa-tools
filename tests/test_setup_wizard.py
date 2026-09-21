@@ -172,17 +172,18 @@ def _run_init_writing_mcp(monkeypatch, tmp_path, *, password_stored: bool) -> di
 def test_run_init_writes_mcp_config_without_personal_data(monkeypatch, tmp_path):
     server = _run_init_writing_mcp(monkeypatch, tmp_path, password_stored=True)
 
-    assert "env" not in server
+    assert "SIGAA_USER" not in server["env"]
     assert server == {
         "command": "uvx",
         "args": ["--from", MCP_PACKAGE_SPEC, "sigaa-mcp"],
+        "env": {"SIGAA_INSTITUTION": "ufpb"},
     }
 
 
 def test_run_init_pins_username_when_keyring_is_unavailable(monkeypatch, tmp_path):
     server = _run_init_writing_mcp(monkeypatch, tmp_path, password_stored=False)
 
-    assert server["env"] == {"SIGAA_USER": "alice"}
+    assert server["env"] == {"SIGAA_USER": "alice", "SIGAA_INSTITUTION": "ufpb"}
 
 
 def test_build_launchd_plist_uses_resolved_command_and_username():
@@ -199,6 +200,14 @@ def test_build_cron_line_uses_resolved_command_and_username():
     line = build_cron_line(sigaa_cmd="/opt/bin/sigaa", username="alice")
 
     assert line == "*/30 * * * * SIGAA_USER=alice /opt/bin/sigaa sync"
+
+
+def test_schedules_pin_the_institution():
+    plist = build_launchd_plist(sigaa_cmd="/opt/bin/sigaa", username="alice", institution="ufpb")
+    line = build_cron_line(sigaa_cmd="/opt/bin/my sigaa", username="alice", institution="ufpb")
+
+    assert "<key>SIGAA_INSTITUTION</key><string>ufpb</string></dict>" in plist
+    assert line == "*/30 * * * * SIGAA_USER=alice SIGAA_INSTITUTION=ufpb '/opt/bin/my sigaa' sync"
 
 
 def test_resolve_script_prefers_path_lookup(monkeypatch):
