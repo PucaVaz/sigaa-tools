@@ -85,3 +85,9 @@ def test_a_file_item_that_cannot_be_read_still_raises():
 
     with pytest.raises(UnrecognizedPageError):
         materials_parser.parse_materials(broken, ID_TURMA)
+
+
+def test_class_page_without_topics_has_no_materials():
+    principal = (FIXTURES / "news_remote_class.html").read_text(encoding="utf-8")
+
+    assert materials_parser.parse_materials(principal, ID_TURMA) == []

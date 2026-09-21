@@ -14,6 +14,7 @@ import re
 from bs4 import BeautifulSoup
 
 from ._variants import page_parser
+from .news import news_panel
 
 from ..models import Material
 
@@ -54,9 +55,14 @@ def _material_items(soup: BeautifulSoup):
     return [item for item in soup.select("div.topico-aula div.item") if _is_material(item)]
 
 
+def _is_class_page(soup: BeautifulSoup) -> bool:
+    """Topics, or the Principal page's news panel when a class has no topics yet."""
+    return bool(soup.select("div.topico-aula")) or news_panel(soup) is not None
+
+
 @page_parser(
     "materials",
-    lambda soup: bool(soup.select("div.topico-aula")),
+    _is_class_page,
     empty=lambda soup: not _material_items(soup),
     # A file or link item that then fails to parse still raises.
     validate=lambda result, soup: len(result) == len(_material_items(soup)),
