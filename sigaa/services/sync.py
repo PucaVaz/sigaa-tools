@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 
 from ..client import SigaaClient
 from ..config import Settings
-from ..errors import error_stage
+from ..errors import NavigationError, error_stage
 from ..models import (
     Attendance,
     Deadline,
@@ -205,7 +205,8 @@ def _sync_turma_plan(
     if plan is None:
         return []
     if plan.id_turma != turma.id_turma:
-        return []  # a plan that cannot be attributed to this turma is never stored
+        # Never stored, and never read as "no evaluations": the navigation went wrong.
+        raise NavigationError("course plan belongs to a different class")
     fresh: list[Deadline] = []
     seen: Counter[str] = Counter()
     for ev in plan.evaluations:
