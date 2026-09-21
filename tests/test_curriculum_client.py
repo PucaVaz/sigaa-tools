@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from sigaa import config
+from sigaa.institutions import ufpb
 from sigaa.client import SigaaClient
 from sigaa.parsers.curriculum import CurriculumDataError
 from sigaa.parsers.transcript import CraUnavailableError
@@ -49,8 +49,8 @@ def test_client_fetches_curriculum_shell_then_json():
     assert status.curriculum == "999999 - 2099.1"
     assert status.cra_source == "not_requested"
     assert session.gets == [
-        config.CURRICULUM_ENTRY_URL,
-        config.CURRICULUM_DATA_URL,
+        ufpb.CURRICULUM_ENTRY_URL,
+        ufpb.CURRICULUM_DATA_URL,
     ]
     assert session.login_count == 0
 
@@ -71,10 +71,10 @@ def test_client_retries_the_complete_flow_after_invalid_payload():
     assert status.components
     assert session.login_count == 1
     assert session.gets == [
-        config.CURRICULUM_ENTRY_URL,
-        config.CURRICULUM_DATA_URL,
-        config.CURRICULUM_ENTRY_URL,
-        config.CURRICULUM_DATA_URL,
+        ufpb.CURRICULUM_ENTRY_URL,
+        ufpb.CURRICULUM_DATA_URL,
+        ufpb.CURRICULUM_ENTRY_URL,
+        ufpb.CURRICULUM_DATA_URL,
     ]
     assert client._portal_html == "<html>fresh portal</html>"
 

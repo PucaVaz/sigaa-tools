@@ -16,12 +16,12 @@ CURRICULUM_DATA_URL = f"{BASE}/portal/discente/integralizacao/dados/"
 # Turma Virtual base; news bodies are fetched here.
 AVA_URL = f"{BASE}/ava/index.jsf"
 
+# Marker proving an authenticated page; absence means the session is dead.
 AUTH_MARKER = "Sair do SIGAA"
 # Substring of the URL we get bounced to when a session expires.
 LOGIN_REDIRECT_MARKER = "logon.jsf"
 
 KEYRING_SERVICE = "sigaa-ufpb"
-KEYRING_ACTIVE_USERNAME = "__active_username__"
 
 # UFPB class-time slots. Day digits: 2=Mon .. 7=Sat. Shift: M/T/N.
 # NOTE: clock times below are an UNCONFIRMED default; confirm against a turma's
@@ -32,7 +32,7 @@ SLOT_TIMES_UNCONFIRMED = {
     "N": {1: "18:30", 2: "19:20", 3: "20:20", 4: "21:10"},
 }
 
-
+# Matrícula on-line (enrollment request) flow.
 MATRICULA_INSTRUCOES_URL = f"{BASE}/graduacao/matricula/instrucoes.jsf"
 MATRICULA_TURMAS_CURRICULO_URL = f"{BASE}/graduacao/matricula/turmas_curriculo.jsf"
 
@@ -63,7 +63,9 @@ class UfpbNavigator:
 
     def login(self, session):
         from ..auth import perform_login
-        return perform_login(session._client, session._username, session._password)
+        return perform_login(
+            session._client, session._username, session._password, profile=self.profile
+        )
 
     def looks_logged_out(self, text, url=""):
         return (self.profile.login_redirect_marker in url or

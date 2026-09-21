@@ -13,25 +13,12 @@ from pathlib import Path
 
 from .institutions import DEFAULT, get
 
-_DEFAULT_PROFILE = get().profile
-HOST = _DEFAULT_PROFILE.host
-LOGON_URL = _DEFAULT_PROFILE.logon_url
-PORTAL_ENTRY_URL = _DEFAULT_PROFILE.portal_entry_url
-PORTAL_ACTION_URL = _DEFAULT_PROFILE.portal_action_url
-CURRICULUM_ENTRY_URL = _DEFAULT_PROFILE.curriculum_entry_url
-CURRICULUM_DATA_URL = _DEFAULT_PROFILE.curriculum_data_url
-AVA_URL = _DEFAULT_PROFILE.ava_url
-AUTH_MARKER = _DEFAULT_PROFILE.auth_marker
-LOGIN_REDIRECT_MARKER = _DEFAULT_PROFILE.login_redirect_marker
-KEYRING_SERVICE = _DEFAULT_PROFILE.keyring_service
-SLOT_TIMES_UNCONFIRMED = _DEFAULT_PROFILE.slot_times
-MATRICULA_INSTRUCOES_URL = _DEFAULT_PROFILE.matricula_instrucoes_url
-MATRICULA_TURMAS_CURRICULO_URL = _DEFAULT_PROFILE.matricula_turmas_curriculo_url
-BASE = f"{HOST}/sigaa"
 USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
+
 KEYRING_ACTIVE_USERNAME = "__active_username__"
 KEYRING_ACTIVE_INSTITUTION = "__active_institution__"
 KEYRING_SETTINGS_SERVICE = "sigaa-tools"
+
 LOCAL_MODE = "local"
 HOSTED_MODE = "hosted"
 SERVER_MODES = (LOCAL_MODE, HOSTED_MODE)
@@ -46,6 +33,7 @@ def default_institution() -> str:
         except Exception:
             pass
     return get(key or DEFAULT).profile.key
+
 
 def default_db_path(institution: str | None = None) -> Path:
     """Local SQLite path under the user config dir (override via SIGAA_DB)."""

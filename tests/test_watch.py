@@ -9,6 +9,7 @@ import pytest
 
 from conftest import FIXTURES, TEST_PASSWORD, TEST_USERNAME
 from sigaa import cli, config
+from sigaa.institutions import ufpb
 from sigaa.config import Settings
 from sigaa.errors import STAGE_AUTH, STAGE_NETWORK, STAGE_PARSE, LoginRejectedError
 from sigaa.services import watch
@@ -25,8 +26,8 @@ FIXED_NOW = datetime(2026, 9, 14, 1, 40, tzinfo=timezone.utc)
 
 @pytest.fixture
 def logged_in(clean_credentials):
-    clean_credentials[(config.KEYRING_SERVICE, config.KEYRING_ACTIVE_USERNAME)] = TEST_USERNAME
-    clean_credentials[(config.KEYRING_SERVICE, TEST_USERNAME)] = TEST_PASSWORD
+    clean_credentials[(ufpb.KEYRING_SERVICE, config.KEYRING_ACTIVE_USERNAME)] = TEST_USERNAME
+    clean_credentials[(ufpb.KEYRING_SERVICE, TEST_USERNAME)] = TEST_PASSWORD
 
 
 @pytest.fixture

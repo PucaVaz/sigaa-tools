@@ -4,7 +4,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from sigaa import setup_wizard
-from sigaa.config import KEYRING_ACTIVE_USERNAME, KEYRING_SERVICE, Settings
+from sigaa.config import KEYRING_ACTIVE_USERNAME, Settings
+from sigaa.institutions.ufpb import KEYRING_SERVICE
 from sigaa.setup_wizard import (
     MCP_PACKAGE_SPEC,
     build_cron_line,

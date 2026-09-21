@@ -18,8 +18,7 @@ from pathlib import Path
 
 from bs4 import BeautifulSoup
 
-from .config import HOST
-from .institutions import get, MenuLabel
+from .institutions import InstitutionProfile, MenuLabel, get
 from dataclasses import replace
 
 HISTORICO = "historico"
@@ -87,7 +86,8 @@ def validate_academic_document(
     kind: str,
     content: bytes,
     content_type: str | None,
-    *, profile=None,
+    *,
+    profile: InstitutionProfile,
 ) -> AcademicDocument:
     """Validate a SIGAA response and return its media metadata."""
     spec = document_spec(kind)
@@ -102,7 +102,7 @@ def validate_academic_document(
         _validate_atestado_html(content, charset)
 
     if kind == ATESTADO_MATRICULA:
-        content = _with_sigaa_base_url(content, profile)
+        content = _with_sigaa_base_url(content, profile.host)
 
     return AcademicDocument(
         kind=kind,
@@ -217,11 +217,11 @@ def _validate_atestado_html(content: bytes, charset: str | None) -> None:
 _HEAD_RE = re.compile(br"(<head(?:\s[^>]*)?>)", re.IGNORECASE)
 
 
-def _with_sigaa_base_url(content: bytes, profile=None) -> bytes:
+def _with_sigaa_base_url(content: bytes, host: str) -> bytes:
     """Make the saved report's root-relative official assets work under file://."""
     if re.search(br"<base\s", content, re.IGNORECASE):
         return content
-    base = f'<base href="{profile.host if profile else HOST}/">'.encode("ascii")
+    base = f'<base href="{host}/">'.encode("ascii")
     portable, replacements = _HEAD_RE.subn(rb"\1\n" + base, content, count=1)
     if replacements != 1:
         raise AcademicDocumentError("SIGAA returned an enrollment certificate without a head")
