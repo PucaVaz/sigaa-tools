@@ -1,5 +1,5 @@
-from dataclasses import replace
 import secrets
+from dataclasses import replace
 
 import httpx
 import pytest
@@ -7,7 +7,7 @@ import pytest
 from sigaa.config import Settings, default_db_path
 from sigaa.errors import UnsafeUrlError, UnsupportedFeatureError
 from sigaa.http import Session
-from sigaa.institutions import get
+from sigaa.institutions import Capability, get
 from sigaa.institutions.base import Institution
 from sigaa.institutions import registry
 
@@ -83,3 +83,27 @@ def test_client_hands_its_one_provider_to_the_session(other):
         assert client._session.navigator is client.navigator
     assert not hasattr(SigaaClient, "profile")
     assert not hasattr(SigaaClient, "navigator")
+
+
+@pytest.mark.parametrize("argv, capability", [
+    (["curriculum"], Capability.CURRICULUM_JSON),
+    (["cra"], Capability.DOCUMENTS),
+    (["extensao"], Capability.EXTENSAO),
+    (["sipac", "process", "23074.056437/2026-26"], Capability.SIPAC),
+    (["sipac", "search", "--name", "x"], Capability.SIPAC),
+    (["matricula"], Capability.MATRICULA),
+    (["historico"], Capability.DOCUMENTS),
+    (["declaracao-vinculo"], Capability.DOCUMENTS),
+    (["atestado-matricula"], Capability.DOCUMENTS),
+])
+def test_each_gated_command_declares_its_capability(argv, capability):
+    from sigaa.cli import _build_parser
+    assert _build_parser().parse_args(argv).capability is capability
+
+
+def test_unsupported_command_fails_before_running(other, monkeypatch, capsys):
+    from sigaa import cli
+    monkeypatch.setenv("SIGAA_INSTITUTION", other.key)
+    monkeypatch.setattr(cli, "_cmd_academic_document", lambda args, settings: pytest.fail("ran"))
+    assert cli.main(["atestado-matricula"]) == 1
+    assert "unsupported feature documents" in capsys.readouterr().err

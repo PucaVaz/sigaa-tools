@@ -62,20 +62,17 @@ def main(argv: list[str] | None = None) -> int:
     if getattr(args, "public_without_settings", False):
         settings = None
     else:
-        settings = Settings(institution=args.institution) if getattr(args, "institution", None) else Settings()
+        institution = getattr(args, "institution", None)
+        settings = Settings(institution=institution) if institution else Settings()
         if getattr(args, "user", None):
             settings.username = args.user
         if getattr(args, "db", None):
             settings.db_path = Path(args.db).expanduser()
     try:
-        capability = {
-            "sipac": Capability.SIPAC, "curriculum": Capability.CURRICULUM_JSON,
-            "matricula": Capability.MATRICULA, "extensao": Capability.EXTENSAO,
-            "historico": Capability.DOCUMENTS, "cra": Capability.DOCUMENTS,
-            "declaracao-vinculo": Capability.DOCUMENTS, "atestado": Capability.DOCUMENTS,
-        }.get(args.command)
-        if capability:
-            get(settings.institution if settings else default_institution()).profile.require(capability)
+        capability = getattr(args, "capability", None)
+        if capability is not None:
+            institution = settings.institution if settings else default_institution()
+            get(institution).profile.require(capability)
         return args.func(args, settings)
     except UnsupportedFeatureError as exc:
         if getattr(args, "json", False):
@@ -154,11 +151,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="skip the academic-transcript request",
     )
     p_curriculum.add_argument("--json", action="store_true")
-    p_curriculum.set_defaults(func=_cmd_curriculum)
+    p_curriculum.set_defaults(func=_cmd_curriculum, capability=Capability.CURRICULUM_JSON)
 
     p_cra = sub.add_parser("cra", help="show the official CRA from the transcript")
     p_cra.add_argument("--json", action="store_true")
-    p_cra.set_defaults(func=_cmd_cra)
+    p_cra.set_defaults(func=_cmd_cra, capability=Capability.DOCUMENTS)
 
     p_extensao = sub.add_parser(
         "extensao",
@@ -166,7 +163,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "(networked)",
     )
     p_extensao.add_argument("--json", action="store_true")
-    p_extensao.set_defaults(func=_cmd_extensao)
+    p_extensao.set_defaults(func=_cmd_extensao, capability=Capability.EXTENSAO)
 
     p_sipac = sub.add_parser(
         "sipac",
@@ -181,6 +178,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_sipac_process.add_argument("--json", action="store_true")
     p_sipac_process.set_defaults(
         func=_cmd_sipac_process,
+        capability=Capability.SIPAC,
         public_without_settings=True,
     )
     p_sipac_search = sipac_sub.add_parser(
@@ -196,6 +194,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_sipac_search.add_argument("--json", action="store_true")
     p_sipac_search.set_defaults(
         func=_cmd_sipac_search,
+        capability=Capability.SIPAC,
         public_without_settings=True,
     )
 
@@ -212,12 +211,16 @@ def _build_parser() -> argparse.ArgumentParser:
     p_matr.add_argument("--select", nargs="+", metavar="TURMA_ID", help="add these sections to the enrollment request")
     p_matr.add_argument("--confirm", action="store_true", help="press CONFIRMAR MATRÍCULAS after selecting (submits the request)")
     p_matr.add_argument("--json", action="store_true")
-    p_matr.set_defaults(func=_cmd_matricula)
+    p_matr.set_defaults(func=_cmd_matricula, capability=Capability.MATRICULA)
 
     p_hist = sub.add_parser("historico", help="download the academic transcript PDF (networked)")
     p_hist.add_argument("--out", default="historico.pdf", help="output file (default: historico.pdf)")
     p_hist.add_argument("--force", action="store_true", help="overwrite an existing output file")
-    p_hist.set_defaults(func=_cmd_academic_document, document_kind=HISTORICO)
+    p_hist.set_defaults(
+        func=_cmd_academic_document,
+        document_kind=HISTORICO,
+        capability=Capability.DOCUMENTS,
+    )
 
     p_decl = sub.add_parser(
         "declaracao-vinculo",
@@ -229,7 +232,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="output file (default: declaracao-vinculo.pdf)",
     )
     p_decl.add_argument("--force", action="store_true", help="overwrite an existing output file")
-    p_decl.set_defaults(func=_cmd_academic_document, document_kind=DECLARACAO_VINCULO)
+    p_decl.set_defaults(
+        func=_cmd_academic_document,
+        document_kind=DECLARACAO_VINCULO,
+        capability=Capability.DOCUMENTS,
+    )
 
     p_cert = sub.add_parser(
         "atestado-matricula",
@@ -241,7 +248,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="output file (default: atestado-matricula.html)",
     )
     p_cert.add_argument("--force", action="store_true", help="overwrite an existing output file")
-    p_cert.set_defaults(func=_cmd_academic_document, document_kind=ATESTADO_MATRICULA)
+    p_cert.set_defaults(
+        func=_cmd_academic_document,
+        document_kind=ATESTADO_MATRICULA,
+        capability=Capability.DOCUMENTS,
+    )
 
     p_news = sub.add_parser("news", help="list news from the store")
     p_news.add_argument("--class", dest="klass", help="filter by class code")
