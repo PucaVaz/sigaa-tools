@@ -68,7 +68,8 @@ def test_document_tool_returns_readable_resource_link(
             assert requested_kind == kind
             return document
 
-    settings = SimpleNamespace(institution="ufpb",
+    settings = SimpleNamespace(
+        institution="ufpb",
         username="configured-user", resolve_password=lambda: "test-password"
     )
     monkeypatch.setattr(mcp_server, "Settings", lambda: settings)

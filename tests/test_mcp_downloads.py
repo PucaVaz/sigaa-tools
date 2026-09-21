@@ -39,7 +39,8 @@ def _configure(monkeypatch, tmp_path, *, server_name: str):
             assert material_id == MATERIAL_ID
             return MATERIAL_BYTES, server_name
 
-    settings = SimpleNamespace(institution="ufpb",
+    settings = SimpleNamespace(
+        institution="ufpb",
         username="configured-user", resolve_password=lambda: "test-password"
     )
     repo = SimpleNamespace(get_materials=lambda: [material])
@@ -119,7 +120,8 @@ def _configure_attachment(monkeypatch, tmp_path, *, server_name: str, result_pre
                 return None
             return ATTACHMENT_BYTES, server_name
 
-    settings = SimpleNamespace(institution="ufpb",
+    settings = SimpleNamespace(
+        institution="ufpb",
         username="configured-user", resolve_password=lambda: "test-password"
     )
     repo = SimpleNamespace(get_deadlines=lambda: [deadline])

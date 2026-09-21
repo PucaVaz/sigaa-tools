@@ -18,9 +18,7 @@ from pathlib import Path
 
 from bs4 import BeautifulSoup
 
-from .config import HOST
-from .institutions import get, MenuLabel
-from dataclasses import replace
+from .institutions import InstitutionProfile, MenuLabel
 
 HISTORICO = "historico"
 DECLARACAO_VINCULO = "declaracao-vinculo"
@@ -33,7 +31,7 @@ class AcademicDocumentError(RuntimeError):
 
 @dataclass(frozen=True)
 class AcademicDocumentSpec:
-    menu_label: str
+    menu_label: MenuLabel
     media_type: str
 
 
@@ -47,15 +45,15 @@ class AcademicDocument:
 
 DOCUMENT_SPECS = {
     HISTORICO: AcademicDocumentSpec(
-        menu_label=get().profile.menu_labels[MenuLabel.HISTORICO],
+        menu_label=MenuLabel.HISTORICO,
         media_type="application/pdf",
     ),
     DECLARACAO_VINCULO: AcademicDocumentSpec(
-        menu_label=get().profile.menu_labels[MenuLabel.DECLARACAO_VINCULO],
+        menu_label=MenuLabel.DECLARACAO_VINCULO,
         media_type="application/pdf",
     ),
     ATESTADO_MATRICULA: AcademicDocumentSpec(
-        menu_label=get().profile.menu_labels[MenuLabel.ATESTADO],
+        menu_label=MenuLabel.ATESTADO,
         media_type="text/html",
     ),
 }
@@ -71,13 +69,9 @@ _WINDOWS_RESERVED = {
 }
 
 
-def document_spec(kind: str, profile=None) -> AcademicDocumentSpec:
+def document_spec(kind: str) -> AcademicDocumentSpec:
     try:
-        spec = DOCUMENT_SPECS[kind]
-        if profile is not None:
-            label = {HISTORICO: MenuLabel.HISTORICO, DECLARACAO_VINCULO: MenuLabel.DECLARACAO_VINCULO, ATESTADO_MATRICULA: MenuLabel.ATESTADO}[kind]
-            spec = replace(spec, menu_label=profile.menu_labels[label])
-        return spec
+        return DOCUMENT_SPECS[kind]
     except KeyError as exc:
         choices = ", ".join(DOCUMENT_SPECS)
         raise ValueError(f"unknown academic document {kind!r}; choose one of: {choices}") from exc
@@ -87,7 +81,8 @@ def validate_academic_document(
     kind: str,
     content: bytes,
     content_type: str | None,
-    *, profile=None,
+    *,
+    profile: InstitutionProfile,
 ) -> AcademicDocument:
     """Validate a SIGAA response and return its media metadata."""
     spec = document_spec(kind)
@@ -102,7 +97,7 @@ def validate_academic_document(
         _validate_atestado_html(content, charset)
 
     if kind == ATESTADO_MATRICULA:
-        content = _with_sigaa_base_url(content, profile)
+        content = _with_sigaa_base_url(content, profile.host)
 
     return AcademicDocument(
         kind=kind,
@@ -217,11 +212,11 @@ def _validate_atestado_html(content: bytes, charset: str | None) -> None:
 _HEAD_RE = re.compile(br"(<head(?:\s[^>]*)?>)", re.IGNORECASE)
 
 
-def _with_sigaa_base_url(content: bytes, profile=None) -> bytes:
+def _with_sigaa_base_url(content: bytes, host: str) -> bytes:
     """Make the saved report's root-relative official assets work under file://."""
     if re.search(br"<base\s", content, re.IGNORECASE):
         return content
-    base = f'<base href="{profile.host if profile else HOST}/">'.encode("ascii")
+    base = f'<base href="{host}/">'.encode("ascii")
     portable, replacements = _HEAD_RE.subn(rb"\1\n" + base, content, count=1)
     if replacements != 1:
         raise AcademicDocumentError("SIGAA returned an enrollment certificate without a head")
