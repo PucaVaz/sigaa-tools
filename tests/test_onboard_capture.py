@@ -132,3 +132,37 @@ def test_recorder_keeps_only_the_last_non_redirect_response():
         raw.get("https://sigaa.ufpb.br/other")
         assert recorder.last_response.text == "/other"
         assert not hasattr(recorder, "responses")
+
+
+def test_login_probe_defaults_to_the_active_institution(monkeypatch, capsys):
+    from sigaa import cli
+    from sigaa.institutions import registry
+    from sigaa.institutions.base import Institution
+
+    other = replace(
+        UFPB.profile,
+        key="example",
+        host="https://sigaa.example.edu",
+        logon_url="https://sigaa.example.edu/login",
+    )
+    monkeypatch.setitem(registry._PROVIDERS, other.key, Institution(other, UFPB.navigator))
+    monkeypatch.setenv("SIGAA_INSTITUTION", other.key)
+    requested = []
+
+    class Client:
+        def __init__(self, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def get(self, url):
+            requested.append(url)
+            return httpx.Response(200, text="<form></form>", request=httpx.Request("GET", url))
+
+    monkeypatch.setattr("sigaa.onboard.cli.httpx.Client", Client)
+    assert cli.main(["onboard", "login-probe"]) == 1
+    assert requested == ["https://sigaa.example.edu/login"]

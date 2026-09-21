@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 import httpx
 from bs4 import BeautifulSoup
 
+from ..config import default_institution
 from ..institutions import get
 from .capture import capture, safe_url
 
@@ -32,7 +33,7 @@ def register(sub):
 
 
 def login_probe(args, settings=None):
-    profile = get(args.institution).profile
+    profile = get(args.institution or default_institution()).profile
     url = args.url or profile.logon_url
     if args.url:
         parsed = urlsplit(url)
