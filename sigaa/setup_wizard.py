@@ -15,8 +15,7 @@ from xml.sax.saxutils import escape
 from . import config
 from .client import SigaaClient
 from .config import Settings
-from .institutions import all, get
-from .institutions.base import InstitutionProfile
+from .institutions import InstitutionProfile, all, get
 from .services.sync import sync
 
 
@@ -29,22 +28,24 @@ class LoginResult:
     password: str = field(repr=False)
 
 
-
-INSTITUTIONS = tuple(provider.profile for provider in all())
-
-
-def select_institution(input_func: Callable[[str], str] = input) -> InstitutionProfile:
+def select_institution(
+    input_func: Callable[[str], str] = input, *, default: str | None = None
+) -> InstitutionProfile:
+    institutions = tuple(provider.profile for provider in all())
+    fallback = next(
+        (index for index, profile in enumerate(institutions) if profile.key == default), 0
+    )
     print("Institution:")
-    for index, institution in enumerate(INSTITUTIONS, start=1):
+    for index, institution in enumerate(institutions, start=1):
         print(f"  {index}. {institution.label}")
-    answer = input_func("Choose institution [1]: ").strip()
+    answer = input_func(f"Choose institution [{fallback + 1}]: ").strip()
     if not answer:
-        return INSTITUTIONS[0]
+        return institutions[fallback]
     try:
-        selected = INSTITUTIONS[int(answer) - 1]
+        selected = institutions[int(answer) - 1]
     except (ValueError, IndexError):
-        print(f"Unknown choice {answer!r}; using {INSTITUTIONS[0].label}.")
-        return INSTITUTIONS[0]
+        print(f"Unknown choice {answer!r}; using {institutions[fallback].label}.")
+        return institutions[fallback]
     return selected
 
 
@@ -183,9 +184,21 @@ def write_env_template(path: Path, *, username: str) -> None:
     )
 
 
-def run_init(settings: Settings, input_func: Callable[[str], str] = input) -> int:
+def run_init(
+    settings: Settings,
+    input_func: Callable[[str], str] = input,
+    *,
+    settings_for: Callable[[str], Settings] | None = None,
+) -> int:
+    """Run the wizard. ``settings_for`` enables the institution picker; pass it
+    only when the institution was not chosen explicitly."""
     print("sigaa init")
-    institution = get(settings.institution).profile
+    if settings_for is None:
+        institution = get(settings.institution).profile
+    else:
+        institution = select_institution(input_func, default=settings.institution)
+        if institution.key != settings.institution:
+            settings = settings_for(institution.key)
     print(f"Using {institution.label}.")
 
     login = _prompt_login_until_ok(settings, input_func)

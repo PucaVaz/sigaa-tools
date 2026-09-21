@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 import time
@@ -62,12 +63,7 @@ def main(argv: list[str] | None = None) -> int:
     if getattr(args, "public_without_settings", False):
         settings = None
     else:
-        institution = getattr(args, "institution", None)
-        settings = Settings(institution=institution) if institution else Settings()
-        if getattr(args, "user", None):
-            settings.username = args.user
-        if getattr(args, "db", None):
-            settings.db_path = Path(args.db).expanduser()
+        settings = _settings(args, getattr(args, "institution", None))
     try:
         capability = getattr(args, "capability", None)
         if capability is not None:
@@ -83,6 +79,15 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("\nsetup cancelled", file=sys.stderr)
         return 130
+
+
+def _settings(args, institution: str | None) -> Settings:
+    settings = Settings(institution=institution) if institution else Settings()
+    if getattr(args, "user", None):
+        settings.username = args.user
+    if getattr(args, "db", None):
+        settings.db_path = Path(args.db).expanduser()
+    return settings
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -322,7 +327,9 @@ def _cmd_login(args, settings: Settings) -> int:
 
 
 def _cmd_init(args, settings: Settings) -> int:
-    return setup_wizard.run_init(settings)
+    if args.institution or os.environ.get("SIGAA_INSTITUTION"):
+        return setup_wizard.run_init(settings)
+    return setup_wizard.run_init(settings, settings_for=lambda key: _settings(args, key))
 
 
 def _cmd_sync(args, settings: Settings) -> int:
