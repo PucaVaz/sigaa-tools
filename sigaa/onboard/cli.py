@@ -35,7 +35,9 @@ def register(sub):
     probe_cmd.add_argument("--from", dest="source", type=Path)
     probe_cmd.add_argument("--institution")
     probe_cmd.add_argument("--json", action="store_true")
-    probe_cmd.set_defaults(func=run_probe)
+    # Offline probing reads only the capture, so it must not resolve local
+    # credentials or the active institution; a live probe builds them itself.
+    probe_cmd.set_defaults(func=run_probe, public_without_settings=True)
     init = commands.add_parser("init", help="scaffold an unsupported institution provider")
     init.add_argument("key")
     init.add_argument("--host", required=True)
@@ -94,11 +96,13 @@ def run_capture(args, settings):
     return 1 if result["nav_failed"] else 0
 
 
-def run_probe(args, settings):
+def run_probe(args, settings=None):
+    from ..cli import _settings
     from .probe import probe
+
     directory = args.source
     if directory is None:
-        directory, _ = capture(settings)
+        directory, _ = capture(_settings(args, args.institution))
     result = probe(directory)
     print(json.dumps(result, indent=2))
     return int(any(row["status"] in {"unrecognized", "nav_failed"} for row in result["features"]))

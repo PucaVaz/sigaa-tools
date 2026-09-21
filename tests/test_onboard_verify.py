@@ -185,3 +185,30 @@ def test_privacy_gate_matches_name_tokens_and_email_local_part(tmp_path, text, f
     assert any(f["category"] == "identity" for f in findings) is found
     for finding in findings:
         assert set(finding) == {"source", "file_index", "category"}
+
+
+def test_offline_probe_does_not_resolve_local_credentials_or_active_institution(
+    tmp_path, monkeypatch, capsys
+):
+    from sigaa.cli import main
+
+    directory = _capture(tmp_path)
+    monkeypatch.setenv("SIGAA_INSTITUTION", "invalid-local-configuration")
+    assert main(["onboard", "probe", "--from", str(directory), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["institution"] == "ufpb"
+
+
+def test_live_probe_captures_with_the_requested_institution(tmp_path, monkeypatch, capsys):
+    from sigaa import cli
+    from sigaa.onboard import cli as onboard_cli
+
+    captured = []
+
+    def fake_capture(settings):
+        captured.append(settings.institution)
+        return _capture(tmp_path), {}
+
+    monkeypatch.setattr(onboard_cli, "capture", fake_capture)
+    monkeypatch.delenv("SIGAA_INSTITUTION", raising=False)
+    assert cli.main(["onboard", "probe", "--institution", "ufpb"]) == 0
+    assert captured == ["ufpb"]
