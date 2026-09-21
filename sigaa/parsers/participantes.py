@@ -23,12 +23,18 @@ _DEPARTMENT_LABEL = "departamento"
 _EMAIL_LABEL = "e-mail"
 
 
-def _professor_count(soup):
+def _professor_legend(soup: BeautifulSoup):
     for legend in soup.select("fieldset legend"):
-        match = re.fullmatch(r"professores?\s*\((\d+)\)", fold(legend.get_text()))
-        if match:
-            return int(match.group(1))
+        if _PROFESSOR_LEGEND_RE.match(_normalized(legend.get_text(" ", strip=True))):
+            return legend
     return None
+
+
+def _professor_count(soup):
+    """The count in the same 'Professores (n)' legend the table is read from."""
+    legend = _professor_legend(soup)
+    match = re.fullmatch(r"professores?\s*\((\d+)\)", fold(legend.get_text())) if legend else None
+    return int(match.group(1)) if match else None
 
 
 @page_parser(
@@ -68,12 +74,12 @@ def _professor_table(soup: BeautifulSoup):
     SIGAA renders one table per role, each preceded by its own fieldset legend,
     so the role is identified by the legend rather than by table position.
     """
-    for legend in soup.select("fieldset legend"):
-        if not _PROFESSOR_LEGEND_RE.match(_normalized(legend.get_text(" ", strip=True))):
-            continue
-        table = legend.find_parent("fieldset").find_next(["table", "fieldset"])
-        if table is not None and table.name == "table" and "participantes" in table.get("class", []):
-            return table
+    legend = _professor_legend(soup)
+    if legend is None:
+        return None
+    table = legend.find_parent("fieldset").find_next(["table", "fieldset"])
+    if table is not None and table.name == "table" and "participantes" in table.get("class", []):
+        return table
     return None
 
 

@@ -57,28 +57,30 @@ def _grade_headers(table):
     return [fold(c.get_text(" ", strip=True)) for c in row.find_all(["th", "td"])] if row else []
 
 
-def _matches_turma_grades(soup):
-    tables = _grade_tables(soup)
-    return bool(tables) and all(
-        {"matricula", "nome", "faltas"}.issubset(_grade_headers(t)) for t in tables
+def _turma_grade_table(soup):
+    """The report table whose header names the student columns; reads stay inside it."""
+    return next(
+        (t for t in _grade_tables(soup)
+         if {"matricula", "nome", "faltas"}.issubset(_grade_headers(t))),
+        None,
     )
 
 
 def _turma_grades_empty(soup):
-    return bool(soup.select("table.tabelaRelatorio tbody")) and not soup.select(
-        "table.tabelaRelatorio tbody td"
-    )
+    """No data row at all: nothing posted yet (not yet seen live). A row that
+    does not fit the header is not empty and still fails."""
+    return not any(row.find("td") for row in _turma_grade_table(soup).find_all("tr")[1:])
 
 
 @page_parser(
     "turma_grades",
-    _matches_turma_grades,
+    lambda soup: _turma_grade_table(soup) is not None,
     empty=_turma_grades_empty,
     name="class-grade-headers",
 )
 def parse_turma_grades(soup: BeautifulSoup, id_turma: str) -> TurmaGrade | None:
     """Extract the student's grade row from a turma's Ver Notas report."""
-    table = soup.find("table", class_="tabelaRelatorio")
+    table = _turma_grade_table(soup)
     if table is None:
         return None
     rows = table.find_all("tr")
