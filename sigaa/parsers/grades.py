@@ -160,8 +160,13 @@ def _grades_by_header(soup):
 
 
 def _grades_16col(soup):
-    _grades_by_header(soup)  # verify row integrity before the positional compatibility reader
-    return _parse_grades_16col(soup)
+    """The positional reader, unchanged. Rows with fewer than 16 cells have always
+    been skipped (not yet seen live either way); a row it reads without a code
+    or a discipline is not a grade row."""
+    grades = _parse_grades_16col(soup)
+    if any(not grade.code or not grade.discipline for grade in grades):
+        raise UnrecognizedPageError("grades", page_fingerprint(soup))
+    return grades
 
 
 _GRADE_VARIANTS = (

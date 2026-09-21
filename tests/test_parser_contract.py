@@ -47,8 +47,24 @@ def test_grades_use_headers_after_column_reordering():
     assert parse_grades(html) == parse_grades((FIXTURES / "grades.html").read_text())
 
 
-def test_grades_do_not_discard_a_malformed_row():
+def test_grades_16col_keeps_skipping_short_rows():
     soup = BeautifulSoup((FIXTURES / "grades.html").read_text(), "lxml")
+    note = BeautifulSoup('<tr><td colspan="16">Trancamento em 2026.1</td></tr>', "lxml").tr
+    soup.select_one("tbody").append(note)
+    assert parse_grades(str(soup)) == parse_grades((FIXTURES / "grades.html").read_text())
+
+
+def test_grades_16col_row_without_a_code_is_not_a_grade():
+    soup = BeautifulSoup((FIXTURES / "grades.html").read_text(), "lxml")
+    soup.select_one("tbody td").string = ""
+    with pytest.raises(UnrecognizedPageError):
+        parse_grades(str(soup))
+
+
+def test_grades_by_header_do_not_discard_a_malformed_row():
+    soup = BeautifulSoup((FIXTURES / "grades.html").read_text(), "lxml")
+    for row in soup.select("table tr"):
+        row.append(row.find(["td", "th"]).extract())
     soup.select_one("tbody td").extract()
     with pytest.raises(UnrecognizedPageError):
         parse_grades(str(soup))
