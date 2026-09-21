@@ -7,10 +7,8 @@ import math
 import re
 from typing import Any
 
-from ..models import CurriculumComponent, CurriculumStatus, WorkloadProgress
-
-
 from ..errors import ParseError
+from ..models import CurriculumComponent, CurriculumStatus, WorkloadProgress
 
 
 class CurriculumDataError(ParseError, ValueError):

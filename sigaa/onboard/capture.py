@@ -15,7 +15,9 @@ from ..client import SigaaClient
 from ..errors import SigaaError
 from .features import FEATURES, CaptureUnavailable
 
-_BLOCKED = re.compile(r"confirmar|enviar|cadastrar|submeter|botaoSubmissao|btaoSelecionarTurmas", re.I)
+_BLOCKED = re.compile(
+    r"confirmar|enviar|cadastrar|submeter|botaoSubmissao|btaoSelecionarTurmas", re.I
+)
 
 
 class ReadOnlyViolation(SigaaError):
@@ -27,10 +29,13 @@ class ReadOnlySession:
 
     Only registry fetchers are dispatched by capture. The additional guard runs
     before each HTTP POST, even if a provider accesses its raw client directly.
+    ``last_response`` holds only the most recent non-redirect response, which
+    capture reads right after each fetcher returns.
     """
+
     def __init__(self, session):
         self._wrapped = session
-        self.responses = {}
+        self.last_response = None
         session._client.event_hooks.setdefault("request", []).append(self._guard_request)
         session._client.event_hooks.setdefault("response", []).append(self._record)
 
@@ -49,16 +54,16 @@ class ReadOnlySession:
             return
         if request.method != "POST":
             raise ReadOnlyViolation("capture refused a non-navigation HTTP method")
-        if not request.headers.get("content-type", "").startswith("application/x-www-form-urlencoded"):
+        content_type = request.headers.get("content-type", "")
+        if not content_type.startswith("application/x-www-form-urlencoded"):
             raise ReadOnlyViolation("capture only allows URL-encoded navigation forms")
         for key, value in parse_qsl(request.content.decode("utf-8"), keep_blank_values=True):
             self.validate_post({key: value})
 
     def _record(self, response):
         response.read()
-        if response.is_redirect:
-            return
-        self.responses[response.text] = response
+        if not response.is_redirect:
+            self.last_response = response
 
     def post(self, url, data):
         self.validate_post(data)
@@ -122,8 +127,11 @@ def capture(settings, *, output: Path = Path("captures"), include_matricula=Fals
             if not contexts:
                 manifest["entries"].append({"feature": feature.key, "status": "not_captured"})
             for turma in contexts:
-                entry = {"feature": feature.key, "turma_id": turma.id_turma if turma else None,
-                         "source_action": feature.key}
+                entry = {
+                    "feature": feature.key,
+                    "turma_id": turma.id_turma if turma else None,
+                    "source_action": feature.key,
+                }
                 manifest["entries"].append(entry)
                 if feature.capability not in client.profile.capabilities:
                     entry["status"] = "unsupported"
@@ -133,19 +141,27 @@ def capture(settings, *, output: Path = Path("captures"), include_matricula=Fals
                     continue
                 try:
                     html = feature.fetcher(client, turma)
-                    response = recorder.responses.get(html)
-                    if response is None:
+                    response = recorder.last_response
+                    # A fetcher that served cached HTML or parsed an extra page
+                    # last has no raw response of its own to save.
+                    if response is None or response.text != html:
                         raise CaptureUnavailable("raw HTTP response unavailable")
                     filename = f"{len(manifest['entries']):02d}-{feature.key}.body"
                     private_write(directory / filename, response.content)
-                    entry.update({"status": "captured", "file": filename,
-                                  "method": response.request.method, "http_status": response.status_code,
-                                  "content_type": response.headers.get("content-type", ""),
-                                  "encoding": response.encoding, "final_url": safe_url(response.url),
-                                  "sha256": hashlib.sha256(response.content).hexdigest(),
-                                  "sigaa_version": sigaa_version(response.text)})
+                    entry.update({
+                        "status": "captured",
+                        "file": filename,
+                        "method": response.request.method,
+                        "http_status": response.status_code,
+                        "content_type": response.headers.get("content-type", ""),
+                        "encoding": response.encoding,
+                        "final_url": safe_url(response.url),
+                        "sha256": hashlib.sha256(response.content).hexdigest(),
+                        "sigaa_version": sigaa_version(response.text),
+                    })
+                except CaptureUnavailable as exc:
+                    entry.update({"status": "not_captured", "error_type": type(exc).__name__})
                 except Exception as exc:
-                    entry.update({"status": "not_captured" if isinstance(exc, CaptureUnavailable)
-                                  else "nav_failed", "error_type": type(exc).__name__})
+                    entry.update({"status": "nav_failed", "error_type": type(exc).__name__})
     private_write(directory / "manifest.json", json.dumps(manifest, indent=2).encode())
     return directory, manifest

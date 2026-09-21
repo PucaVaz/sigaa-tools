@@ -70,9 +70,17 @@ class InstitutionProfile:
     def validate_url(self, url: str) -> None:
         from ..errors import UnsafeUrlError
         target, origin = urlsplit(str(url)), urlsplit(self.host)
-        if (target.scheme != "https" or target.hostname != origin.hostname
-                or target.port not in (None, 443) or target.username or target.password):
-            raise UnsafeUrlError("request blocked: URL is outside the institution HTTPS host")
+        if target.scheme != "https":
+            reason = "is not HTTPS"
+        elif target.hostname != origin.hostname:
+            reason = f"is outside {origin.hostname}"
+        elif target.port not in (None, 443):
+            reason = "uses a non-default port"
+        elif target.username or target.password:
+            reason = "embeds credentials"
+        else:
+            return
+        raise UnsafeUrlError(target.scheme, target.hostname, target.port, reason)
 
 
 class Navigator(Protocol):
@@ -81,7 +89,7 @@ class Navigator(Protocol):
     def portal_menu_post(self, session: Session, portal: str, label: str) -> str: ...
     def enter_turma(self, session: Session, portal: str, turma: Turma) -> str: ...
     def turma_menu_post(self, session: Session, principal: str, label: str) -> str: ...
-    def open_event(self, session: Session, portal: str, event_id: str) -> str | None: ...
+    def open_event(self, session: Session, portal: str, event_id: str) -> str: ...
 
 
 @dataclass(frozen=True)

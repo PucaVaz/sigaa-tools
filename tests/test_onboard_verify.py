@@ -65,7 +65,7 @@ def _repo(tmp_path):
 
 def test_privacy_gate_scans_staged_blob_even_when_working_copy_is_clean(tmp_path):
     root = _repo(tmp_path)
-    identity = {"name": secrets.token_hex(), "username": secrets.token_hex(), "matricula": secrets.token_hex()}
+    identity = {key: secrets.token_hex() for key in ("name", "username", "matricula")}
     target = root / "fixture.html"
     target.write_text(identity["matricula"])
     subprocess.run(["git", "add", "fixture.html"], cwd=root, check=True)
@@ -92,17 +92,59 @@ def test_check_refuses_incomplete_identity_before_tests(tmp_path):
 def test_scaffold_rejects_invalid_host_key_and_existing_provider(tmp_path):
     root = tmp_path
     (root / "sigaa/institutions").mkdir(parents=True)
-    (root / "sigaa/institutions/registry.py").write_text("# registry\n")
     for key, host in [("../bad", "https://example.edu"), ("example", "http://example.edu"),
-                      ("example", "https://example.edu/path")]:
+                      ("example", "https://example.edu/path"), ("registry", "https://example.edu"),
+                      ("auth_example", "https://example.edu")]:
         with pytest.raises(ValueError):
             scaffold(root, key, host)
     target = scaffold(root, "example", "https://example.edu")
     compile(target.read_text(), str(target), "exec")
     assert "capabilities=frozenset()" in target.read_text()
     assert (root / "tests/fixtures/example").is_dir()
+    assert not (root / "sigaa/institutions/registry.py").exists()
     with pytest.raises(ValueError, match="already exists"):
         scaffold(root, "example", "https://example.edu")
+
+
+def test_scaffolded_provider_is_discovered_and_inherits_nothing(tmp_path, monkeypatch):
+    import sys
+
+    from sigaa import institutions
+    from sigaa.errors import NavigationError
+    from sigaa.institutions import registry
+
+    (tmp_path / "sigaa/institutions").mkdir(parents=True)
+    scaffold(tmp_path, "example", "https://sigaa.example.edu")
+    monkeypatch.setattr(institutions, "__path__",
+                        [*institutions.__path__, str(tmp_path / "sigaa/institutions")])
+    monkeypatch.delitem(sys.modules, "sigaa.institutions.example", raising=False)
+    try:
+        providers = registry._discover()
+    finally:
+        sys.modules.pop("sigaa.institutions.example", None)
+
+    assert list(providers)[0] == "ufpb"
+    profile, navigator = providers["example"].profile, providers["example"].navigator
+    assert profile.host == "https://sigaa.example.edu"
+    assert profile.logon_url.startswith(profile.host)
+    assert profile.capabilities == frozenset() and profile.menu_labels == {}
+    urls = [getattr(profile, name) for name in profile.__dataclass_fields__
+            if name.endswith("_url") and name != "logon_url"]
+    assert urls and not any(urls)
+    assert type(navigator).__mro__[1] is object
+    calls = [("login", None), ("looks_logged_out", "<html></html>"),
+             ("portal_menu_post", None, "", "Minhas Notas"), ("enter_turma", None, "", None),
+             ("turma_menu_post", None, "", "Ver Notas"), ("open_event", None, "", "1")]
+    for name, *args in calls:
+        with pytest.raises(NavigationError, match="requires live onboarding captures"):
+            getattr(navigator, name)(*args)
+
+
+def test_registry_refuses_unknown_keys():
+    from sigaa.institutions import get
+
+    with pytest.raises(ValueError, match="unknown institution"):
+        get("not-registered")
 
 
 def test_check_reports_test_and_lint_failures_without_hiding_them(tmp_path):
@@ -120,9 +162,53 @@ def test_check_reports_test_and_lint_failures_without_hiding_them(tmp_path):
     assert "attendance" in result["not_captured"]
 
 
-def test_offline_probe_does_not_resolve_local_credentials_or_active_institution(tmp_path, monkeypatch, capsys):
+def _identity():
+    return {"username": secrets.token_hex(), "matricula": secrets.token_hex(),
+            "name": "JOSÉ ANTÔNIO DA COSTA", "email": "jose.costa@academico.ufpb.br"}
+
+
+@pytest.mark.parametrize("text, found", [
+    ("<td>Antonio</td>", True),          # one name token, accents folded
+    ("<p>Prof. COSTA</p>", True),        # a surname alone
+    ("contato: jose.costa", True),       # e-mail local part without the domain
+    ("<td>COSTAS</td>", False),          # token inside a longer word
+    ("<td>da</td>", False),              # tokens shorter than 4 letters are ignored
+    ("<td>José Silva</td>", True),       # 4-letter first name
+])
+def test_privacy_gate_matches_name_tokens_and_email_local_part(tmp_path, text, found):
+    root = _repo(tmp_path)
+    (root / "fixture.html").write_text(text)
+    identity = _identity()
+
+    findings = privacy_findings(root, identity)
+
+    assert any(f["category"] == "identity" for f in findings) is found
+    for finding in findings:
+        assert set(finding) == {"source", "file_index", "category"}
+
+
+def test_offline_probe_does_not_resolve_local_credentials_or_active_institution(
+    tmp_path, monkeypatch, capsys
+):
     from sigaa.cli import main
+
     directory = _capture(tmp_path)
     monkeypatch.setenv("SIGAA_INSTITUTION", "invalid-local-configuration")
     assert main(["onboard", "probe", "--from", str(directory), "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["institution"] == "ufpb"
+
+
+def test_live_probe_captures_with_the_requested_institution(tmp_path, monkeypatch, capsys):
+    from sigaa import cli
+    from sigaa.onboard import cli as onboard_cli
+
+    captured = []
+
+    def fake_capture(settings):
+        captured.append(settings.institution)
+        return _capture(tmp_path), {}
+
+    monkeypatch.setattr(onboard_cli, "capture", fake_capture)
+    monkeypatch.delenv("SIGAA_INSTITUTION", raising=False)
+    assert cli.main(["onboard", "probe", "--institution", "ufpb"]) == 0
+    assert captured == ["ufpb"]

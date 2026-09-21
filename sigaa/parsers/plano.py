@@ -4,17 +4,44 @@ from __future__ import annotations
 
 from bs4 import BeautifulSoup
 
-from ._variants import page_parser
-from ._common import fold
-
 from ..models import CoursePlan, PlanEntry, PlanEvaluation
+from ._common import fold
+from ._variants import page_parser
+
+_SCHEDULE_CAPTION = "cronograma de aulas"
+_EVALUATIONS_CAPTION = "avalia"
+# Column labels the positional reader relies on, in order.
+_SCHEDULE_COLUMNS = ["inicio", "fim", "descricao"]
+_EVALUATION_COLUMNS = ["data", "descricao"]
 
 
-def parse_course_plan(html: str, id_turma: str) -> CoursePlan | None:
+def _recognized_plan(soup):
+    return (
+        _table_by_caption(soup, _SCHEDULE_CAPTION) is not None
+        or _table_by_caption(soup, _EVALUATIONS_CAPTION) is not None
+    )
+
+
+def _valid_plan(result, soup):
+    """Only the two tables the parser reads are checked. Rows it skips (short
+    rows, rows without a first cell) stay skipped; a table that labels its
+    columns must label the ones read by position."""
+    for caption, columns in (
+        (_SCHEDULE_CAPTION, _SCHEDULE_COLUMNS),
+        (_EVALUATIONS_CAPTION, _EVALUATION_COLUMNS),
+    ):
+        table = _table_by_caption(soup, caption)
+        headers = [fold(th.get_text(" ", strip=True)) for th in table.select("th")] if table else []
+        if headers and headers[: len(columns)] != columns:
+            return False
+    return True
+
+
+@page_parser("plan", _recognized_plan, validate=_valid_plan, name="course-plan-tables")
+def parse_course_plan(soup: BeautifulSoup, id_turma: str) -> CoursePlan | None:
     """Extract schedule and evaluation dates. Returns None if no plan tables."""
-    soup = BeautifulSoup(html, "lxml")
-    cronograma = _table_by_caption(soup, "cronograma de aulas")
-    avaliacoes = _table_by_caption(soup, "avalia")
+    cronograma = _table_by_caption(soup, _SCHEDULE_CAPTION)
+    avaliacoes = _table_by_caption(soup, _EVALUATIONS_CAPTION)
     if cronograma is None and avaliacoes is None:
         return None
 
@@ -46,25 +73,3 @@ def _rows(table, width: int) -> list[list[str]]:
         if len(cells) >= width and cells[0]:
             out.append(cells[:width])
     return out
-
-
-def _recognized_plan(soup):
-    return any(fold(c.get_text()).startswith(("cronograma de aulas", "avaliacoes"))
-               for c in soup.select("table caption"))
-
-
-def _valid_plan(result, soup):
-    if result is None:
-        return False
-    for table in soup.select("table"):
-        caption = table.find("caption")
-        text = fold(caption.get_text()) if caption else ""
-        width = 3 if text.startswith("cronograma de aulas") else 2 if text.startswith("avaliacoes") else 0
-        if width and any(len(row.find_all("td", recursive=False)) != width
-                         for row in table.select("tbody tr")):
-            return False
-    return True
-
-
-parse_course_plan = page_parser("plan", _recognized_plan, validate=_valid_plan,
-                                name="course-plan-tables")(parse_course_plan)

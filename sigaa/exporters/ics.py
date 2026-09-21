@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
 
-from ..institutions import get, Capability
+from ..institutions import Capability, InstitutionProfile, get
 from ..models import Deadline, Turma
 from ..parsers.schedule import decode_schedule
 
@@ -22,13 +22,15 @@ def build_calendar(
     deadlines: list[Deadline],
     term_start: date | None = None,
     year: int | None = None,
-    *, institution: str | None = None,
+    *,
+    institution: str,
 ) -> str:
-    get(institution).profile.require(Capability.CALENDAR)
+    profile = get(institution).profile
+    profile.require(Capability.CALENDAR)
     lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//sigaa-tools//PT-BR", "CALSCALE:GREGORIAN"]
     anchor = term_start or date.today()
     for turma in turmas:
-        lines.extend(_class_events(turma, anchor, get(institution).profile))
+        lines.extend(_class_events(turma, anchor, profile))
     for deadline in deadlines:
         event = _deadline_event(deadline, year or anchor.year)
         if event:
@@ -37,8 +39,7 @@ def build_calendar(
     return "\r\n".join(lines) + "\r\n"
 
 
-def _class_events(turma: Turma, anchor: date, profile=None) -> list[str]:
-    profile = profile or get().profile
+def _class_events(turma: Turma, anchor: date, profile: InstitutionProfile) -> list[str]:
     out: list[str] = []
     for session in decode_schedule(turma.schedule_raw):
         times = profile.slot_times.get(session.shift)

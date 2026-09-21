@@ -54,15 +54,20 @@ def _task(client, turma):
     event = next((e for e in events if e.kind in {"tarefa", "atividade"}), None)
     if event is None:
         raise CaptureUnavailable("no task to capture")
-    html = client._open_event(event.id)
-    if html is None:
-        raise CaptureUnavailable("task link unavailable")
-    return html
+    return client._open_event(event.id)
+
+
+def _matricula(client, turma):
+    return client.open_matricula_curriculo()
 
 
 def _curriculum(client, turma):
     client._session.get(client.profile.curriculum_entry_url)
     return client._session.get(client.profile.curriculum_data_url)
+
+
+def _parse_news_body(html, turma_id):
+    return news.parse_news_body(html)
 
 
 class CaptureUnavailable(ValueError):
@@ -74,16 +79,28 @@ FEATURES = (
     Feature("turmas", C.PORTAL, _portal, portal.parse_turmas),
     Feature("deadlines", C.PORTAL, _portal, portal.parse_deadlines),
     Feature("grades", C.GRADES, _menu(M.GRADES), grades.parse_grades),
-    Feature("extension", C.EXTENSAO, _menu(M.EXTENSION_DOCS), extensao.parse_extension_participations),
+    Feature(
+        "extension", C.EXTENSAO, _menu(M.EXTENSION_DOCS), extensao.parse_extension_participations
+    ),
     Feature("curriculum", C.CURRICULUM_JSON, _curriculum, curriculum.parse_curriculum),
-    Feature("turma_grades", C.GRADES, _menu(M.TURMA_GRADES, True), grades.parse_turma_grades, True),
-    Feature("attendance", C.ATTENDANCE, _menu(M.ATTENDANCE, True), attendance.parse_attendance, True),
-    Feature("plan", C.PLAN, _menu(M.PLAN, True), plano.parse_course_plan, True),
-    Feature("professors", C.PARTICIPANTS, _menu(M.PARTICIPANTS, True), participantes.parse_professors, True),
-    Feature("materials", C.MATERIALS, _principal, materials.parse_materials, True),
-    Feature("news", C.NEWS, _principal, news.parse_news_list, True),
-    Feature("news_body", C.NEWS, _news_body, lambda html, _: news.parse_news_body(html), True),
+    Feature(
+        "turma_grades", C.GRADES, _menu(M.TURMA_GRADES, True), grades.parse_turma_grades,
+        needs_turma=True,
+    ),
+    Feature(
+        "attendance", C.ATTENDANCE, _menu(M.ATTENDANCE, True), attendance.parse_attendance,
+        needs_turma=True,
+    ),
+    Feature(
+        "plan", C.PLAN, _menu(M.PLAN, True), plano.parse_course_plan, needs_turma=True
+    ),
+    Feature(
+        "professors", C.PARTICIPANTS, _menu(M.PARTICIPANTS, True), participantes.parse_professors,
+        needs_turma=True,
+    ),
+    Feature("materials", C.MATERIALS, _principal, materials.parse_materials, needs_turma=True),
+    Feature("news", C.NEWS, _principal, news.parse_news_list, needs_turma=True),
+    Feature("news_body", C.NEWS, _news_body, _parse_news_body, needs_turma=True),
     Feature("task", C.TASKS, _task, tarefa.parse_tarefa_body),
-    Feature("matricula", C.MATRICULA, lambda client, _: client.open_matricula_curriculo(),
-            matricula.parse_open_turmas, opt_in=True),
+    Feature("matricula", C.MATRICULA, _matricula, matricula.parse_open_turmas, opt_in=True),
 )

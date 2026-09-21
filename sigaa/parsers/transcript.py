@@ -14,7 +14,6 @@ from io import BytesIO
 
 from pypdf import PdfReader
 
-
 from ..errors import ParseError
 
 

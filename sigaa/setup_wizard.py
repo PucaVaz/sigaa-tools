@@ -16,7 +16,7 @@ from xml.sax.saxutils import escape
 from . import config
 from .client import SigaaClient
 from .config import Settings
-from .institutions import get
+from .institutions import InstitutionProfile, all, get
 from .services.sync import sync
 
 
@@ -29,10 +29,32 @@ class LoginResult:
     password: str = field(repr=False)
 
 
-
-def verify_and_store_login(username: str, password: str, *, institution: str | None = None) -> LoginResult:
+def select_institution(
+    input_func: Callable[[str], str] = input, *, default: str | None = None
+) -> InstitutionProfile:
+    institutions = tuple(provider.profile for provider in all())
+    fallback = next(
+        (index for index, profile in enumerate(institutions) if profile.key == default), 0
+    )
+    print("Institution:")
+    for index, institution in enumerate(institutions, start=1):
+        print(f"  {index}. {institution.label}")
+    answer = input_func(f"Choose institution [{fallback + 1}]: ").strip()
+    if not answer:
+        return institutions[fallback]
     try:
-        with SigaaClient(username, password, **({"institution": institution} if institution else {})) as client:
+        selected = institutions[int(answer) - 1]
+    except (ValueError, IndexError):
+        print(f"Unknown choice {answer!r}; using {institutions[fallback].label}.")
+        return institutions[fallback]
+    return selected
+
+
+def verify_and_store_login(
+    username: str, password: str, *, institution: str | None = None
+) -> LoginResult:
+    try:
+        with SigaaClient(username, password, institution=institution) as client:
             student = client.get_student()
     except Exception as e:
         error_msg = str(e).lower()
@@ -52,15 +74,18 @@ def verify_and_store_login(username: str, password: str, *, institution: str | N
     try:
         import keyring
 
-        service = get(institution).profile.keyring_service
-        keyring.set_password(service, username, password)
+        profile = get(institution).profile
+        keyring.set_password(profile.keyring_service, username, password)
         keyring.set_password(
-            service,
+            profile.keyring_service,
             config.KEYRING_ACTIVE_USERNAME,
             username,
         )
-        keyring.set_password(config.KEYRING_SETTINGS_SERVICE, config.KEYRING_ACTIVE_INSTITUTION,
-                             get(institution).profile.key)
+        keyring.set_password(
+            config.KEYRING_SETTINGS_SERVICE,
+            config.KEYRING_ACTIVE_INSTITUTION,
+            profile.key,
+        )
     except Exception:
         password_stored = False
         storage_message = (
@@ -172,9 +197,21 @@ def write_env_template(path: Path, *, username: str) -> None:
     )
 
 
-def run_init(settings: Settings, input_func: Callable[[str], str] = input) -> int:
+def run_init(
+    settings: Settings,
+    input_func: Callable[[str], str] = input,
+    *,
+    settings_for: Callable[[str], Settings] | None = None,
+) -> int:
+    """Run the wizard. ``settings_for`` enables the institution picker; pass it
+    only when the institution was not chosen explicitly."""
     print("sigaa init")
-    institution = get(settings.institution).profile
+    if settings_for is None:
+        institution = get(settings.institution).profile
+    else:
+        institution = select_institution(input_func, default=settings.institution)
+        if institution.key != settings.institution:
+            settings = settings_for(institution.key)
     print(f"Using {institution.label}.")
 
     login = _prompt_login_until_ok(settings, input_func)
@@ -232,7 +269,11 @@ def _sync_settings(settings: Settings, login: LoginResult) -> Settings:
         def resolve_password(self) -> str | None:
             return login.password
 
-    return InitSettings(db_path=settings.db_path, username=settings.username, institution=settings.institution)
+    return InitSettings(
+        db_path=settings.db_path,
+        username=settings.username,
+        institution=settings.institution,
+    )
 
 
 def _write_schedule(*, username: str, institution: str | None = None) -> None:

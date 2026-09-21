@@ -1,7 +1,8 @@
-import pytest
-from sigaa.errors import NavigationError
 from pathlib import Path
 
+import pytest
+
+from sigaa.errors import NavigationError
 from sigaa.models import CoursePlan, PlanEvaluation, Turma
 from sigaa.parsers.plano import parse_course_plan
 from sigaa.services.sync import _plan_deadline_id, _slug, _sync_turma_plan

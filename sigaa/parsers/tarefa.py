@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import re
 
-from ._variants import page_parser
-
 from bs4 import BeautifulSoup
+
+from ._variants import page_parser
 
 # jsfcljs(getElementById('<form>'),{'<field>':'<field>','id':'<event>','idTurma':'<turma>'},'')
 _ONCLICK_RE = re.compile(
@@ -45,13 +45,17 @@ def build_event_postback(portal_html: str, event_id: str, viewstate: str) -> dic
     return None
 
 
-def parse_tarefa_body(html: str) -> dict | None:
+def _recognized_event(soup):
+    return _event_form(soup) is not None or soup.find(string=_NOTICE_RE) is not None
+
+
+@page_parser("task", _recognized_event, name="task-detail-form")
+def parse_tarefa_body(soup: BeautifulSoup) -> dict | None:
     """Scrape an event form's label/value rows (Descrição, Período, ...).
 
     Returns the rows as a dict keyed by their (colon-stripped) label, or None if
     the page carries no recognizable event detail form.
     """
-    soup = BeautifulSoup(html, "lxml")
     form = _event_form(soup)
     if form is None:
         notice = soup.find(string=_NOTICE_RE)
@@ -87,9 +91,3 @@ def _event_form(soup: BeautifulSoup):
             return legend.find_parent("form") or legend.parent
     campo = soup.find("div", class_="campo")
     return campo.find_parent("form") if campo else None
-
-
-parse_tarefa_body = page_parser(
-    "task", lambda soup: _event_form(soup) is not None or soup.find(string=_NOTICE_RE) is not None,
-    name="task-detail-form",
-)(parse_tarefa_body)

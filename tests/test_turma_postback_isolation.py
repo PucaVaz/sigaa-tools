@@ -5,11 +5,9 @@ first postback opened, so SIGAA answers with whatever turma it currently sits on
 -- the mechanism behind plan rows landing on the wrong turma.
 """
 
-import pytest
-from sigaa.errors import NavigationError
 from pathlib import Path
 
-from sigaa import config
+from sigaa.institutions import get, ufpb
 from sigaa.client import SigaaClient
 from sigaa.models import Turma
 
@@ -31,7 +29,7 @@ def _principal(marker: str) -> str:
     return (
         f'<html><body data-page="{marker}"><form id="formMenu">{menu}'
         '<input id="javax.faces.ViewState" name="javax.faces.ViewState" value="j_id2"/>'
-        "</form></body></html>"
+        '</form><form id="news_form_1"><input name="id" value="1"/></form></body></html>'
     )
 
 
@@ -42,7 +40,7 @@ class _FakeSession:
 
     def post(self, url: str, fields: dict) -> str:
         self.posts.append((url, fields))
-        if url == config.PORTAL_ACTION_URL:
+        if url == ufpb.PORTAL_ACTION_URL:
             self.enters += 1
             return _principal(f"re-entered-{self.enters}")
         filename = "vernotas.html" if "menu:notas" in fields else "plano.html"
@@ -51,6 +49,8 @@ class _FakeSession:
 
 def _client() -> tuple[SigaaClient, _FakeSession]:
     client = SigaaClient.__new__(SigaaClient)
+    client.profile = ufpb.PROFILE
+    client.navigator = get("ufpb").navigator
     session = _FakeSession()
     client._session = session
     client._portal_html = PORTAL
@@ -62,7 +62,7 @@ def test_first_postback_reuses_the_cached_principal_page():
     client, session = _client()
     client.get_turma_grades(TURMA, _principal("cached"))
     assert session.enters == 0
-    assert session.posts[0][0] == config.AVA_URL
+    assert session.posts[0][0] == ufpb.AVA_URL
 
 
 def test_second_postback_re_enters_the_turma():
@@ -73,7 +73,7 @@ def test_second_postback_re_enters_the_turma():
 
     assert session.enters == 1
     enter_url, enter_fields = session.posts[1]
-    assert enter_url == config.PORTAL_ACTION_URL
+    assert enter_url == ufpb.PORTAL_ACTION_URL
     assert enter_fields["idTurma"] == TURMA.id_turma
 
 
@@ -81,8 +81,7 @@ def test_news_body_after_a_menu_postback_re_enters_the_turma():
     client, session = _client()
     cached = _principal("cached")
     client.get_course_plan(TURMA, cached)
-    with pytest.raises(NavigationError):
-        client.get_news_body(TURMA, "1", cached)
+    client.get_news_body(TURMA, "1", cached)
 
     assert session.enters == 1
 

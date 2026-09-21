@@ -17,12 +17,12 @@ CURRICULUM_DATA_URL = f"{BASE}/portal/discente/integralizacao/dados/"
 # Turma Virtual base; news bodies are fetched here.
 AVA_URL = f"{BASE}/ava/index.jsf"
 
+# Marker proving an authenticated page; absence means the session is dead.
 AUTH_MARKER = "Sair do SIGAA"
 # Substring of the URL we get bounced to when a session expires.
 LOGIN_REDIRECT_MARKER = "logon.jsf"
 
 KEYRING_SERVICE = "sigaa-ufpb"
-KEYRING_ACTIVE_USERNAME = "__active_username__"
 
 # UFPB class-time slots. Day digits: 2=Mon .. 7=Sat. Shift: M/T/N.
 # NOTE: clock times below are an UNCONFIRMED default; confirm against a turma's
@@ -33,28 +33,40 @@ SLOT_TIMES_UNCONFIRMED = {
     "N": {1: "18:30", 2: "19:20", 3: "20:20", 4: "21:10"},
 }
 
-
+# Matrícula on-line (enrollment request) flow.
 MATRICULA_INSTRUCOES_URL = f"{BASE}/graduacao/matricula/instrucoes.jsf"
 MATRICULA_TURMAS_CURRICULO_URL = f"{BASE}/graduacao/matricula/turmas_curriculo.jsf"
 
 PROFILE = InstitutionProfile(
-    key="ufpb", label="UFPB", host=HOST, logon_url=LOGON_URL,
-    portal_entry_url=PORTAL_ENTRY_URL, portal_action_url=PORTAL_ACTION_URL,
-    ava_url=AVA_URL, curriculum_entry_url=CURRICULUM_ENTRY_URL,
+    key="ufpb",
+    label="UFPB",
+    host=HOST,
+    logon_url=LOGON_URL,
+    portal_entry_url=PORTAL_ENTRY_URL,
+    portal_action_url=PORTAL_ACTION_URL,
+    ava_url=AVA_URL,
+    curriculum_entry_url=CURRICULUM_ENTRY_URL,
     curriculum_data_url=CURRICULUM_DATA_URL,
     matricula_instrucoes_url=MATRICULA_INSTRUCOES_URL,
     matricula_turmas_curriculo_url=MATRICULA_TURMAS_CURRICULO_URL,
-    auth_marker=AUTH_MARKER, login_redirect_marker=LOGIN_REDIRECT_MARKER,
-    keyring_service=KEYRING_SERVICE, slot_times=SLOT_TIMES_UNCONFIRMED, slot_minutes=50,
+    auth_marker=AUTH_MARKER,
+    login_redirect_marker=LOGIN_REDIRECT_MARKER,
+    keyring_service=KEYRING_SERVICE,
+    slot_times=SLOT_TIMES_UNCONFIRMED,
+    slot_minutes=50,
     menu_labels={
-        MenuLabel.GRADES: "Minhas Notas", MenuLabel.ENROLL: "Realizar Matrícula",
-        MenuLabel.TURMA_GRADES: "Ver Notas", MenuLabel.ATTENDANCE: "Frequência",
-        MenuLabel.PLAN: "Plano de Curso", MenuLabel.PARTICIPANTS: "Participantes",
+        MenuLabel.GRADES: "Minhas Notas",
+        MenuLabel.ENROLL: "Realizar Matrícula",
+        MenuLabel.TURMA_GRADES: "Ver Notas",
+        MenuLabel.ATTENDANCE: "Frequência",
+        MenuLabel.PLAN: "Plano de Curso",
+        MenuLabel.PARTICIPANTS: "Participantes",
         MenuLabel.HISTORICO: "Histórico acadêmico",
         MenuLabel.DECLARACAO_VINCULO: "Declaração de vínculo",
         MenuLabel.ATESTADO: "Atestado de matrícula",
         MenuLabel.EXTENSION_DOCS: "Certificados e Declarações",
-    }, capabilities=frozenset(Capability),
+    },
+    capabilities=frozenset(Capability),
 )
 
 
@@ -63,12 +75,16 @@ class UfpbNavigator:
         self.profile = profile
 
     def login(self, session):
-        return perform_login(session._client, session._username, session._password, profile=self.profile)
+        return perform_login(
+            session._client, session._username, session._password, profile=self.profile
+        )
 
     def looks_logged_out(self, text, url=""):
-        return (self.profile.login_redirect_marker in url or
-                (self.profile.auth_marker not in text and
-                 self.profile.login_redirect_marker in text))
+        # Text only, as before providers existed; the final URL is not consulted.
+        return (
+            self.profile.auth_marker not in text
+            and self.profile.login_redirect_marker in text
+        )
 
     def portal_menu_post(self, session, portal, label):
         from ..parsers.portal import build_menu_postback
@@ -79,10 +95,14 @@ class UfpbNavigator:
 
     def enter_turma(self, session, portal, turma):
         from ..http import extract_viewstate
-        return session.post(self.profile.portal_action_url, {
-            turma.form_id: turma.form_id, turma.field: turma.field,
-            "idTurma": turma.id_turma, "javax.faces.ViewState": extract_viewstate(portal),
-        })
+
+        fields = {
+            turma.form_id: turma.form_id,
+            turma.field: turma.field,
+            "idTurma": turma.id_turma,
+            "javax.faces.ViewState": extract_viewstate(portal),
+        }
+        return session.post(self.profile.portal_action_url, fields)
 
     def turma_menu_post(self, session, principal, label):
         from ..http import extract_viewstate
@@ -90,28 +110,31 @@ class UfpbNavigator:
         field = find_menu_field(principal, label)
         if field is None:
             raise NavigationError(f"turma menu item not found: {label!r}")
-        return session.post(self.profile.ava_url, {
-            "formMenu": "formMenu", field: field,
+        fields = {
+            "formMenu": "formMenu",
+            field: field,
             "javax.faces.ViewState": extract_viewstate(principal, default="j_id2"),
-        })
+        }
+        return session.post(self.profile.ava_url, fields)
 
     def open_event(self, session, portal, event_id):
         from ..http import extract_viewstate
         from ..parsers.tarefa import build_event_postback
         fields = build_event_postback(portal, event_id, extract_viewstate(portal))
         if fields is None:
-            raise NavigationError("event postback not found")
+            raise NavigationError(f"portal event not found: {event_id!r}")
         return session.post(self.profile.portal_action_url, fields)
 
 
-def perform_login(client, username: str, password: str, *, profile=PROFILE) -> str:
+def perform_login(client, username: str, password: str, *, profile: InstitutionProfile) -> str:
     """Authenticate and return the rendered portal HTML (with the turma list).
 
     Raises ``LoginRejectedError`` (a ``ValueError``) if the resulting portal is
     not authenticated.
     """
     import httpx
-    from ..errors import MissingCredentialsError, LoginRejectedError
+
+    from ..errors import LoginRejectedError, MissingCredentialsError
     from ..http import extract_viewstate
 
     if not username or not password:
@@ -143,3 +166,6 @@ def perform_login(client, username: str, password: str, *, profile=PROFILE) -> s
     if profile.auth_marker not in portal.text:
         raise LoginRejectedError("login failed: SIGAA rejected the credentials or showed a CAPTCHA")
     return portal.text
+
+
+NAVIGATOR = UfpbNavigator()

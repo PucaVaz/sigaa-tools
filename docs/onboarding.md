@@ -7,7 +7,9 @@ chat or commit a capture. Only the student can complete live acceptance.
 1. Run `sigaa onboard login-probe --url https://your-host/sigaa/login-page`.
    This reads the public login form. It never submits credentials.
 2. Run `sigaa onboard init your_key --host https://your-host`. The generated
-   provider deliberately has no supported capabilities and cannot log in.
+   provider deliberately has no supported capabilities, empty menu labels and
+   URLs, and a navigator whose every step raises until you implement it; it
+   inherits nothing from UFPB. The registry picks the module up by itself.
    Implement navigation and declare capabilities only for available features.
 3. Run `SIGAA_INSTITUTION=your_key sigaa onboard capture` with credentials
    available from keyring or the environment. If the student parser is not yet
@@ -31,6 +33,14 @@ chat or commit a capture. Only the student can complete live acceptance.
    rejects unexplained `unrecognized` or `nav_failed` results. A reviewed JSON
    feature-to-reason map can be passed with `--explanations`. Uncaptured features
    remain evidence gaps; a passing gate is not proof of their compatibility.
+   The identity scan matches every value in `identity.json`, each word of four or
+   more letters in the name, and the e-mail local part, as whole words and
+   ignoring accents and case. It fails closed, so expect false positives: a
+   teacher, room or class title that shares a word with the student's name (a
+   common surname such as Silva) is reported too. Findings name only the
+   category and file index. Cut the fixture down until the colliding text is no
+   longer needed; if public class data itself collides, stop and ask rather than
+   weakening the gate or editing `identity.json`.
 8. Run `sigaa onboard report --from captures/your_key/<date>`. Review and stage
    the generated compatibility document, rerun check, then open one PR for the
    institution with actual command results and the tested commit. Do not publish
@@ -41,8 +51,8 @@ though Git ignores them. Never use `git add -f` for a capture. The transport gua
 rejects submission controls, but the fixed fetcher registry is the primary
 read-only boundary. Do not add enrollment workers to that registry.
 
-Allowed changes during an institution onboarding: `sigaa/institutions/<key>.py`,
-the corresponding registry entry, new parser variants, tests and sanitized
+Allowed changes during an institution onboarding: `sigaa/institutions/<key>.py`
+(the registry needs no edit), new parser variants, tests and sanitized
 `tests/fixtures/<key>/` files, and `docs/institutions/<key>.md`. Changes to shared
 navigation or existing variants need a separately agreed scope.
 

@@ -13,6 +13,7 @@ from sigaa.onboard.probe import probe
 
 FIXTURES = Path(__file__).parent / "fixtures/ufcg"
 PROFILE = get("ufcg").profile
+NAVIGATOR = get("ufcg").navigator
 
 
 @pytest.mark.parametrize("portal", ["portal.html", "portal_script_menu.html"])
@@ -31,7 +32,7 @@ def test_classic_login_uses_rendered_fields_and_redirects(portal):
             assert fields["width"] == ["1280"]
             return httpx.Response(302, headers={"Location": PROFILE.portal_entry_url})
         return httpx.Response(200, text=(FIXTURES / portal).read_text())
-    with Session("test-student", secret, profile=PROFILE,
+    with Session("test-student", secret, profile=PROFILE, navigator=NAVIGATOR,
                  client=httpx.Client(transport=httpx.MockTransport(handler))) as session:
         html = session.login()
         assert "dispatch=logOff" in html
@@ -51,7 +52,7 @@ def test_classic_login_blocks_foreign_action_and_redirect(redirect):
         if request.method == "GET":
             return httpx.Response(200, text=login)
         return httpx.Response(307, headers={"Location": "https://foreign.example/"})
-    with Session("test", secrets.token_urlsafe(), profile=PROFILE,
+    with Session("test", secrets.token_urlsafe(), profile=PROFILE, navigator=NAVIGATOR,
                  client=httpx.Client(transport=httpx.MockTransport(handler))) as session:
         with pytest.raises(UnsafeUrlError):
             session.login()
@@ -64,7 +65,7 @@ def test_classic_rejection_does_not_fall_back_past_login():
     def handler(request):
         calls.append(request)
         return httpx.Response(200, text=(FIXTURES / "login.html").read_text())
-    with Session("test", secrets.token_urlsafe(), profile=PROFILE,
+    with Session("test", secrets.token_urlsafe(), profile=PROFILE, navigator=NAVIGATOR,
                  client=httpx.Client(transport=httpx.MockTransport(handler))) as session:
         with pytest.raises(LoginRejectedError):
             session.login()
