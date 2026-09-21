@@ -1,3 +1,5 @@
+import pytest
+from sigaa.errors import ParseError
 from pathlib import Path
 
 from sigaa.parsers.attendance import parse_attendance
@@ -21,4 +23,5 @@ def test_parse_attendance_extracts_records_and_totals():
 
 
 def test_parse_attendance_no_map_returns_none():
-    assert parse_attendance("<html><body>nothing</body></html>", ID_TURMA) is None
+    with pytest.raises(ParseError):
+        parse_attendance("<html><body>nothing</body></html>", ID_TURMA)

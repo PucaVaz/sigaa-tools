@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 
 from ..client import SigaaClient
 from ..config import Settings
-from ..errors import STAGE_PARSE, ParseError, error_stage
+from ..errors import error_stage
 from ..models import (
     Attendance,
     Deadline,
@@ -117,14 +117,14 @@ def _sync_turma(
     try:
         found, fresh_news = _sync_turma_news(client, repo, turma, fetch_bodies, turma_html)
         summary.news_found = len(found)
-    except ParseError as exc:
+    except Exception as exc:
         fresh_news = []
-        summary.errors.append(SyncIssue(stage=exc.stage, message=str(exc)))
-    fresh_materials = _sync_turma_materials(client, repo, turma, turma_html)
-    grade_updates = _sync_turma_grades(client, repo, turma, turma_html)
-    plan_deadlines = _sync_turma_plan(client, repo, turma, turma_html)
-    attendance_updates = _sync_turma_attendance(client, repo, turma, turma_html)
-    _sync_turma_professors(client, repo, turma, turma_html)
+        summary.errors.append(SyncIssue(stage=error_stage(exc), message=str(exc)))
+    fresh_materials = _class_fetch(summary, "materials", _sync_turma_materials, client, repo, turma, turma_html)
+    grade_updates = _class_fetch(summary, "grades", _sync_turma_grades, client, repo, turma, turma_html)
+    plan_deadlines = _class_fetch(summary, "plan", _sync_turma_plan, client, repo, turma, turma_html)
+    attendance_updates = _class_fetch(summary, "attendance", _sync_turma_attendance, client, repo, turma, turma_html)
+    _class_fetch(summary, "professors", _sync_turma_professors, client, repo, turma, turma_html)
 
     summary.news_new = len(fresh_news)
     summary.materials_new = len(fresh_materials)
@@ -152,8 +152,8 @@ def _fail_on_class_errors(result: SyncResult) -> None:
         return
     details = "; ".join(f"{s.code or s.id_turma}: {s.errors[0].message}" for s in broken)
     result.ok = False
-    result.error = f"{len(broken)} class(es) could not be parsed: {details}"
-    result.error_stage = STAGE_PARSE
+    result.error = f"{len(broken)} class(es) could not be read: {details}"
+    result.error_stage = broken[0].errors[0].stage
 
 
 def _sync_turma_news(
@@ -189,12 +189,9 @@ def _sync_turma_materials(
 def _sync_turma_grades(
     client: SigaaClient, repo: Repository, turma: Turma, turma_html: str
 ) -> list[TurmaGrade]:
-    """Best-effort: a turma whose Ver Notas is missing/bounces must not abort sync.
+    """Persist the class grade report; failures are recorded by the caller.
     Returns the grade in a list only when a real grade was posted or changed."""
-    try:
-        grade = client.get_turma_grades(turma, turma_html)
-    except Exception:  # noqa: BLE001 - per-turma report is optional
-        return []
+    grade = client.get_turma_grades(turma, turma_html)
     if grade is None:
         return []
     return [grade] if repo.upsert_turma_grade(grade) else []
@@ -203,11 +200,8 @@ def _sync_turma_grades(
 def _sync_turma_plan(
     client: SigaaClient, repo: Repository, turma: Turma, turma_html: str
 ) -> list[Deadline]:
-    """Best-effort: persist Plano de Curso evaluation dates as deadlines."""
-    try:
-        plan = client.get_course_plan(turma, turma_html)
-    except Exception:  # noqa: BLE001 - per-turma plan is optional
-        return []
+    """Persist Plano de Curso evaluation dates as deadlines."""
+    plan = client.get_course_plan(turma, turma_html)
     if plan is None:
         return []
     if plan.id_turma != turma.id_turma:
@@ -245,11 +239,8 @@ def _plan_deadline_id(id_turma: str, slug: str, occurrence: int) -> str:
 def _sync_turma_attendance(
     client: SigaaClient, repo: Repository, turma: Turma, turma_html: str
 ) -> list[Attendance]:
-    """Best-effort: persist the Frequência map; notable only after a baseline."""
-    try:
-        attendance = client.get_attendance(turma, turma_html)
-    except Exception:  # noqa: BLE001 - per-turma attendance is optional
-        return []
+    """Persist the Frequência map; notable only after a baseline."""
+    attendance = client.get_attendance(turma, turma_html)
     if attendance is None:
         return []
     return [attendance] if repo.upsert_attendance(attendance) else []
@@ -258,11 +249,8 @@ def _sync_turma_attendance(
 def _sync_turma_professors(
     client: SigaaClient, repo: Repository, turma: Turma, turma_html: str
 ) -> list[Professor]:
-    """Best-effort: persist the turma's teaching staff (Participantes)."""
-    try:
-        professors = client.list_professors(turma, turma_html)
-    except Exception:  # noqa: BLE001 - per-turma participants page is optional
-        return []
+    """Persist the turma's teaching staff (Participantes)."""
+    professors = client.list_professors(turma, turma_html)
     if professors:
         repo.replace_professors(turma.id_turma, professors)
     return professors
@@ -271,3 +259,11 @@ def _sync_turma_professors(
 def _slug(text: str) -> str:
     ascii_text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
     return re.sub(r"[^a-z0-9]+", "-", ascii_text.casefold()).strip("-")
+
+
+def _class_fetch(summary, feature, fetch, *args):
+    try:
+        return fetch(*args)
+    except Exception as exc:
+        summary.errors.append(SyncIssue(stage=error_stage(exc), message=f"{feature}: {exc}"))
+        return []

@@ -8,9 +8,13 @@ never parsed or returned.
 from __future__ import annotations
 
 import re
-import unicodedata
+
+from ._common import normalized as _normalized
 
 from bs4 import BeautifulSoup
+
+from ._variants import page_parser
+from ._common import fold
 
 from ..models import Professor
 
@@ -53,8 +57,8 @@ def _professor_table(soup: BeautifulSoup):
     for legend in soup.select("fieldset legend"):
         if not _PROFESSOR_LEGEND_RE.match(_normalized(legend.get_text(" ", strip=True))):
             continue
-        table = legend.find_parent("fieldset").find_next("table", class_="participantes")
-        if table is not None:
+        table = legend.find_parent("fieldset").find_next(["table", "fieldset"])
+        if table is not None and table.name == "table" and "participantes" in table.get("class", []):
             return table
     return None
 
@@ -83,6 +87,19 @@ def _preceding_label(value_el) -> str | None:
     return None
 
 
-def _normalized(value: str) -> str:
-    normalized = unicodedata.normalize("NFKC", value).replace("\xa0", " ")
-    return " ".join(normalized.split()).casefold()
+
+
+def _professor_count(soup):
+    for legend in soup.select("fieldset legend"):
+        match = re.fullmatch(r"professores?\s*\((\d+)\)", fold(legend.get_text()))
+        if match:
+            return int(match.group(1))
+    return None
+
+
+parse_professors = page_parser(
+    "professors", lambda soup: _professor_count(soup) is not None,
+    empty=lambda soup: _professor_count(soup) == 0,
+    validate=lambda result, soup: len(result) == _professor_count(soup),
+    name="participants-role-count",
+)(parse_professors)

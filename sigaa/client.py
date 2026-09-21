@@ -9,6 +9,7 @@ from decimal import Decimal
 
 import httpx
 
+from .errors import NavigationError
 from .institutions import get, MenuLabel, Capability
 from .documents import (
     ATESTADO_MATRICULA,
@@ -232,7 +233,7 @@ class SigaaClient:
             portal = self._portal()
             fields = portal_parser.build_menu_postback(portal, spec.menu_label)
             if fields is None:
-                raise ValueError(f"portal document menu item not found: {spec.menu_label!r}")
+                raise NavigationError(f"portal document menu item not found: {spec.menu_label!r}")
             try:
                 content, content_type, _ = self._session.post_download(
                     self.profile.portal_action_url,

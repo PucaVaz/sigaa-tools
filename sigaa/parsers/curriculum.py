@@ -10,7 +10,10 @@ from typing import Any
 from ..models import CurriculumComponent, CurriculumStatus, WorkloadProgress
 
 
-class CurriculumDataError(ValueError):
+from ..errors import ParseError
+
+
+class CurriculumDataError(ParseError, ValueError):
     """Raised when SIGAA does not return a valid curriculum payload."""
 
 

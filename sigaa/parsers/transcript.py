@@ -15,7 +15,10 @@ from io import BytesIO
 from pypdf import PdfReader
 
 
-class TranscriptParseError(ValueError):
+from ..errors import ParseError
+
+
+class TranscriptParseError(ParseError, ValueError):
     """The transcript is invalid or does not expose an unambiguous CRA."""
 
 

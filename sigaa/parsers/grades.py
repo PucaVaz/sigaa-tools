@@ -12,11 +12,14 @@ from __future__ import annotations
 from bs4 import BeautifulSoup
 
 from ..models import Grade, TurmaGrade
+from ..errors import UnrecognizedPageError
+from ._common import fold, page_fingerprint
+from ._variants import Variant, parse_with_variants, page_parser
 
 _UNIT_COUNT = 10  # Unidade 1..10
 
 
-def parse_grades(html: str) -> list[Grade]:
+def _parse_grades_16col(html: str) -> list[Grade]:
     soup = BeautifulSoup(html, "lxml")
     grades: list[Grade] = []
     for table in soup.find_all("table", class_="tabelaRelatorio"):
@@ -84,3 +87,69 @@ def _first_data_row(rows, width: int) -> list[str] | None:
 def _clean(value: str) -> str | None:
     value = value.strip()
     return None if value in ("", "--") else value
+
+
+def _grade_tables(soup):
+    return soup.select("table.tabelaRelatorio")
+
+
+def _grade_headers(table):
+    row = table.find("tr")
+    return [fold(c.get_text(" ", strip=True)) for c in row.find_all(["th", "td"])] if row else []
+
+
+def _matches_grades(soup):
+    tables = _grade_tables(soup)
+    return bool(tables) and all({"codigo", "disciplina", "resultado", "faltas", "situacao"}
+                               .issubset(_grade_headers(t)) for t in tables)
+
+
+def _grades_by_header(soup):
+    out = []
+    for table in _grade_tables(soup):
+        headers = _grade_headers(table)
+        caption = table.find("caption")
+        semester = caption.get_text(strip=True) if caption else ""
+        for row in table.select("tr")[1:]:
+            cells = row.find_all("td", recursive=False)
+            if not cells:
+                continue
+            if len(cells) != len(headers):
+                raise UnrecognizedPageError("grades", page_fingerprint(soup))
+            values = dict(zip(headers, (c.get_text(" ", strip=True) for c in cells)))
+            if not values["codigo"] or not values["disciplina"]:
+                raise UnrecognizedPageError("grades", page_fingerprint(soup))
+            out.append(Grade(semester=semester, code=values["codigo"], discipline=values["disciplina"],
+                             units=[v for k, v in values.items() if k.startswith("unid") and v],
+                             exam=_clean(values.get("exame final", "")), result=_clean(values["resultado"]),
+                             absences=_clean(values["faltas"]), status=_clean(values["situacao"])))
+    return out
+
+
+def _grades_16col(soup):
+    _grades_by_header(soup)  # verify row integrity before the positional compatibility reader
+    return _parse_grades_16col(str(soup))
+
+
+_GRADE_VARIANTS = (
+    Variant("ufpb-16col", lambda soup: _matches_grades(soup) and all(
+        _grade_headers(t) == ["codigo", "disciplina", *[f"unidade. {i}" for i in range(1, 11)],
+                              "exame final", "resultado", "faltas", "situacao"]
+        for t in _grade_tables(soup)), _grades_16col),
+    Variant("grade-headers", _matches_grades, _grades_by_header),
+)
+
+
+def parse_grades(html: str) -> list[Grade]:
+    return parse_with_variants("grades", html, _GRADE_VARIANTS)
+
+
+parse_grades.variants = _GRADE_VARIANTS
+parse_grades.feature = "grades"
+parse_turma_grades = page_parser(
+    "turma_grades", lambda soup: bool(_grade_tables(soup)) and all(
+        {"matricula", "nome", "faltas"}.issubset(_grade_headers(t)) for t in _grade_tables(soup)),
+    empty=lambda soup: bool(soup.select("table.tabelaRelatorio tbody"))
+    and not soup.select("table.tabelaRelatorio tbody td"),
+    name="class-grade-headers",
+)(parse_turma_grades)

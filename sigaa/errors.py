@@ -55,3 +55,15 @@ class UnsupportedFeatureError(SigaaError, ValueError):
 
 class UnsafeUrlError(SigaaError, ValueError):
     """A request or redirect left the selected institution's HTTPS origin."""
+
+
+class UnrecognizedPageError(ParseError):
+    """Unknown markup; diagnostics describe structure, never student values."""
+    def __init__(self, feature, fingerprint):
+        self.feature = feature
+        self.fingerprint = fingerprint
+        super().__init__(f"unrecognized {feature} page")
+
+
+class NavigationError(ParseError, ValueError):
+    """A required navigation target is absent from the current render."""

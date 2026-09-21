@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from urllib.parse import urljoin, urlparse
 
+from ..errors import ParseError
+
 from bs4 import BeautifulSoup, Tag
 
 from ..models import (
@@ -30,7 +32,9 @@ DOCUMENT_VIEW_ONCLICK_RE = re.compile(
 )
 
 
-class SipacParseError(ValueError):
+
+
+class SipacParseError(ParseError, ValueError):
     """Raised when SIPAC returns a page that does not match its public contract."""
 
 

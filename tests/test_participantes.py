@@ -1,3 +1,5 @@
+import pytest
+from sigaa.errors import ParseError
 from pathlib import Path
 
 from sigaa.parsers import participantes as participantes_parser
@@ -37,7 +39,8 @@ def test_parse_professors_ignores_the_student_roster():
 
 
 def test_parse_professors_without_the_fieldset_returns_empty():
-    assert participantes_parser.parse_professors("<html></html>", ID_TURMA) == []
+    with pytest.raises(ParseError):
+        participantes_parser.parse_professors("<html></html>", ID_TURMA)
 
 
 def test_replace_professors_is_idempotent_and_drops_removed_staff(tmp_path):

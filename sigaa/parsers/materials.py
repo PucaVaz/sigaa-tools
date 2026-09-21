@@ -13,6 +13,8 @@ import re
 
 from bs4 import BeautifulSoup
 
+from ._variants import page_parser
+
 from ..models import Material
 
 # jsfcljs(formAva,{'<field>':'<field>','id':'<material_id>'},'_blank')
@@ -103,3 +105,11 @@ def filename_for(title: str, content_type: str | None, content_disposition: str 
 
 def _sanitize(name: str) -> str:
     return _UNSAFE_RE.sub("_", name).strip().strip(".")
+
+
+parse_materials = page_parser(
+    "materials", lambda soup: bool(soup.select("div.topico-aula")),
+    empty=lambda soup: not soup.select("div.topico-aula div.item"),
+    validate=lambda result, soup: len(result) == len(soup.select("div.topico-aula div.item")),
+    name="class-topic-items",
+)(parse_materials)

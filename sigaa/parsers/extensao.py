@@ -23,8 +23,9 @@ so a markup change never passes for "no participations".
 from __future__ import annotations
 
 import re
-import unicodedata
 from dataclasses import dataclass, field
+
+from ._common import fold as _fold, clean as _clean, jsf_params
 
 from bs4 import BeautifulSoup
 
@@ -212,18 +213,8 @@ def _record_id(anchors) -> str | None:
         match = _JSF_PARAMS_RE.search(anchor.get("onclick") or "")
         if not match:
             continue
-        params = dict(_JSF_PARAM_RE.findall(match.group(1)))
+        params = jsf_params(anchor.get("onclick") or "")
         for name in _RECORD_ID_PARAMS:
             if params.get(name):
                 return params[name]
     return None
-
-
-def _clean(text: str) -> str:
-    text = unicodedata.normalize("NFKC", text.replace(_C1_EN_DASH, "–")).replace("\xa0", " ")
-    return " ".join(text.split())
-
-
-def _fold(text: str) -> str:
-    ascii_text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
-    return " ".join(ascii_text.casefold().split())

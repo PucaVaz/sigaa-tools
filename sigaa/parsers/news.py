@@ -12,11 +12,13 @@ quiet class.
 from __future__ import annotations
 
 import re
-import unicodedata
+
+from ._common import fold as _fold
 
 from bs4 import BeautifulSoup, NavigableString
 
-from ..errors import ParseError
+from ..errors import ParseError, UnrecognizedPageError
+from ._common import page_fingerprint
 from ..models import NewsItem
 
 _PANEL_HEADER_RE = re.compile(r"Not(?:&iacute;|í)cias")
@@ -88,7 +90,9 @@ def parse_news_body(body_html: str) -> str:
         or soup.find("td", class_=re.compile("descricao"))
         or soup.find("div", id=re.compile("conteudo", re.I))
     )
-    target = container or soup
+    if container is None:
+        raise UnrecognizedPageError("news_body", page_fingerprint(soup))
+    target = container
     for anchor in target.find_all("a", href=True):
         href = anchor["href"].strip()
         if href.startswith(("http://", "https://")) and href not in anchor.get_text():
@@ -111,9 +115,6 @@ def _declares_no_news(panel) -> bool:
     return bool(_EMPTY_PANEL_RE.search(_fold(panel.get_text(" ", strip=True))))
 
 
-def _fold(text: str) -> str:
-    ascii_text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
-    return ascii_text.casefold()
 
 
 def _date_and_title(form) -> tuple[str, str]:

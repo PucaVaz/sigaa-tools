@@ -6,6 +6,9 @@ import re
 
 from bs4 import BeautifulSoup
 
+from ._variants import page_parser
+from ._common import fold
+
 from ..models import Attendance, AttendanceRecord
 
 _TOTAL_RE = re.compile(r"Total de Faltas:\s*(\d+)")
@@ -55,3 +58,20 @@ def parse_attendance(html: str, id_turma: str) -> Attendance | None:
 def _int(pattern: re.Pattern, text: str) -> int | None:
     match = pattern.search(text)
     return int(match.group(1)) if match else None
+
+
+def _recognized_map(soup):
+    return any("mapa de frequ" in fold(lg.get_text()) for lg in soup.select("fieldset legend"))
+
+
+def _valid_map(result, soup):
+    if result is None:
+        return False
+    headers = {fold(th.get_text()) for th in soup.select("table th")}
+    return {"data", "situacao"}.issubset(headers) and (
+        len(result.records) == len(soup.select("table tbody tr")) and bool(soup.select("table tbody"))
+    )
+
+
+parse_attendance = page_parser("attendance", _recognized_map, validate=_valid_map,
+                               name="frequency-map")(parse_attendance)

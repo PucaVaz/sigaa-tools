@@ -1,3 +1,5 @@
+import pytest
+from sigaa.errors import ParseError
 from pathlib import Path
 
 from sigaa.models import Turma, TurmaGrade
@@ -22,7 +24,8 @@ def test_parse_turma_grades_extracts_student_row():
 
 
 def test_parse_turma_grades_no_table_returns_none():
-    assert parse_turma_grades("<html><body>no grades</body></html>", ID_TURMA) is None
+    with pytest.raises(ParseError):
+        parse_turma_grades("<html><body>no grades</body></html>", ID_TURMA)
 
 
 def test_turma_grade_store_roundtrip(tmp_path):

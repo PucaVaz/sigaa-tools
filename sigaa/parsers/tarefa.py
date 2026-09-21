@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import re
 
+from ._variants import page_parser
+
 from bs4 import BeautifulSoup
 
 # jsfcljs(getElementById('<form>'),{'<field>':'<field>','id':'<event>','idTurma':'<turma>'},'')
@@ -85,3 +87,9 @@ def _event_form(soup: BeautifulSoup):
             return legend.find_parent("form") or legend.parent
     campo = soup.find("div", class_="campo")
     return campo.find_parent("form") if campo else None
+
+
+parse_tarefa_body = page_parser(
+    "task", lambda soup: _event_form(soup) is not None or soup.find(string=_NOTICE_RE) is not None,
+    name="task-detail-form",
+)(parse_tarefa_body)

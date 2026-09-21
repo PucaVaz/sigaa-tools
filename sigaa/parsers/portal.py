@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 import re
-import unicodedata
+
+from ._common import normalized as _normalized_label
+
+from ._common import jsf_params as _jsf_params
 
 from bs4 import BeautifulSoup
+
+from ._variants import page_parser
+from ._common import fold
 
 from ..models import Deadline, Student, Turma
 
@@ -94,16 +100,8 @@ def _find_menu_anchor(soup: BeautifulSoup, link_text: str):
     return None
 
 
-def _normalized_label(value: str) -> str:
-    normalized = unicodedata.normalize("NFKC", value).replace("\xa0", " ")
-    return " ".join(normalized.split()).casefold()
 
 
-def _jsf_params(onclick: str) -> dict[str, str]:
-    match = _JSF_PARAMS_RE.search(onclick)
-    if not match:
-        return {}
-    return dict(_JSF_PARAM_RE.findall(match.group(1)))
 
 
 def parse_student(html: str) -> Student:
@@ -212,3 +210,23 @@ def _cell(cells, index: int) -> str | None:
 def _first(pattern: re.Pattern, text: str) -> str | None:
     match = pattern.search(text)
     return match.group(1) if match else None
+
+
+parse_student = page_parser(
+    "student", lambda soup: bool(_NAME_RE.search(_text(soup)) and _MATRICULA_RE.search(_text(soup))),
+    validate=lambda result, soup: bool(result.name and result.matricula), name="beta-student",
+)(parse_student)
+parse_turmas = page_parser(
+    "turmas", lambda soup: soup.find("form", id=_PORTAL_FORM_RE) is not None,
+    empty=lambda soup: "nao ha turmas" in fold(_text(soup)),
+    validate=lambda result, soup: all(t.name and t.field and t.form_id for t in result)
+    and len(result) == len([a for a in soup.select("a[onclick*='idTurma']")
+                           if a.find_parent("tr") is not None and a.find_parent("ul") is None]), name="beta-turmas",
+)(parse_turmas)
+parse_deadlines = page_parser(
+    "deadlines", lambda soup: bool(soup.select('ul[class*="dropdown-menu-"]')),
+    empty=lambda soup: all(not ul.select("li > a[onclick]")
+                           for ul in soup.select('ul[class*="dropdown-menu-"]')
+                           if _menu_kind(ul.get("class", [])) in _DEADLINE_KINDS),
+    validate=lambda result, soup: all(d.title and d.date for d in result), name="beta-deadlines",
+)(parse_deadlines)

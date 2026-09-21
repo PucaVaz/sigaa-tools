@@ -5,6 +5,8 @@ first postback opened, so SIGAA answers with whatever turma it currently sits on
 -- the mechanism behind plan rows landing on the wrong turma.
 """
 
+from pathlib import Path
+
 from sigaa import config
 from sigaa.client import SigaaClient
 from sigaa.models import Turma
@@ -41,7 +43,8 @@ class _FakeSession:
         if url == config.PORTAL_ACTION_URL:
             self.enters += 1
             return _principal(f"re-entered-{self.enters}")
-        return "<html><body>menu response</body></html>"
+        filename = "vernotas.html" if "menu:notas" in fields else "plano.html"
+        return (Path(__file__).parent / "fixtures" / filename).read_text()
 
 
 def _client() -> tuple[SigaaClient, _FakeSession]:

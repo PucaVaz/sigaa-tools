@@ -1,3 +1,5 @@
+import pytest
+from sigaa.errors import ParseError
 from pathlib import Path
 
 from sigaa.parsers.plano import parse_course_plan
@@ -26,4 +28,5 @@ def test_parse_course_plan_extracts_evaluations():
 
 
 def test_parse_course_plan_no_tables_returns_none():
-    assert parse_course_plan("<html><body>nothing</body></html>", ID_TURMA) is None
+    with pytest.raises(ParseError):
+        parse_course_plan("<html><body>nothing</body></html>", ID_TURMA)

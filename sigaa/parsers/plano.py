@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from bs4 import BeautifulSoup
 
+from ._variants import page_parser
+from ._common import fold
+
 from ..models import CoursePlan, PlanEntry, PlanEvaluation
 
 
@@ -43,3 +46,25 @@ def _rows(table, width: int) -> list[list[str]]:
         if len(cells) >= width and cells[0]:
             out.append(cells[:width])
     return out
+
+
+def _recognized_plan(soup):
+    return any(fold(c.get_text()).startswith(("cronograma de aulas", "avaliacoes"))
+               for c in soup.select("table caption"))
+
+
+def _valid_plan(result, soup):
+    if result is None:
+        return False
+    for table in soup.select("table"):
+        caption = table.find("caption")
+        text = fold(caption.get_text()) if caption else ""
+        width = 3 if text.startswith("cronograma de aulas") else 2 if text.startswith("avaliacoes") else 0
+        if width and any(len(row.find_all("td", recursive=False)) != width
+                         for row in table.select("tbody tr")):
+            return False
+    return True
+
+
+parse_course_plan = page_parser("plan", _recognized_plan, validate=_valid_plan,
+                                name="course-plan-tables")(parse_course_plan)
