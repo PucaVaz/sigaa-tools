@@ -19,6 +19,8 @@ KEYRING_ACTIVE_USERNAME = "__active_username__"
 KEYRING_ACTIVE_INSTITUTION = "__active_institution__"
 KEYRING_SETTINGS_SERVICE = "sigaa-tools"
 
+# MCP tool surfaces. Local keeps every tool; hosted is the reduced surface for a
+# shared deployment. Nothing is ever removed from the local/self-hosted build.
 LOCAL_MODE = "local"
 HOSTED_MODE = "hosted"
 SERVER_MODES = (LOCAL_MODE, HOSTED_MODE)
