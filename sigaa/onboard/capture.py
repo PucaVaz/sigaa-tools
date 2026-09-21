@@ -27,10 +27,13 @@ class ReadOnlySession:
 
     Only registry fetchers are dispatched by capture. The additional guard runs
     before each HTTP POST, even if a provider accesses its raw client directly.
+    ``last_response`` holds only the most recent non-redirect response, which
+    capture reads right after each fetcher returns.
     """
+
     def __init__(self, session):
         self._wrapped = session
-        self.responses = {}
+        self.last_response = None
         session._client.event_hooks.setdefault("request", []).append(self._guard_request)
         session._client.event_hooks.setdefault("response", []).append(self._record)
 
@@ -56,9 +59,8 @@ class ReadOnlySession:
 
     def _record(self, response):
         response.read()
-        if response.is_redirect:
-            return
-        self.responses[response.text] = response
+        if not response.is_redirect:
+            self.last_response = response
 
     def post(self, url, data):
         self.validate_post(data)
@@ -133,8 +135,10 @@ def capture(settings, *, output: Path = Path("captures"), include_matricula=Fals
                     continue
                 try:
                     html = feature.fetcher(client, turma)
-                    response = recorder.responses.get(html)
-                    if response is None:
+                    response = recorder.last_response
+                    # A fetcher that served cached HTML or parsed an extra page
+                    # last has no raw response of its own to save.
+                    if response is None or response.text != html:
                         raise CaptureUnavailable("raw HTTP response unavailable")
                     filename = f"{len(manifest['entries']):02d}-{feature.key}.body"
                     private_write(directory / filename, response.content)
