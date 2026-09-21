@@ -126,6 +126,40 @@ class CurriculumStatus:
 
 
 @dataclass
+class ExtensionParticipation:
+    """One participation in an extension action (ação de extensão).
+
+    Parsed from the 'Certificados e Declarações' page. ``kind`` is
+    ``team_member`` (equipe organizadora), ``audience`` (público alvo) or
+    ``extension_student`` (discente de extensão). ``role`` holds the Função,
+    Participação or Vínculo column, depending on the kind.
+
+    ``sigaa_id`` is SIGAA's id for the participation record (``idMembro``,
+    ``idCadastroParticipante`` or ``idDiscenteExtensao``). The student's own
+    name, repeated on every row, is deliberately not represented.
+
+    The availability flags mirror the page's action icons: SIGAA only renders
+    the Emitir Declaração / Emitir Certificado icon when that document can be
+    issued right now.
+    """
+
+    kind: str
+    title: str
+    action_code: str | None = None
+    year: int | None = None
+    category: str | None = None
+    role: str | None = None
+    start_date: str | None = None  # DD/MM/YYYY
+    end_date: str | None = None
+    registered_on: str | None = None
+    frequency: str | None = None
+    status: str | None = None
+    declaration_available: bool = False
+    certificate_available: bool = False
+    sigaa_id: str | None = None
+
+
+@dataclass
 class Material:
     """A course material on the Turma Virtual Principal page (Tópicos de Aula).
 
