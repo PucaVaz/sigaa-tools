@@ -107,3 +107,28 @@ def test_unsupported_command_fails_before_running(other, monkeypatch, capsys):
     monkeypatch.setattr(cli, "_cmd_academic_document", lambda args, settings: pytest.fail("ran"))
     assert cli.main(["atestado-matricula"]) == 1
     assert "unsupported feature documents" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("command", [
+    "classes", "grades", "deadlines", "ics", "news", "materials",
+])
+def test_unsupported_store_command_does_not_open_the_store(other, command, monkeypatch, tmp_path,
+                                                           capsys):
+    from sigaa.cli import main
+    monkeypatch.setenv("SIGAA_INSTITUTION", other.key)
+    monkeypatch.setenv("SIGAA_DB", str(tmp_path / "never-created.db"))
+    assert main([command]) == 1
+    assert "unsupported feature" in capsys.readouterr().err
+    assert not (tmp_path / "never-created.db").exists()
+
+
+def test_unsupported_mcp_tool_does_not_open_the_store(other, monkeypatch, tmp_path):
+    pytest.importorskip("mcp")
+    from sigaa import mcp_server
+    monkeypatch.setenv("SIGAA_INSTITUTION", other.key)
+    monkeypatch.setenv("SIGAA_DB", str(tmp_path / "never-created.db"))
+    for tool in (mcp_server.sigaa_list_grades, mcp_server.sigaa_list_news,
+                 mcp_server.sigaa_export_ics):
+        with pytest.raises(UnsupportedFeatureError):
+            tool()
+    assert not (tmp_path / "never-created.db").exists()

@@ -41,7 +41,7 @@ def test_parse_deadlines():
 
 def test_ics_class_event():
     turma = Turma(id_turma="1", name="SD", room="SALA 1", schedule_raw="35M45")
-    ics = build_calendar([turma], [], term_start=date(2026, 6, 1))
+    ics = build_calendar([turma], [], term_start=date(2026, 6, 1), institution="ufpb")
     assert "BEGIN:VCALENDAR" in ics
     assert "SUMMARY:SD" in ics
     assert "RRULE:FREQ=WEEKLY;BYDAY=TU" in ics  # day 3 = Tuesday
@@ -50,6 +50,6 @@ def test_ics_class_event():
 
 def test_ics_deadline_uses_last_date():
     dl = Deadline(id="9", id_turma="1", kind="atividade", title="ATV", date="19/05 à 02/06")
-    ics = build_calendar([], [dl], year=2026)
+    ics = build_calendar([], [dl], year=2026, institution="ufpb")
     assert "DTSTART;VALUE=DATE:20260602" in ics  # latest DD/MM
     assert "SUMMARY:[atividade] ATV" in ics
