@@ -20,7 +20,7 @@ sigaa [--user seu_usuario] [--db caminho_do_banco] comando [opções]
 | `--db` | sobrescreve o caminho do SQLite (senão usa `SIGAA_DB` ou o padrão) |
 
 <Note>
-`login`, `sync`, `watch`, `curriculum`, `cra`, `sipac process`, `sipac search`, `historico`,
+`login`, `sync`, `watch`, `curriculum`, `cra`, `extensao`, `sipac process`, `sipac search`, `historico`,
 `declaracao-vinculo`, `atestado-matricula`, `attendance`, `plan` e o download
 de materiais acessam a **rede**. Os demais comandos leem do **banco local**.
 Quase todo comando de leitura aceita `--json`.
@@ -186,6 +186,24 @@ sigaa cra --json
 
 Para um ingressante cujo histórico ainda não informa CRA, o comando retorna o
 estado válido `unavailable` em vez de tratar a ausência como erro.
+
+### `extensao`
+
+Lista suas participações em ações de extensão (membro de equipe, público alvo e
+discente de extensão) e, para cada uma, se a declaração e o certificado já
+podem ser emitidos no SIGAA. Somente leitura: não emite nem baixa documentos.
+**Networked.**
+
+```bash
+sigaa extensao
+sigaa extensao --json
+```
+
+| Flag | Descrição |
+|---|---|
+| `--json` | usa o contrato JSON normalizado, também exposto pelo MCP |
+
+Campos e regras de liberação em [Participações em extensão](/extensao).
 
 ## Ler do banco
 

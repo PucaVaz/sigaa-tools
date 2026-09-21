@@ -1,0 +1,125 @@
+---
+title: "Consultar participações em extensão"
+description: "Veja suas ações de extensão e quais declarações e certificados já podem ser emitidos, pelo CLI ou MCP."
+meta:
+  contentType: "How-to"
+  category: "Começando"
+---
+
+A carga horária de extensão e a de componentes flexíveis contam para a
+integralização do curso, e o comprovante de cada participação é uma declaração
+ou um certificado emitido pelo SIGAA. Esta consulta lista as suas participações
+em ações de extensão e diz, para cada uma, quais documentos o SIGAA oferece
+agora, sem abrir o portal. Ela é **somente leitura**: não emite nem baixa
+nenhum documento.
+
+Os dados vêm da página **Certificados e Declarações** do Portal do Discente
+(Documentos autenticados de Extensão), consultada ao vivo. **Networked.**
+
+## Consultar pelo CLI
+
+```bash
+sigaa extensao
+sigaa extensao --json
+```
+
+A saída legível agrupa as participações por tipo. Exemplo com dados fictícios:
+
+```text
+Team member (2)
+  2099 - PROJETO IMAGINÁRIO – ROBÓTICA EDUCACIONAL
+    DISCENTE | ALUNO(A) BOLSISTA | 01/02/2099 – 31/12/2099
+    documents: declaração
+  2097 - OFICINA HIPOTÉTICA DE DADOS ABERTOS
+    DISCENTE | MONITOR(A) | 05/05/2097 – 05/11/2097
+    documents: certificado
+
+Audience (1)
+  PJ000-2096 - Curso Fictício de Programação para a Comunidade
+    DISCENTE (UFPB) | PARTICIPANTE | registered 20/06/2096 | frequency 75%
+    documents: none available yet
+
+Summary: 1 declaration(s) and 1 certificate(s) available
+```
+
+| Flag | Descrição |
+|---|---|
+| `--json` | retorna o contrato JSON normalizado, também exposto pelo MCP |
+
+## Consultar pelo MCP
+
+A tool `sigaa_list_extension_participations` não recebe parâmetros e retorna o
+mesmo contrato de `sigaa extensao --json`. Como é somente leitura, ela continua
+disponível com `SIGAA_MODE=hosted`.
+
+## Contrato JSON
+
+```json
+{
+  "participations": [
+    {
+      "kind": "team_member",
+      "title": "OFICINA HIPOTÉTICA DE DADOS ABERTOS",
+      "action_code": null,
+      "year": 2097,
+      "category": "DISCENTE",
+      "role": "MONITOR(A)",
+      "start_date": "05/05/2097",
+      "end_date": "05/11/2097",
+      "registered_on": null,
+      "frequency": null,
+      "status": null,
+      "declaration_available": false,
+      "certificate_available": true,
+      "sigaa_id": "900003"
+    }
+  ],
+  "counts": {
+    "team_member": 1,
+    "audience": 0,
+    "extension_student": 0,
+    "declarations_available": 0,
+    "certificates_available": 1
+  }
+}
+```
+
+| Campo | Origem no SIGAA |
+|---|---|
+| `kind` | tabela: `team_member` (membro de equipe organizadora), `audience` (público alvo) ou `extension_student` (discente de extensão) |
+| `title`, `action_code`, `year` | cabeçalho da ação: `<ano> - <título>` ou `<código> - <título>`; o ano vem do sufixo do código quando não há ano explícito |
+| `category` | coluna Categoria (equipe e público alvo) |
+| `role` | Função (equipe), Participação (público alvo) ou Vínculo (discente) |
+| `start_date`, `end_date` | Início e Fim, em `DD/MM/AAAA` |
+| `registered_on`, `frequency` | Data do Cadastro e Frequência (público alvo) |
+| `status` | Situação (discente), por exemplo `ATIVO` |
+| `declaration_available`, `certificate_available` | o ícone Emitir Declaração / Emitir Certificado está presente na linha |
+| `sigaa_id` | id interno do registro: `idMembro`, `idCadastroParticipante` ou `idDiscenteExtensao` |
+
+O nome do estudante, repetido em todas as linhas da página, não é retornado.
+
+## Quando um documento aparece
+
+As regras são as que o próprio SIGAA informa na página:
+
+- A **declaração** pode ser emitida a qualquer momento enquanto o membro da
+  equipe está ativo na ação.
+- O **certificado** só é liberado quando a participação do membro da equipe é
+  finalizada.
+- Para quem participa como **discente de extensão**, o certificado só é
+  liberado depois do envio do Relatório Final.
+
+Uma participação encerrada com `certificate_available: false` normalmente
+significa que o certificado ainda não foi liberado pela coordenação da ação.
+
+## Erros
+
+Uma página que não é reconhecida como a lista de documentos de extensão, uma
+tabela desconhecida ou colunas que mudaram de nome geram um erro de etapa
+`parse` (CLI sai com código 1; MCP retorna erro de tool). A lista vazia só é
+retornada quando a página é reconhecida e não mostra nenhuma ação de extensão.
+
+## Fora do escopo
+
+- Emitir ou baixar declarações e certificados.
+- Eventos de `watch` para novas participações ou documentos liberados.
