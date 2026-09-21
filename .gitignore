@@ -35,3 +35,7 @@ venv/
 # Claude Code transcripts
 *-local-command-caveat*.txt
 2026-06-17-141152-local-command-caveatcaveat-the-messages-below.txt
+
+# Private onboarding captures and isolated agent checkouts
+/captures/
+.claude/worktrees/
