@@ -31,6 +31,7 @@ def default_institution() -> str:
     if not key:
         try:
             import keyring
+
             key = keyring.get_password(KEYRING_SETTINGS_SERVICE, KEYRING_ACTIVE_INSTITUTION)
         except Exception:
             pass
@@ -107,7 +108,8 @@ class Settings:
             try:
                 import keyring
 
-                secret = keyring.get_password(get(self.institution).profile.keyring_service, self.username)
+                service = get(self.institution).profile.keyring_service
+                secret = keyring.get_password(service, self.username)
                 if secret:
                     return secret
             except Exception:

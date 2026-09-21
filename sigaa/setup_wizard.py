@@ -49,9 +49,11 @@ def select_institution(
     return selected
 
 
-def verify_and_store_login(username: str, password: str, *, institution: str | None = None) -> LoginResult:
+def verify_and_store_login(
+    username: str, password: str, *, institution: str | None = None
+) -> LoginResult:
     try:
-        with SigaaClient(username, password, **({"institution": institution} if institution else {})) as client:
+        with SigaaClient(username, password, institution=institution) as client:
             student = client.get_student()
     except Exception as e:
         error_msg = str(e).lower()
@@ -71,15 +73,18 @@ def verify_and_store_login(username: str, password: str, *, institution: str | N
     try:
         import keyring
 
-        service = get(institution).profile.keyring_service
-        keyring.set_password(service, username, password)
+        profile = get(institution).profile
+        keyring.set_password(profile.keyring_service, username, password)
         keyring.set_password(
-            service,
+            profile.keyring_service,
             config.KEYRING_ACTIVE_USERNAME,
             username,
         )
-        keyring.set_password(config.KEYRING_SETTINGS_SERVICE, config.KEYRING_ACTIVE_INSTITUTION,
-                             get(institution).profile.key)
+        keyring.set_password(
+            config.KEYRING_SETTINGS_SERVICE,
+            config.KEYRING_ACTIVE_INSTITUTION,
+            profile.key,
+        )
     except Exception:
         password_stored = False
         storage_message = (
@@ -256,7 +261,11 @@ def _sync_settings(settings: Settings, login: LoginResult) -> Settings:
         def resolve_password(self) -> str | None:
             return login.password
 
-    return InitSettings(db_path=settings.db_path, username=settings.username, institution=settings.institution)
+    return InitSettings(
+        db_path=settings.db_path,
+        username=settings.username,
+        institution=settings.institution,
+    )
 
 
 def _write_schedule(*, username: str) -> None:

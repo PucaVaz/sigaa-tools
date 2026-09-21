@@ -9,7 +9,6 @@ from decimal import Decimal
 
 import httpx
 
-from .institutions import get, MenuLabel, Capability
 from .documents import (
     ATESTADO_MATRICULA,
     DECLARACAO_VINCULO,
@@ -20,6 +19,7 @@ from .documents import (
     validate_academic_document,
 )
 from .http import AuthError, Session, extract_viewstate
+from .institutions import Capability, MenuLabel, get
 from .models import (
     Attendance,
     CoursePlan,
@@ -284,25 +284,29 @@ class SigaaClient:
     def get_turma_grades(self, turma: Turma, turma_html: str | None = None) -> TurmaGrade | None:
         """Per-turma grade report (Ver Notas), linked to the turma."""
         self.profile.require(Capability.GRADES)
-        html = self._turma_menu_post(turma, self.profile.menu_labels[MenuLabel.TURMA_GRADES], turma_html)
+        label = self.profile.menu_labels[MenuLabel.TURMA_GRADES]
+        html = self._turma_menu_post(turma, label, turma_html)
         return grades_parser.parse_turma_grades(html, turma.id_turma)
 
     def get_attendance(self, turma: Turma, turma_html: str | None = None) -> Attendance | None:
         """Per-date attendance map (Frequência)."""
         self.profile.require(Capability.ATTENDANCE)
-        html = self._turma_menu_post(turma, self.profile.menu_labels[MenuLabel.ATTENDANCE], turma_html)
+        label = self.profile.menu_labels[MenuLabel.ATTENDANCE]
+        html = self._turma_menu_post(turma, label, turma_html)
         return attendance_parser.parse_attendance(html, turma.id_turma)
 
     def get_course_plan(self, turma: Turma, turma_html: str | None = None) -> CoursePlan | None:
         """Plano de Curso: class schedule (cronograma) and evaluation dates."""
         self.profile.require(Capability.PLAN)
-        html = self._turma_menu_post(turma, self.profile.menu_labels[MenuLabel.PLAN], turma_html)
+        label = self.profile.menu_labels[MenuLabel.PLAN]
+        html = self._turma_menu_post(turma, label, turma_html)
         return plano_parser.parse_course_plan(html, turma.id_turma)
 
     def list_professors(self, turma: Turma, turma_html: str | None = None) -> list[Professor]:
         """Teaching staff of a turma (Participantes)."""
         self.profile.require(Capability.PARTICIPANTS)
-        html = self._turma_menu_post(turma, self.profile.menu_labels[MenuLabel.PARTICIPANTS], turma_html)
+        label = self.profile.menu_labels[MenuLabel.PARTICIPANTS]
+        html = self._turma_menu_post(turma, label, turma_html)
         return participantes_parser.parse_professors(html, turma.id_turma)
 
     def list_news(self, turma: Turma, turma_html: str | None = None) -> list[NewsItem]:
@@ -375,7 +379,9 @@ class SigaaClient:
         )
         if fields is None:
             raise ValueError(f"could not build download request for material {material_id!r}")
-        content, content_type, disposition = self._session.post_download(self.profile.ava_url, fields)
+        content, content_type, disposition = self._session.post_download(
+            self.profile.ava_url, fields
+        )
         filename = materials_parser.filename_for(material.title, content_type, disposition)
         return content, filename
 

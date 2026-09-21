@@ -18,7 +18,7 @@ import httpx
 
 from . import setup_wizard
 from .client import SigaaClient
-from .config import Settings
+from .config import Settings, default_institution
 from .curriculum import COMPONENT_VIEWS, curriculum_to_dict
 from .documents import (
     ATESTADO_MATRICULA,
@@ -28,11 +28,10 @@ from .documents import (
     write_academic_document,
 )
 from .errors import ParseError, UnsupportedFeatureError
-from .institutions import get, Capability
-from .config import default_institution
 from .exporters.ics import build_calendar
 from .extensao import participations_to_dict
 from .http import AuthError
+from .institutions import Capability, get
 from .parsers.curriculum import CurriculumDataError
 from .parsers.schedule import day_name, decode_schedule
 from .parsers.sipac import SipacParseError

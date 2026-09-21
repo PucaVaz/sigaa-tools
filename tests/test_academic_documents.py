@@ -284,7 +284,8 @@ def test_cli_download_writes_only_validated_document(monkeypatch, tmp_path, caps
             assert kind == DECLARACAO_VINCULO
             return document
 
-    settings = SimpleNamespace(institution="ufpb",
+    settings = SimpleNamespace(
+        institution="ufpb",
         username="configured-user", resolve_password=lambda: "test-password"
     )
     target = tmp_path / "declaracao.pdf"
@@ -332,7 +333,8 @@ def test_cli_invalid_response_does_not_create_output(monkeypatch, tmp_path, caps
         def download_academic_document(self, kind):
             raise AcademicDocumentError("SIGAA did not return a valid PDF")
 
-    settings = SimpleNamespace(institution="ufpb",
+    settings = SimpleNamespace(
+        institution="ufpb",
         username="configured-user", resolve_password=lambda: "test-password"
     )
     target = tmp_path / "historico.pdf"

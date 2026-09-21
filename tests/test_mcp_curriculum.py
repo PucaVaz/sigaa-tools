@@ -27,7 +27,8 @@ def _curriculum():
 
 
 def _configured_settings():
-    return SimpleNamespace(institution="ufpb",
+    return SimpleNamespace(
+        institution="ufpb",
         username="configured-user",
         resolve_password=lambda: "test-password",
     )

@@ -48,7 +48,8 @@ def test_mcp_document_download_returns_metadata_not_content(monkeypatch, tmp_pat
             assert kind == DECLARACAO_VINCULO
             return document
 
-    settings = SimpleNamespace(institution="ufpb",
+    settings = SimpleNamespace(
+        institution="ufpb",
         username="configured-user", resolve_password=lambda: "test-password"
     )
     monkeypatch.setattr(mcp_server, "Settings", lambda: settings)

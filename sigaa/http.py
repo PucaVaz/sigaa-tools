@@ -13,8 +13,8 @@ import re
 import httpx
 
 from . import config
-from .institutions import InstitutionProfile, Navigator
 from .errors import STAGE_AUTH, SigaaError
+from .institutions import InstitutionProfile, Navigator
 
 _VIEWSTATE_RE = re.compile(
     r'name="javax\.faces\.ViewState"[^>]*value="([^"]+)"'
@@ -57,9 +57,8 @@ class Session:
         if client is not None:
             self._client.event_hooks.setdefault("request", []).append(self._validate_request)
 
-    def _validate_request(self, request):
+    def _validate_request(self, request: httpx.Request) -> None:
         self.profile.validate_url(str(request.url))
-
 
     def login(self) -> str:
         """Authenticate and return the rendered portal HTML."""
