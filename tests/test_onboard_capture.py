@@ -10,12 +10,29 @@ import pytest
 from sigaa.client import SigaaClient
 from sigaa.config import Settings
 from sigaa.http import Session
-from sigaa.institutions import get
+from sigaa.institutions import Capability, get
 from sigaa.models import Turma
 from sigaa.onboard import capture as module
-from sigaa.onboard.capture import ReadOnlySession, ReadOnlyViolation, private_write, private_directory
+from sigaa.onboard.capture import (
+    ReadOnlySession,
+    ReadOnlyViolation,
+    private_directory,
+    private_write,
+)
 from sigaa.onboard.features import Feature
-from sigaa.institutions import Capability
+
+
+UFPB = get("ufpb")
+
+
+def _session(raw):
+    return Session(
+        "test-student",
+        secrets.token_urlsafe(),
+        client=raw,
+        profile=UFPB.profile,
+        navigator=UFPB.navigator,
+    )
 
 
 @pytest.mark.parametrize("data", [
@@ -30,10 +47,10 @@ def test_read_only_refuses_submit_controls(data):
 def test_transport_guard_cannot_be_bypassed_by_a_navigator():
     requests = []
     raw = httpx.Client(transport=httpx.MockTransport(lambda req: requests.append(req)))
-    with Session("test", secrets.token_urlsafe(), client=raw) as session:
+    with _session(raw) as session:
         ReadOnlySession(session)
         with pytest.raises(ReadOnlyViolation):
-            raw.post(get().profile.ava_url, data={"form:botaoSubmissao": "x"})
+            raw.post(UFPB.profile.ava_url, data={"form:botaoSubmissao": "x"})
     assert requests == []
 
 
@@ -66,10 +83,10 @@ def test_capture_preserves_http_bytes_metadata_and_two_class_contexts(monkeypatc
     def factory(username, password, **kwargs):
         client = SigaaClient(username, password, **kwargs)
         client._session.close()
-        client._session = Session(username, password,
-                                  client=httpx.Client(transport=httpx.MockTransport(handler)))
+        client._session = _session(httpx.Client(transport=httpx.MockTransport(handler)))
+        url = UFPB.profile.portal_entry_url
         client._session._authenticated = True
-        client._session.login = lambda: client._session._client.get(get().profile.portal_entry_url).text
+        client._session.login = lambda: client._session._client.get(url).text
         client.list_turmas = lambda: [Turma(id_turma="1", name="First"), Turma(id_turma="2", name="Second")]
         return client
     feature = Feature("class", Capability.PORTAL,
