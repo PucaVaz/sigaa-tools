@@ -35,15 +35,31 @@ _EXT_BY_TYPE = {
 _UNSAFE_RE = re.compile(r'[/\\:*?"<>|]+')
 
 
-def _topic_items(soup: BeautifulSoup):
-    return soup.select("div.topico-aula div.item")
+def _is_material(item) -> bool:
+    """Whether a topic item is an uploaded file or an external link.
+
+    Only these two kinds were ever read. Tarefas, fóruns, questionários,
+    conteúdo pages and items without an anchor share the topic list and are
+    skipped by design, so they are not counted either.
+    """
+    anchor = item.find("a")
+    if not anchor:
+        return False
+    onclick = anchor.get("onclick") or ""
+    href = anchor.get("href") or ""
+    return _FILE_MARKER in onclick or href.startswith("http")
+
+
+def _material_items(soup: BeautifulSoup):
+    return [item for item in soup.select("div.topico-aula div.item") if _is_material(item)]
 
 
 @page_parser(
     "materials",
     lambda soup: bool(soup.select("div.topico-aula")),
-    empty=lambda soup: not _topic_items(soup),
-    validate=lambda result, soup: len(result) == len(_topic_items(soup)),
+    empty=lambda soup: not _material_items(soup),
+    # A file or link item that then fails to parse still raises.
+    validate=lambda result, soup: len(result) == len(_material_items(soup)),
     name="class-topic-items",
 )
 def parse_materials(soup: BeautifulSoup, id_turma: str) -> list[Material]:

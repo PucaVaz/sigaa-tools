@@ -1,5 +1,9 @@
 from pathlib import Path
 
+import pytest
+from bs4 import BeautifulSoup
+
+from sigaa.errors import UnrecognizedPageError
 from sigaa.parsers import materials as materials_parser
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -54,3 +58,30 @@ def test_filename_sanitizes_path_separators():
     name = materials_parser.filename_for("a/b:c", "application/pdf", None)
     assert "/" not in name and ":" not in name
     assert name.endswith(".pdf")
+
+
+def test_parse_materials_skips_tasks_forums_pages_and_plain_items():
+    mixed = (FIXTURES / "materials_mixed_items.html").read_text(encoding="utf-8")
+
+    items = materials_parser.parse_materials(mixed, ID_TURMA)
+
+    assert [(m.kind, m.title) for m in items] == [
+        ("file", "Slides sobre introdução - I"),
+        ("link", "Intro - I (apresentação) (Link Externo)"),
+    ]
+
+
+def test_topics_with_only_other_items_are_an_empty_material_list():
+    soup = BeautifulSoup((FIXTURES / "materials_mixed_items.html").read_text(), "lxml")
+    for anchor in soup.select("a"):
+        if "idInserirMaterialArquivo" in anchor.get("onclick", "") or anchor["href"].startswith("http"):
+            anchor.find_parent("div", class_="item").decompose()
+
+    assert materials_parser.parse_materials(str(soup), ID_TURMA) == []
+
+
+def test_a_file_item_that_cannot_be_read_still_raises():
+    broken = MATERIALS.replace("'id':'1012158'", "'id':'not-a-number'")
+
+    with pytest.raises(UnrecognizedPageError):
+        materials_parser.parse_materials(broken, ID_TURMA)
