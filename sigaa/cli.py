@@ -26,7 +26,9 @@ from .documents import (
     AcademicDocumentError,
     write_academic_document,
 )
+from .errors import ParseError
 from .exporters.ics import build_calendar
+from .extensao import participations_to_dict
 from .http import AuthError
 from .parsers.curriculum import CurriculumDataError
 from .parsers.schedule import day_name, decode_schedule
@@ -139,6 +141,14 @@ def _build_parser() -> argparse.ArgumentParser:
     p_cra = sub.add_parser("cra", help="show the official CRA from the transcript")
     p_cra.add_argument("--json", action="store_true")
     p_cra.set_defaults(func=_cmd_cra)
+
+    p_extensao = sub.add_parser(
+        "extensao",
+        help="extension participations and which declarations/certificates are available "
+        "(networked)",
+    )
+    p_extensao.add_argument("--json", action="store_true")
+    p_extensao.set_defaults(func=_cmd_extensao)
 
     p_sipac = sub.add_parser(
         "sipac",
@@ -469,6 +479,27 @@ def _cmd_cra(args, settings: Settings) -> int:
     else:
         print(f"CRA: {data['value']:.2f}")
         print("Source: official academic transcript")
+    return 0
+
+
+def _cmd_extensao(args, settings: Settings) -> int:
+    password = settings.resolve_password()
+    if not settings.username or not password:
+        print(settings.credentials_problem(), file=sys.stderr)
+        return 1
+
+    try:
+        with SigaaClient(settings.username, password) as client:
+            participations = client.list_extension_participations()
+    except (AuthError, ParseError, ValueError, httpx.HTTPError) as exc:
+        print(f"extension lookup failed: {exc}", file=sys.stderr)
+        return 1
+
+    data = participations_to_dict(participations)
+    if args.json:
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+    else:
+        _print_extensao(data)
     return 0
 
 
@@ -939,6 +970,65 @@ def _progress_bar(percent: float, width: int = 16) -> str:
     bounded = max(0.0, min(float(percent), 100.0))
     filled = round((bounded / 100.0) * width)
     return f"[{'#' * filled}{'-' * (width - filled)}]"
+
+
+_EXTENSAO_KIND_LABELS = {
+    "team_member": "Team member",
+    "audience": "Audience",
+    "extension_student": "Extension student",
+}
+
+
+def _print_extensao(data: dict) -> None:
+    participations = data["participations"]
+    if not participations:
+        print("No extension participations listed in SIGAA.")
+        return
+    for kind, label in _EXTENSAO_KIND_LABELS.items():
+        group = [p for p in participations if p["kind"] == kind]
+        if not group:
+            continue
+        print(f"{label} ({len(group)})")
+        for participation in group:
+            print(f"  {_extensao_heading(participation)}")
+            print(f"    {_extensao_details(participation)}")
+            print(f"    documents: {_extensao_documents(participation)}")
+        print()
+    counts = data["counts"]
+    print(
+        f"Summary: {counts['declarations_available']} declaration(s) and "
+        f"{counts['certificates_available']} certificate(s) available"
+    )
+
+
+def _extensao_heading(participation: dict) -> str:
+    prefix = participation["action_code"] or participation["year"]
+    return f"{prefix} - {participation['title']}" if prefix else participation["title"]
+
+
+def _extensao_details(participation: dict) -> str:
+    parts = [participation["category"], participation["role"]]
+    start, end = participation["start_date"], participation["end_date"]
+    if start or end:
+        parts.append(f"{start or '?'} – {end or '?'}")
+    if participation["registered_on"]:
+        parts.append(f"registered {participation['registered_on']}")
+    if participation["frequency"]:
+        parts.append(f"frequency {participation['frequency']}")
+    parts.append(participation["status"])
+    return " | ".join(part for part in parts if part)
+
+
+def _extensao_documents(participation: dict) -> str:
+    available = [
+        name
+        for name, flag in (
+            ("declaração", participation["declaration_available"]),
+            ("certificado", participation["certificate_available"]),
+        )
+        if flag
+    ]
+    return ", ".join(available) if available else "none available yet"
 
 
 def _print_sipac_process(data: dict) -> None:

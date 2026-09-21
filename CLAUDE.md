@@ -9,8 +9,8 @@ Two surfaces over one local SQLite store (`SIGAA_DB`, default
 
 - **CLI** (`sigaa --help`). `sync` and `watch` fetch from SIGAA; `classes`,
   `news`, `grades`, `deadlines`, `materials`, `whatsnew` and `ics` read the
-  store; `curriculum`, `cra`, `attendance`, `plan`, `matricula`, the document
-  downloads and `sipac` go live. Most accept `--json`.
+  store; `curriculum`, `cra`, `extensao`, `attendance`, `plan`, `matricula`, the
+  document downloads and `sipac` go live. Most accept `--json`.
 - **MCP server** (`sigaa-mcp`), for chat agents that need to answer questions
   about one student's academic life. `SIGAA_MODE=hosted` drops the tools that
   write to disk.

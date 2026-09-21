@@ -47,10 +47,11 @@ sigaa deadlines            # assessment/task due dates
 sigaa ics --out sigaa.ics  # export classes + deadlines as calendar
 sigaa curriculum           # live progress & required courses
 sigaa cra --json           # official CRA as JSON
+sigaa extensao             # extension participations + available declarations/certificates
 sigaa watch --once --json  # sync and report changes as JSON (see Notifications)
 ```
 
-Store-backed commands (`classes`, `news`, `grades`, `deadlines`) are fast and offline. Network commands (`sync`, `watch`, `curriculum`, `cra`, downloads) need internet.
+Store-backed commands (`classes`, `news`, `grades`, `deadlines`) are fast and offline. Network commands (`sync`, `watch`, `curriculum`, `cra`, `extensao`, downloads) need internet.
 
 ## SIPAC public process lookup
 
@@ -85,7 +86,8 @@ server without manual absolute-path editing.
 
 Tools: `sigaa_list_classes`, `sigaa_list_news`, `sigaa_get_news_body`,
 `sigaa_get_schedule`, `sigaa_list_grades`, `sigaa_list_deadlines`,
-`sigaa_get_curriculum`, `sigaa_get_cra`, `sigaa_export_ics`,
+`sigaa_get_curriculum`, `sigaa_get_cra`, `sigaa_list_extension_participations`,
+`sigaa_export_ics`,
 `sipac_get_public_process`, `sipac_search_public_processes`,
 `sigaa_download_historico`,
 `sigaa_download_declaracao_vinculo`, `sigaa_download_atestado_matricula`,
@@ -113,6 +115,13 @@ completed. `sigaa_get_cra` is also networked and reads the official CRA from the
 academic transcript; a new student may receive `source: "unavailable"` until
 SIGAA reports one. Neither response exposes SIGAA's internal student id.
 
+`sigaa_list_extension_participations` is networked and read-only. It returns the
+same contract as `sigaa extensao --json`: every extension participation (team
+member, audience, extension student) with `declaration_available` and
+`certificate_available` flags that mirror the icons SIGAA shows right now. It
+never issues or downloads a document, so it stays available in hosted mode. See
+[docs/extensao.mdx](docs/extensao.mdx).
+
 Every download tool accepts a safe filename (not an arbitrary path), never
 overwrites, and writes under the app's private `downloads` directory. This
 covers the three academic documents plus `sigaa_download_material` and
@@ -131,7 +140,7 @@ not execute the report's active SIGAA markup inline.
 ### Tool surface: `SIGAA_MODE`
 
 `SIGAA_MODE` picks which tools the MCP server exposes. It defaults to `local`,
-which exposes all 24 tools — **nothing is ever removed from a local or
+which exposes all 26 tools — **nothing is ever removed from a local or
 self-hosted install**.
 
 `SIGAA_MODE=hosted` is for a shared, multi-tenant deployment. It withholds the
@@ -267,7 +276,7 @@ sigaa/
   client.py     SigaaClient -> domain models
   sipac.py      unauthenticated public SIPAC process client + JSON contract
   models.py     Student, Turma, NewsItem, Schedule, CurriculumStatus
-  parsers/      portal, news, schedule, curriculum, transcript, SIPAC process
+  parsers/      portal, news, schedule, curriculum, transcript, extensão, SIPAC process
   store/        SQLite db + repository (dedup, queries)
   services/     sync (fetch -> diff -> persist)
   cli.py        command line
@@ -277,7 +286,8 @@ sigaa/
 Adding a feature (materials, attendance) = a parser + client method and a
 CLI/MCP surface, plus store columns when it is persisted. HTML changes touch
 only `parsers/`. Implemented so far: classes, news (+bodies), grades, deadlines,
-curriculum progress, official CRA, academic documents, and ICS export.
+curriculum progress, official CRA, academic documents, extension
+participations, and ICS export.
 Public SIPAC administrative-process consultation is also available live.
 
 `exporters/` turns store data into interchange formats (currently `ics`).

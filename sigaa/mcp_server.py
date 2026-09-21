@@ -33,7 +33,9 @@ from .documents import (
     write_academic_document,
     write_private_file,
 )
+from .errors import ParseError
 from .exporters.ics import build_calendar
+from .extensao import participations_to_dict
 from .http import AuthError
 from .parsers.curriculum import CurriculumDataError
 from .parsers.schedule import day_name, decode_schedule
@@ -337,6 +339,31 @@ def sigaa_get_curriculum(
         httpx.HTTPError,
     ) as exc:
         raise ToolError(f"curriculum lookup failed: {exc}") from None
+
+
+@mcp.tool()
+def sigaa_list_extension_participations() -> dict:
+    """List the student's extension (extensão) participations. Networked, read-only.
+
+    Covers the three lists on SIGAA's 'Certificados e Declarações' page: team
+    member (equipe organizadora), audience (público alvo) and extension
+    student (discente de extensão). For each participation,
+    ``declaration_available`` and ``certificate_available`` say whether SIGAA
+    currently offers that document. A certificate is only released once the
+    participation has ended (for an extension student, after the Relatório
+    Final is sent); a declaration can be issued while the participation is
+    active. This tool never issues or downloads a document.
+    """
+    settings = Settings()
+    password = settings.resolve_password()
+    if not settings.username or not password:
+        raise ToolError("no credentials available")
+    try:
+        with SigaaClient(settings.username, password) as client:
+            participations = client.list_extension_participations()
+    except (AuthError, ParseError, ValueError, httpx.HTTPError) as exc:
+        raise ToolError(f"extension lookup failed: {exc}") from None
+    return participations_to_dict(participations)
 
 
 @mcp.tool()
