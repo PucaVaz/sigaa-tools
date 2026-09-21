@@ -31,6 +31,28 @@ def register(sub):
     cap.add_argument("--json", action="store_true")
     cap.set_defaults(func=run_capture)
 
+    probe_cmd = commands.add_parser("probe", help="report parser status without student values")
+    probe_cmd.add_argument("--from", dest="source", type=Path)
+    probe_cmd.add_argument("--institution")
+    probe_cmd.add_argument("--json", action="store_true")
+    # Offline probing reads only the capture, so it must not resolve local
+    # credentials or the active institution; a live probe builds them itself.
+    probe_cmd.set_defaults(func=run_probe, public_without_settings=True)
+    init = commands.add_parser("init", help="scaffold an unsupported institution provider")
+    init.add_argument("key")
+    init.add_argument("--host", required=True)
+    init.set_defaults(func=run_init, public_without_settings=True)
+    gate = commands.add_parser("check", help="scan private data, run tests and lint, check probe")
+    gate.add_argument("--from", dest="source", type=Path, required=True)
+    gate.add_argument("--explanations", type=Path, help="JSON feature-to-explanation mapping")
+    gate.add_argument("--json", action="store_true")
+    gate.set_defaults(func=run_check, public_without_settings=True)
+    report_cmd = commands.add_parser(
+        "report", help="write compatibility documentation and a PR body"
+    )
+    report_cmd.add_argument("--from", dest="source", type=Path, required=True)
+    report_cmd.set_defaults(func=run_report, public_without_settings=True)
+
 
 def login_probe(args, settings=None):
     profile = get(args.institution or default_institution()).profile
@@ -74,3 +96,36 @@ def run_capture(args, settings):
     }
     print(json.dumps(result, indent=2))
     return 1 if result["nav_failed"] else 0
+
+
+def run_probe(args, settings=None):
+    from ..cli import _settings
+    from .probe import probe
+
+    directory = args.source
+    if directory is None:
+        directory, _ = capture(_settings(args, args.institution))
+    result = probe(directory)
+    print(json.dumps(result, indent=2))
+    return int(any(row["status"] in {"unrecognized", "nav_failed"} for row in result["features"]))
+
+
+def run_init(args, settings=None):
+    from .scaffold import scaffold
+    print(scaffold(Path.cwd(), args.key, args.host))
+    return 0
+
+
+def run_check(args, settings=None):
+    from .check import check
+    explanations = json.loads(args.explanations.read_text()) if args.explanations else None
+    result = check(Path.cwd(), args.source, explanations)
+    print(json.dumps(result, indent=2))
+    return 0 if result["ok"] else 1
+
+
+def run_report(args, settings=None):
+    from .report import report
+    path, body = report(args.source, Path.cwd())
+    print(f"Wrote {path}\n\n{body}")
+    return 0
