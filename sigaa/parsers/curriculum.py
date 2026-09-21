@@ -7,10 +7,11 @@ import math
 import re
 from typing import Any
 
+from ..errors import ParseError
 from ..models import CurriculumComponent, CurriculumStatus, WorkloadProgress
 
 
-class CurriculumDataError(ValueError):
+class CurriculumDataError(ParseError, ValueError):
     """Raised when SIGAA does not return a valid curriculum payload."""
 
 

@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import re
-import unicodedata
 
 from bs4 import BeautifulSoup
 
 from ..models import Deadline, Student, Turma
+from ._common import fold
+from ._common import jsf_params as _jsf_params
+from ._common import normalized as _normalized_label
+from ._variants import page_parser
 
 _PORTAL_FORM_RE = re.compile(r"j_id_jsp_\d+_1$")
 _TURMA_PARAM_RE = re.compile(r"\{'([^']+)':'[^']+','idTurma':'(\d+)'\}")
@@ -33,10 +36,6 @@ def portal_form_id(html: str) -> str:
     if not form:
         raise ValueError("portal form not found")
     return form["id"]
-
-
-_JSF_PARAMS_RE = re.compile(r"jsfcljs\([^,]+,\s*\{(.*?)\}\s*,", re.S)
-_JSF_PARAM_RE = re.compile(r"'([^']+)'\s*:\s*'([^']*)'")
 
 
 def find_menu_field(html: str, link_text: str) -> str | None:
@@ -94,20 +93,18 @@ def _find_menu_anchor(soup: BeautifulSoup, link_text: str):
     return None
 
 
-def _normalized_label(value: str) -> str:
-    normalized = unicodedata.normalize("NFKC", value).replace("\xa0", " ")
-    return " ".join(normalized.split()).casefold()
+def _shows_student(soup):
+    text = _text(soup)
+    return bool(_NAME_RE.search(text) and _MATRICULA_RE.search(text))
 
 
-def _jsf_params(onclick: str) -> dict[str, str]:
-    match = _JSF_PARAMS_RE.search(onclick)
-    if not match:
-        return {}
-    return dict(_JSF_PARAM_RE.findall(match.group(1)))
-
-
-def parse_student(html: str) -> Student:
-    soup = BeautifulSoup(html, "lxml")
+@page_parser(
+    "student",
+    _shows_student,
+    validate=lambda result, soup: bool(result.name and result.matricula),
+    name="beta-student",
+)
+def parse_student(soup: BeautifulSoup) -> Student:
     text = _text(soup)
 
     matricula = _first(_MATRICULA_RE, text) or ""
@@ -126,8 +123,28 @@ def parse_student(html: str) -> Student:
     )
 
 
-def parse_turmas(html: str) -> list[Turma]:
-    soup = BeautifulSoup(html, "lxml")
+def _turma_anchors(soup):
+    return [
+        anchor for anchor in soup.select("a[onclick*='idTurma']")
+        if anchor.find_parent("tr") is not None and anchor.find_parent("ul") is None
+    ]
+
+
+def _valid_turmas(result, soup):
+    return (
+        all(t.name and t.field and t.form_id for t in result)
+        and len(result) == len(_turma_anchors(soup))
+    )
+
+
+@page_parser(
+    "turmas",
+    lambda soup: soup.find("form", id=_PORTAL_FORM_RE) is not None,
+    empty=lambda soup: "nao ha turmas" in fold(_text(soup)),
+    validate=_valid_turmas,
+    name="beta-turmas",
+)
+def parse_turmas(soup: BeautifulSoup) -> list[Turma]:
     form = soup.find("form", id=_PORTAL_FORM_RE)
     form_id = form["id"] if form else None
     semester = _first(_SEMESTER_RE, _text(soup))
@@ -156,9 +173,44 @@ def parse_turmas(html: str) -> list[Turma]:
     return turmas
 
 
-def parse_deadlines(html: str) -> list[Deadline]:
+def _deadline_menus(soup):
+    return [
+        menu for menu in soup.select('ul[class*="dropdown-menu-"]')
+        if _menu_kind(menu.get("class", [])) in _DEADLINE_KINDS
+    ]
+
+
+def _event_anchors(soup):
+    """Event links in the deadline dropdowns. Other links there (for example
+    "ver todas") have never been deadlines and are not counted."""
+    return [
+        anchor
+        for menu in _deadline_menus(soup)
+        for anchor in menu.select("li > a[onclick]")
+        if _EVENT_PARAM_RE.search(anchor.get("onclick", ""))
+    ]
+
+
+def _shows_deadlines(soup):
+    """Deadline dropdowns, or the portal form of a student with no class cards."""
+    return bool(soup.select('ul[class*="dropdown-menu-"]')) or (
+        soup.find("form", id=_PORTAL_FORM_RE) is not None
+    )
+
+
+@page_parser(
+    "deadlines",
+    _shows_deadlines,
+    empty=lambda soup: not _event_anchors(soup),
+    # Read at portal level: a false rejection fails the whole sync, so an event
+    # without a date is kept, as it always was.
+    validate=lambda result, soup: (
+        len(result) == len(_event_anchors(soup)) and all(d.title for d in result)
+    ),
+    name="beta-deadlines",
+)
+def parse_deadlines(soup: BeautifulSoup) -> list[Deadline]:
     """Extract assessment/task deadlines from the portal turma event dropdowns."""
-    soup = BeautifulSoup(html, "lxml")
     deadlines: list[Deadline] = []
     for menu in soup.select('ul[class*="dropdown-menu-"]'):
         kind = _menu_kind(menu.get("class", []))

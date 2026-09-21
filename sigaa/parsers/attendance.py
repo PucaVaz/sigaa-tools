@@ -7,23 +7,43 @@ import re
 from bs4 import BeautifulSoup
 
 from ..models import Attendance, AttendanceRecord
+from ._common import fold
+from ._variants import page_parser
 
 _TOTAL_RE = re.compile(r"Total de Faltas:\s*(\d+)")
 _JUSTIFIED_RE = re.compile(r"Total de Faltas Justificadas:\s*(\d+)")
 _MAX_RE = re.compile(r"M[áa]ximo de Faltas Permitido:\s*(\d+)")
 
 
-def parse_attendance(html: str, id_turma: str) -> Attendance | None:
-    """Extract the attendance map. Returns None if the page has no map."""
-    soup = BeautifulSoup(html, "lxml")
+def _map_fieldset(soup: BeautifulSoup):
+    """The fieldset under the 'Mapa de Frequências' legend; every read is scoped to it."""
     legend = next(
-        (lg for lg in soup.find_all("legend")
-         if "mapa de frequ" in lg.get_text(strip=True).casefold()),
+        (lg for lg in soup.find_all("legend") if "mapa de frequ" in fold(lg.get_text())),
         None,
     )
-    if legend is None:
-        return None
-    fieldset = legend.find_parent("fieldset")
+    return legend.find_parent("fieldset") if legend is not None else None
+
+
+def _valid_map(result, soup):
+    """A map without a table or without rows is the state the parser has always
+    accepted (nothing posted yet; not yet seen live). A table that labels its
+    columns must start with the two the positional reader relies on."""
+    table = _map_fieldset(soup).find("table")
+    if table is None:
+        return True
+    headers = [fold(th.get_text(" ", strip=True)) for th in table.select("th")]
+    return not headers or headers[:2] == ["data", "situacao"]
+
+
+@page_parser(
+    "attendance",
+    lambda soup: _map_fieldset(soup) is not None,
+    validate=_valid_map,
+    name="frequency-map",
+)
+def parse_attendance(soup: BeautifulSoup, id_turma: str) -> Attendance | None:
+    """Extract the attendance map. Returns None if the page has no map."""
+    fieldset = _map_fieldset(soup)
     if fieldset is None:
         return None
 

@@ -8,20 +8,42 @@ never parsed or returned.
 from __future__ import annotations
 
 import re
-import unicodedata
 
 from bs4 import BeautifulSoup
 
 from ..models import Professor
+from ._common import fold
+from ._common import normalized as _normalized
+from ._variants import page_parser
 
 _PROFESSOR_LEGEND_RE = re.compile(r"professor(es)?\b")
 _DEPARTMENT_LABEL = "departamento"
 _EMAIL_LABEL = "e-mail"
 
 
-def parse_professors(html: str, id_turma: str) -> list[Professor]:
+def _professor_legend(soup: BeautifulSoup):
+    for legend in soup.select("fieldset legend"):
+        if _PROFESSOR_LEGEND_RE.match(_normalized(legend.get_text(" ", strip=True))):
+            return legend
+    return None
+
+
+def _professor_count(soup):
+    """The count in the same 'Professores (n)' legend the table is read from."""
+    legend = _professor_legend(soup)
+    match = re.fullmatch(r"professores?\s*\((\d+)\)", fold(legend.get_text())) if legend else None
+    return int(match.group(1)) if match else None
+
+
+@page_parser(
+    "professors",
+    lambda soup: _professor_count(soup) is not None,
+    empty=lambda soup: _professor_count(soup) == 0,
+    validate=lambda result, soup: len(result) == _professor_count(soup),
+    name="participants-role-count",
+)
+def parse_professors(soup: BeautifulSoup, id_turma: str) -> list[Professor]:
     """Teaching staff listed under the 'Professores' fieldset of a turma."""
-    soup = BeautifulSoup(html, "lxml")
     table = _professor_table(soup)
     if table is None:
         return []
@@ -50,12 +72,12 @@ def _professor_table(soup: BeautifulSoup):
     SIGAA renders one table per role, each preceded by its own fieldset legend,
     so the role is identified by the legend rather than by table position.
     """
-    for legend in soup.select("fieldset legend"):
-        if not _PROFESSOR_LEGEND_RE.match(_normalized(legend.get_text(" ", strip=True))):
-            continue
-        table = legend.find_parent("fieldset").find_next("table", class_="participantes")
-        if table is not None:
-            return table
+    legend = _professor_legend(soup)
+    if legend is None:
+        return None
+    table = legend.find_parent("fieldset").find_next(["table", "fieldset"])
+    if table is not None and table.name == "table" and "participantes" in table.get("class", []):
+        return table
     return None
 
 
@@ -82,7 +104,3 @@ def _preceding_label(value_el) -> str | None:
         return text.rstrip(":") if text.endswith(":") else None
     return None
 
-
-def _normalized(value: str) -> str:
-    normalized = unicodedata.normalize("NFKC", value).replace("\xa0", " ")
-    return " ".join(normalized.split()).casefold()

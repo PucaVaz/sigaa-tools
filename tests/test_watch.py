@@ -376,3 +376,61 @@ def test_sync_json_keeps_old_keys_and_adds_class_summaries(remote_class, tmp_pat
             "grade_updates", "new_deadlines", "attendance_updates"} <= payload.keys()
     assert payload["error_stage"] is None
     assert payload["class_summaries"][0]["news_new"] == 1
+
+
+@pytest.mark.parametrize("method", [
+    "get_turma_grades", "get_attendance", "get_course_plan", "list_professors", "list_materials",
+])
+def test_class_feature_parse_failure_fails_watch(remote_class, tmp_path, monkeypatch, method):
+    from sigaa.errors import UnrecognizedPageError
+    from sigaa.services import sync as sync_module
+
+    client_type = remote_class.client_factory()
+
+    def broken(self, *args, **kwargs):
+        raise UnrecognizedPageError(method, {})
+
+    monkeypatch.setattr(client_type, method, broken)
+    monkeypatch.setattr(sync_module, "SigaaClient", client_type)
+    run = _run(tmp_path)
+    assert run.status == "failed"
+    assert any(event["type"] == "error" for event in run.events)
+
+
+def test_class_network_failure_keeps_network_stage(remote_class, tmp_path, monkeypatch):
+    from sigaa.services import sync as sync_module
+
+    client_type = remote_class.client_factory()
+
+    def broken(self, *args, **kwargs):
+        raise httpx.ReadTimeout("timeout")
+
+    monkeypatch.setattr(client_type, "get_attendance", broken)
+    monkeypatch.setattr(sync_module, "SigaaClient", client_type)
+    run = _run(tmp_path)
+    assert run.status == "failed"
+    assert any(event.get("stage") == "network" for event in run.events)
+
+
+def test_missing_class_menu_item_fails_the_class_loudly(remote_class, tmp_path, monkeypatch):
+    # Before the stack a missing "Ver Notas" was swallowed as "no grades". Whether
+    # some UFPB classes legitimately lack a menu item is still open (ACCEPTANCE.md),
+    # so until then it is recorded against the class and fails the run.
+    from sigaa.errors import NavigationError
+    from sigaa.services import sync as sync_module
+
+    client_type = remote_class.client_factory()
+
+    def missing(self, *args, **kwargs):
+        raise NavigationError("turma menu item not found: 'Ver Notas'")
+
+    monkeypatch.setattr(client_type, "get_turma_grades", missing)
+    monkeypatch.setattr(sync_module, "SigaaClient", client_type)
+
+    run = _run(tmp_path)
+
+    assert run.status == watch.STATUS_FAILED
+    error = next(event for event in run.events if event["type"] == "error")
+    assert error["stage"] == STAGE_PARSE
+    assert error["class_id"] == REMOTE_ID
+    assert "grades: turma menu item not found: 'Ver Notas'" in error["message"]

@@ -14,6 +14,8 @@ import re
 from bs4 import BeautifulSoup
 
 from ..models import Material
+from ._variants import page_parser
+from .news import news_panel
 
 # jsfcljs(formAva,{'<field>':'<field>','id':'<material_id>'},'_blank')
 _DOWNLOAD_RE = re.compile(r"jsfcljs\([^,]+,\{'([^']+)':'[^']+','id':'(\d+)'\}")
@@ -33,8 +35,39 @@ _EXT_BY_TYPE = {
 _UNSAFE_RE = re.compile(r'[/\\:*?"<>|]+')
 
 
-def parse_materials(turma_html: str, id_turma: str) -> list[Material]:
-    soup = BeautifulSoup(turma_html, "lxml")
+def _is_material(item) -> bool:
+    """Whether a topic item is an uploaded file or an external link.
+
+    Only these two kinds were ever read. Tarefas, fóruns, questionários,
+    conteúdo pages and items without an anchor share the topic list and are
+    skipped by design, so they are not counted either.
+    """
+    anchor = item.find("a")
+    if not anchor:
+        return False
+    onclick = anchor.get("onclick") or ""
+    href = anchor.get("href") or ""
+    return _FILE_MARKER in onclick or href.startswith("http")
+
+
+def _material_items(soup: BeautifulSoup):
+    return [item for item in soup.select("div.topico-aula div.item") if _is_material(item)]
+
+
+def _is_class_page(soup: BeautifulSoup) -> bool:
+    """Topics, or the Principal page's news panel when a class has no topics yet."""
+    return bool(soup.select("div.topico-aula")) or news_panel(soup) is not None
+
+
+@page_parser(
+    "materials",
+    _is_class_page,
+    empty=lambda soup: not _material_items(soup),
+    # A file or link item that then fails to parse still raises.
+    validate=lambda result, soup: len(result) == len(_material_items(soup)),
+    name="class-topic-items",
+)
+def parse_materials(soup: BeautifulSoup, id_turma: str) -> list[Material]:
     materials: list[Material] = []
     for topic in soup.select("div.topico-aula"):
         titulo = topic.select_one(".titulo")

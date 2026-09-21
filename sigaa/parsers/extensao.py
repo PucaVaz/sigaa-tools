@@ -23,13 +23,15 @@ so a markup change never passes for "no participations".
 from __future__ import annotations
 
 import re
-import unicodedata
 from dataclasses import dataclass, field
 
 from bs4 import BeautifulSoup
 
 from ..errors import ParseError
 from ..models import ExtensionParticipation
+from ._common import clean as _clean
+from ._common import fold as _fold
+from ._common import jsf_params
 
 KIND_TEAM_MEMBER = "team_member"
 KIND_AUDIENCE = "audience"
@@ -73,14 +75,10 @@ _COLUMN_FIELDS = {
 
 _CODED_HEADING_RE = re.compile(r"^(?P<code>[A-Z]{2,}\d+-(?P<year>\d{4}))\s+-\s+(?P<title>.+)$")
 _YEAR_HEADING_RE = re.compile(r"^(?P<year>\d{4})\s+-\s+(?P<title>.+)$")
-_JSF_PARAMS_RE = re.compile(r"jsfcljs\([^,]+,\s*\{(.*?)\}\s*,", re.S)
-_JSF_PARAM_RE = re.compile(r"'([^']+)'\s*:\s*'([^']*)'")
 _RECORD_ID_PARAMS = ("idMembro", "idCadastroParticipante", "idDiscenteExtensao")
 _EMPTY_NOTICE_RE = re.compile(r"\b(nenhum|nenhuma|nao ha|nao possui)\b")
 _DECLARATION_MARKERS = ("declaracao", "comprovante.png")
 _CERTIFICATE_MARKERS = ("certificado", "certificate.png")
-# Windows-1252 en dash that SIGAA emits as the numeric reference &#150;.
-_C1_EN_DASH = "\x96"
 
 
 class ExtensaoParseError(ParseError):
@@ -209,21 +207,8 @@ def _is_document_link(anchor, markers: tuple[str, ...]) -> bool:
 
 def _record_id(anchors) -> str | None:
     for anchor in anchors:
-        match = _JSF_PARAMS_RE.search(anchor.get("onclick") or "")
-        if not match:
-            continue
-        params = dict(_JSF_PARAM_RE.findall(match.group(1)))
+        params = jsf_params(anchor.get("onclick") or "")
         for name in _RECORD_ID_PARAMS:
             if params.get(name):
                 return params[name]
     return None
-
-
-def _clean(text: str) -> str:
-    text = unicodedata.normalize("NFKC", text.replace(_C1_EN_DASH, "–")).replace("\xa0", " ")
-    return " ".join(text.split())
-
-
-def _fold(text: str) -> str:
-    ascii_text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
-    return " ".join(ascii_text.casefold().split())

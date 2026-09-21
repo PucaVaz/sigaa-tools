@@ -39,7 +39,7 @@ from .documents import (
     write_academic_document,
     write_private_file,
 )
-from .errors import ParseError
+from .errors import ParseError, UnrecognizedPageError
 from .exporters.ics import build_calendar
 from .extensao import participations_to_dict
 from .http import AuthError
@@ -86,6 +86,13 @@ class _DocumentResource:
 
 _DOCUMENT_RESOURCES: dict[str, _DocumentResource] = {}
 _RESOURCE_TOKEN_RE = re.compile(r"[A-Za-z0-9_-]{32}\Z")
+
+
+# What a live SIGAA read can raise once credentials resolved: auth, a page or
+# menu item that is not recognized (ParseError), a rejected value, the network.
+_LIVE_ERRORS = (AuthError, ParseError, ValueError, httpx.HTTPError)
+# Deadline kinds whose event page carries a task detail form.
+_TASK_KINDS = {"tarefa", "atividade"}
 
 
 def _repo() -> Repository:
@@ -163,11 +170,14 @@ def sigaa_get_news_body(news_id: str) -> str:
     password = settings.resolve_password()
     if not settings.username or not password:
         return "body not cached and no credentials available to fetch it"
-    with SigaaClient(settings.username, password, institution=settings.institution) as client:
-        turma = next((t for t in client.list_turmas() if t.id_turma == item.id_turma), None)
-        if turma is None:
-            return "could not locate the class to fetch this news body"
-        body = client.get_news_body(turma, news_id) or ""
+    try:
+        with SigaaClient(settings.username, password, institution=settings.institution) as client:
+            turma = next((t for t in client.list_turmas() if t.id_turma == item.id_turma), None)
+            if turma is None:
+                return "could not locate the class to fetch this news body"
+            body = client.get_news_body(turma, news_id)
+    except _LIVE_ERRORS as exc:
+        return f"could not fetch this news body: {exc}"
     if body:
         repo.update_news_body(news_id, body)
     return body
@@ -243,11 +253,14 @@ def sigaa_download_material(material_id: str, filename: str | None = None) -> st
     password = settings.resolve_password()
     if not settings.username or not password:
         return "no credentials available"
-    with SigaaClient(settings.username, password, institution=settings.institution) as client:
-        turma = next((t for t in client.list_turmas() if t.id_turma == material.id_turma), None)
-        if turma is None:
-            return "could not locate the class for this material"
-        content, server_name = client.download_material(turma, material_id)
+    try:
+        with SigaaClient(settings.username, password, institution=settings.institution) as client:
+            turma = next((t for t in client.list_turmas() if t.id_turma == material.id_turma), None)
+            if turma is None:
+                return "could not locate the class for this material"
+            content, server_name = client.download_material(turma, material_id)
+    except _LIVE_ERRORS as exc:
+        return f"download failed: {exc}"
     written = _write_downloaded_file(content, requested=filename, server_name=server_name)
     return f"wrote {written} ({len(content)} bytes)"
 
@@ -312,6 +325,7 @@ def sigaa_get_cra() -> dict:
     except (
         AcademicDocumentError,
         AuthError,
+        ParseError,
         TranscriptParseError,
         ValueError,
         httpx.HTTPError,
@@ -354,6 +368,7 @@ def sigaa_get_curriculum(
         AcademicDocumentError,
         AuthError,
         CurriculumDataError,
+        ParseError,
         TranscriptParseError,
         ValueError,
         httpx.HTTPError,
@@ -463,8 +478,11 @@ def sigaa_get_attendance(class_code: str) -> dict:
     client, turma, error = _live_turma(class_code)
     if error:
         return {"error": error}
-    with client:
-        attendance = client.get_attendance(turma)
+    try:
+        with client:
+            attendance = client.get_attendance(turma)
+    except _LIVE_ERRORS as exc:
+        return {"error": f"attendance lookup failed: {exc}"}
     if attendance is None:
         return {"error": "attendance map not available for this class"}
     return {
@@ -487,8 +505,11 @@ def sigaa_get_course_plan(class_code: str) -> dict:
     client, turma, error = _live_turma(class_code)
     if error:
         return {"error": error}
-    with client:
-        plan = client.get_course_plan(turma)
+    try:
+        with client:
+            plan = client.get_course_plan(turma)
+    except _LIVE_ERRORS as exc:
+        return {"error": f"course plan lookup failed: {exc}"}
     if plan is None:
         return {"error": "course plan not available for this class"}
     return {
@@ -512,8 +533,12 @@ def _live_turma(class_code: str):
     stored = repo.get_turma(class_code)
     id_turma = stored.id_turma if stored else class_code
     client = SigaaClient(settings.username, password, institution=settings.institution)
-    turma = next((t for t in client.list_turmas()
-                  if t.id_turma == id_turma or t.code == class_code), None)
+    try:
+        turma = next((t for t in client.list_turmas()
+                      if t.id_turma == id_turma or t.code == class_code), None)
+    except _LIVE_ERRORS as exc:
+        client.close()
+        return None, None, f"class lookup failed: {exc}"
     if turma is None:
         client.close()
         return None, None, f"class {class_code!r} not found"
@@ -551,10 +576,16 @@ def sigaa_get_tarefa_body(deadline_id: str) -> dict:
     password = settings.resolve_password()
     if not settings.username or not password:
         return {"error": "body not cached and no credentials available to fetch it"}
-    with SigaaClient(settings.username, password, institution=settings.institution) as client:
-        fields = client.get_tarefa_body(deadline_id)
-    if not fields:
-        return {"error": "no detail form on this event (it may not be a tarefa)"}
+    try:
+        with SigaaClient(settings.username, password, institution=settings.institution) as client:
+            fields = client.get_tarefa_body(deadline_id)
+    except UnrecognizedPageError as exc:
+        if item.kind not in _TASK_KINDS:
+            # An avaliação or enquete page has no detail form; that is expected.
+            return {"error": "no detail form on this event (it may not be a tarefa)"}
+        return {"error": f"task page not recognized: {exc}"}
+    except _LIVE_ERRORS as exc:
+        return {"error": f"task lookup failed: {exc}"}
     repo.update_deadline_body(deadline_id, json.dumps(fields, ensure_ascii=False))
     return {"id": item.id, "title": item.title, "fields": fields}
 
@@ -575,8 +606,11 @@ def sigaa_download_tarefa_anexo(deadline_id: str, filename: str | None = None) -
     password = settings.resolve_password()
     if not settings.username or not password:
         return "no credentials available"
-    with SigaaClient(settings.username, password, institution=settings.institution) as client:
-        result = client.download_tarefa_attachment(deadline_id)
+    try:
+        with SigaaClient(settings.username, password, institution=settings.institution) as client:
+            result = client.download_tarefa_attachment(deadline_id)
+    except _LIVE_ERRORS as exc:
+        return f"download failed: {exc}"
     if result is None:
         return "no teacher attachment on this task (or it is not a tarefa)"
     content, server_name = result
@@ -684,8 +718,11 @@ def _download_academic_document(kind: str, filename: str) -> CallToolResult:
     password = settings.resolve_password()
     if not settings.username or not password:
         raise ToolError("no credentials available")
-    with SigaaClient(settings.username, password, institution=settings.institution) as client:
-        document = client.download_academic_document(kind)
+    try:
+        with SigaaClient(settings.username, password, institution=settings.institution) as client:
+            document = client.download_academic_document(kind)
+    except (AcademicDocumentError, *_LIVE_ERRORS) as exc:
+        raise ToolError(f"download failed: {exc}") from None
     download_dir.mkdir(parents=True, exist_ok=True)
     try:
         written = write_academic_document(document, target)
@@ -832,8 +869,11 @@ def sigaa_matricula_open_turmas() -> list[dict]:
     password = settings.resolve_password()
     if not settings.username or not password:
         return [{"error": "no credentials available"}]
-    with SigaaClient(settings.username, password, institution=settings.institution) as client:
-        return [vars(t) for t in client.list_open_turmas()]
+    try:
+        with SigaaClient(settings.username, password, institution=settings.institution) as client:
+            return [vars(t) for t in client.list_open_turmas()]
+    except _LIVE_ERRORS as exc:
+        return [{"error": f"matrícula lookup failed: {exc}"}]
 
 
 @mcp.tool()

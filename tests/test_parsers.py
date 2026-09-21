@@ -1,5 +1,8 @@
 from pathlib import Path
 
+import pytest
+
+from sigaa.errors import ParseError
 from sigaa.parsers import news as news_parser
 from sigaa.parsers import portal as portal_parser
 from sigaa.parsers import tarefa as tarefa_parser
@@ -121,7 +124,8 @@ def test_parse_tarefa_body_returns_notice_when_closed():
 
 
 def test_parse_tarefa_body_returns_none_when_empty():
-    assert tarefa_parser.parse_tarefa_body("<html><body></body></html>") is None
+    with pytest.raises(ParseError):
+        tarefa_parser.parse_tarefa_body("<html><body></body></html>")
 
 
 def test_find_professor_attachment_returns_href():

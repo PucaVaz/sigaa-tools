@@ -11,13 +11,15 @@ from __future__ import annotations
 
 from bs4 import BeautifulSoup
 
+from ..errors import UnrecognizedPageError
 from ..models import Grade, TurmaGrade
+from ._common import fold, page_fingerprint
+from ._variants import Variant, page_parser, parse_with_variants
 
 _UNIT_COUNT = 10  # Unidade 1..10
 
 
-def parse_grades(html: str) -> list[Grade]:
-    soup = BeautifulSoup(html, "lxml")
+def _parse_grades_16col(soup: BeautifulSoup) -> list[Grade]:
     grades: list[Grade] = []
     for table in soup.find_all("table", class_="tabelaRelatorio"):
         caption = table.find("caption")
@@ -46,10 +48,39 @@ def _row_to_grade(semester: str, cells: list[str]) -> Grade:
     )
 
 
-def parse_turma_grades(html: str, id_turma: str) -> TurmaGrade | None:
+def _grade_tables(soup):
+    return soup.select("table.tabelaRelatorio")
+
+
+def _grade_headers(table):
+    row = table.find("tr")
+    return [fold(c.get_text(" ", strip=True)) for c in row.find_all(["th", "td"])] if row else []
+
+
+def _turma_grade_table(soup):
+    """The report table whose header names the student columns; reads stay inside it."""
+    return next(
+        (t for t in _grade_tables(soup)
+         if {"matricula", "nome", "faltas"}.issubset(_grade_headers(t))),
+        None,
+    )
+
+
+def _turma_grades_empty(soup):
+    """No data row at all: nothing posted yet (not yet seen live). A row that
+    does not fit the header is not empty and still fails."""
+    return not any(row.find("td") for row in _turma_grade_table(soup).find_all("tr")[1:])
+
+
+@page_parser(
+    "turma_grades",
+    lambda soup: _turma_grade_table(soup) is not None,
+    empty=_turma_grades_empty,
+    name="class-grade-headers",
+)
+def parse_turma_grades(soup: BeautifulSoup, id_turma: str) -> TurmaGrade | None:
     """Extract the student's grade row from a turma's Ver Notas report."""
-    soup = BeautifulSoup(html, "lxml")
-    table = soup.find("table", class_="tabelaRelatorio")
+    table = _turma_grade_table(soup)
     if table is None:
         return None
     rows = table.find_all("tr")
@@ -84,3 +115,87 @@ def _first_data_row(rows, width: int) -> list[str] | None:
 def _clean(value: str) -> str | None:
     value = value.strip()
     return None if value in ("", "--") else value
+
+
+def _is_grades_report(soup):
+    """The Relatório de Notas page itself, recognized even with no semester table.
+
+    Not yet seen live for a student with no grades: the heading is the marker
+    the report carries above its tables (see ACCEPTANCE.md).
+    """
+    return any(
+        "relatorio de notas" in fold(node.get_text(" ", strip=True))
+        for node in soup.select("h1, h2, h3, h4, legend, caption")
+    )
+
+
+def _matches_grades(soup):
+    tables = _grade_tables(soup)
+    if not tables:
+        return _is_grades_report(soup)
+    return all({"codigo", "disciplina", "resultado", "faltas", "situacao"}
+               .issubset(_grade_headers(t)) for t in tables)
+
+
+def _grades_by_header(soup):
+    out = []
+    for table in _grade_tables(soup):
+        headers = _grade_headers(table)
+        caption = table.find("caption")
+        semester = caption.get_text(strip=True) if caption else ""
+        for row in table.select("tr")[1:]:
+            cells = row.find_all("td", recursive=False)
+            if not cells:
+                continue
+            if len(cells) != len(headers):
+                raise UnrecognizedPageError("grades", page_fingerprint(soup))
+            values = dict(zip(headers, (c.get_text(" ", strip=True) for c in cells)))
+            if not values["codigo"] or not values["disciplina"]:
+                raise UnrecognizedPageError("grades", page_fingerprint(soup))
+            out.append(Grade(
+                semester=semester,
+                code=values["codigo"],
+                discipline=values["disciplina"],
+                units=[v for k, v in values.items() if k.startswith("unid") and v],
+                exam=_clean(values.get("exame final", "")),
+                result=_clean(values["resultado"]),
+                absences=_clean(values["faltas"]),
+                status=_clean(values["situacao"]),
+            ))
+    return out
+
+
+def _grades_16col(soup):
+    """The positional reader, unchanged. Rows with fewer than 16 cells have always
+    been skipped (not yet seen live either way); a row it reads without a code
+    or a discipline is not a grade row."""
+    grades = _parse_grades_16col(soup)
+    if any(not grade.code or not grade.discipline for grade in grades):
+        raise UnrecognizedPageError("grades", page_fingerprint(soup))
+    return grades
+
+
+_UFPB_16COL_HEADERS = [
+    "codigo", "disciplina", *[f"unidade. {i}" for i in range(1, _UNIT_COUNT + 1)],
+    "exame final", "resultado", "faltas", "situacao",
+]
+
+
+def _matches_16col(soup):
+    return _matches_grades(soup) and all(
+        _grade_headers(t) == _UFPB_16COL_HEADERS for t in _grade_tables(soup)
+    )
+
+
+_GRADE_VARIANTS = (
+    Variant("ufpb-16col", _matches_16col, _grades_16col),
+    Variant("grade-headers", _matches_grades, _grades_by_header),
+)
+
+
+def parse_grades(html: str) -> list[Grade]:
+    return parse_with_variants("grades", html, _GRADE_VARIANTS)
+
+
+parse_grades.variants = _GRADE_VARIANTS
+parse_grades.feature = "grades"

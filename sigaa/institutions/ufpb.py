@@ -1,4 +1,5 @@
 """UFPB endpoints and JSF beta-portal navigation."""
+from ..errors import NavigationError
 from .base import Capability, InstitutionProfile, MenuLabel
 
 HOST = "https://sigaa.ufpb.br"
@@ -90,7 +91,7 @@ class UfpbNavigator:
         from ..parsers.portal import build_menu_postback
         fields = build_menu_postback(portal, label)
         if fields is None:
-            raise ValueError(f"portal menu item not found: {label!r}")
+            raise NavigationError(f"portal menu item not found: {label!r}")
         return session.post(self.profile.portal_action_url, fields)
 
     def enter_turma(self, session, portal, turma):
@@ -109,7 +110,7 @@ class UfpbNavigator:
         from ..parsers.portal import find_menu_field
         field = find_menu_field(principal, label)
         if field is None:
-            raise ValueError(f"turma menu item not found: {label!r}")
+            raise NavigationError(f"turma menu item not found: {label!r}")
         fields = {
             "formMenu": "formMenu",
             field: field,
@@ -122,5 +123,5 @@ class UfpbNavigator:
         from ..parsers.tarefa import build_event_postback
         fields = build_event_postback(portal, event_id, extract_viewstate(portal))
         if fields is None:
-            return None
+            raise NavigationError(f"portal event not found: {event_id!r}")
         return session.post(self.profile.portal_action_url, fields)

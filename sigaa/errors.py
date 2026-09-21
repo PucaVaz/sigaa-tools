@@ -69,3 +69,16 @@ class UnsafeUrlError(SigaaError, ValueError):
         self.port = port
         origin = f"{scheme}://{host or ''}" + (f":{port}" if port else "")
         super().__init__(f"request blocked: {origin} {reason}")
+
+
+class UnrecognizedPageError(ParseError):
+    """Unknown markup; diagnostics describe structure, never student values."""
+
+    def __init__(self, feature, fingerprint):
+        self.feature = feature
+        self.fingerprint = fingerprint
+        super().__init__(f"unrecognized {feature} page")
+
+
+class NavigationError(ParseError, ValueError):
+    """A required navigation target is absent from the current render."""

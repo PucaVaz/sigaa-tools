@@ -1,5 +1,9 @@
 from pathlib import Path
 
+import pytest
+from bs4 import BeautifulSoup
+
+from sigaa.errors import ParseError
 from sigaa.models import Turma, TurmaGrade
 from sigaa.parsers.grades import parse_turma_grades
 from sigaa.store.db import connect
@@ -22,7 +26,42 @@ def test_parse_turma_grades_extracts_student_row():
 
 
 def test_parse_turma_grades_no_table_returns_none():
-    assert parse_turma_grades("<html><body>no grades</body></html>", ID_TURMA) is None
+    with pytest.raises(ParseError):
+        parse_turma_grades("<html><body>no grades</body></html>", ID_TURMA)
+
+
+def _report(edit):
+    soup = BeautifulSoup(VERNOTAS, "lxml")
+    edit(soup)
+    return str(soup)
+
+
+def test_another_report_table_before_the_grades_is_ignored():
+    def edit(soup):
+        legend = BeautifulSoup(
+            '<table class="tabelaRelatorio"><tr><th>Legenda</th></tr>'
+            "<tr><td>REP: reprovado</td></tr></table>", "lxml"
+        ).table
+        soup.body.insert(0, legend)
+
+    assert parse_turma_grades(_report(edit), ID_TURMA) == parse_turma_grades(VERNOTAS, ID_TURMA)
+
+
+@pytest.mark.parametrize("remove", ["tbody tr", "tbody"])
+def test_report_without_a_data_row_has_no_grade(remove):
+    def edit(soup):
+        for node in soup.select(f"table.tabelaRelatorio {remove}"):
+            node.decompose()
+
+    assert parse_turma_grades(_report(edit), ID_TURMA) is None
+
+
+def test_a_row_that_does_not_fit_the_header_still_fails():
+    def edit(soup):
+        soup.select_one("table.tabelaRelatorio tbody td").decompose()
+
+    with pytest.raises(ParseError):
+        parse_turma_grades(_report(edit), ID_TURMA)
 
 
 def test_turma_grade_store_roundtrip(tmp_path):

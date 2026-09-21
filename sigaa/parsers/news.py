@@ -12,12 +12,13 @@ quiet class.
 from __future__ import annotations
 
 import re
-import unicodedata
 
 from bs4 import BeautifulSoup, NavigableString
 
-from ..errors import ParseError
+from ..errors import ParseError, UnrecognizedPageError
 from ..models import NewsItem
+from ._common import fold as _fold
+from ._common import page_fingerprint
 
 _PANEL_HEADER_RE = re.compile(r"Not(?:&iacute;|í)cias")
 _JSFCLJS_PARAM_RE = re.compile(r"jsfcljs\([^,]+,\{'([^']+)':'([^']+)'\}")
@@ -30,7 +31,7 @@ class NewsParseError(ParseError):
 
 
 def parse_news_list(turma_html: str, id_turma: str) -> list[NewsItem]:
-    panel = _news_panel(turma_html)
+    panel = news_panel(BeautifulSoup(turma_html, "lxml"))
     if panel is None:
         raise NewsParseError(f"news panel not found on the class page (class {id_turma})")
 
@@ -88,7 +89,9 @@ def parse_news_body(body_html: str) -> str:
         or soup.find("td", class_=re.compile("descricao"))
         or soup.find("div", id=re.compile("conteudo", re.I))
     )
-    target = container or soup
+    if container is None:
+        raise UnrecognizedPageError("news_body", page_fingerprint(soup))
+    target = container
     for anchor in target.find_all("a", href=True):
         href = anchor["href"].strip()
         if href.startswith(("http://", "https://")) and href not in anchor.get_text():
@@ -96,8 +99,8 @@ def parse_news_body(body_html: str) -> str:
     return target.get_text("\n", strip=True)
 
 
-def _news_panel(turma_html: str):
-    soup = BeautifulSoup(turma_html, "lxml")
+def news_panel(soup: BeautifulSoup):
+    """The Notícias panel body that every Turma Virtual Principal page carries."""
     for header in soup.find_all("div", class_=re.compile("headerBloco")):
         if _PANEL_HEADER_RE.search(header.get_text(strip=True)):
             # The body div is not an immediate sibling (a hidden input div and a
@@ -109,11 +112,6 @@ def _news_panel(turma_html: str):
 
 def _declares_no_news(panel) -> bool:
     return bool(_EMPTY_PANEL_RE.search(_fold(panel.get_text(" ", strip=True))))
-
-
-def _fold(text: str) -> str:
-    ascii_text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
-    return ascii_text.casefold()
 
 
 def _date_and_title(form) -> tuple[str, str]:

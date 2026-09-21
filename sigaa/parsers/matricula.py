@@ -7,6 +7,8 @@ import re
 from bs4 import BeautifulSoup
 
 from ..models import OpenTurma
+from ._common import fold
+from ._variants import page_parser
 
 # Component codes are alphanumeric (e.g. DINF00049, 1107202), not digits-only.
 _COMPONENT_RE = re.compile(r"\*?\s*([A-Z0-9]{7,9}) - (.+?)\s*\(([^)]+)\)")
@@ -15,9 +17,23 @@ _SCHEDULE_RE = re.compile(r"\b[2-7]+[MTN][1-6]+\b")
 _REQUEST_NUMBER_RE = re.compile(r"Solicita[^\s]*o de Matr[^\s]*cula N[^\s]*\s*(\d+)")
 
 
-def parse_open_turmas(html: str) -> list[OpenTurma]:
+def _declares_no_open_turmas(soup):
+    return "nao ha turmas abertas" in fold(soup.get_text())
+
+
+def _section_checkboxes(soup):
+    return soup.select('input[name="selecaoTurmas"]')
+
+
+@page_parser(
+    "matricula",
+    lambda soup: bool(_section_checkboxes(soup)) or _declares_no_open_turmas(soup),
+    empty=_declares_no_open_turmas,
+    validate=lambda result, soup: len(result) == len(_section_checkboxes(soup)),
+    name="enrollment-sections",
+)
+def parse_open_turmas(soup: BeautifulSoup) -> list[OpenTurma]:
     """Open sections from the 'Turmas Abertas do Currículo' page."""
-    soup = BeautifulSoup(html, "lxml")
     turmas: list[OpenTurma] = []
     level: str | None = None
     component: tuple[str, str, str, bool] | None = None
