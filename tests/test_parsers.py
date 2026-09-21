@@ -1,7 +1,8 @@
-import pytest
-from sigaa.errors import ParseError
 from pathlib import Path
 
+import pytest
+
+from sigaa.errors import ParseError
 from sigaa.parsers import news as news_parser
 from sigaa.parsers import portal as portal_parser
 from sigaa.parsers import tarefa as tarefa_parser

@@ -13,10 +13,9 @@ import re
 
 from bs4 import BeautifulSoup
 
+from ..models import Material
 from ._variants import page_parser
 from .news import news_panel
-
-from ..models import Material
 
 # jsfcljs(formAva,{'<field>':'<field>','id':'<material_id>'},'_blank')
 _DOWNLOAD_RE = re.compile(r"jsfcljs\([^,]+,\{'([^']+)':'[^']+','id':'(\d+)'\}")

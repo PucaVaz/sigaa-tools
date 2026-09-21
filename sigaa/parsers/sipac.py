@@ -5,10 +5,9 @@ from __future__ import annotations
 import re
 from urllib.parse import urljoin, urlparse
 
-from ..errors import ParseError
-
 from bs4 import BeautifulSoup, Tag
 
+from ..errors import ParseError
 from ..models import (
     SipacAttachedFile,
     SipacDocument,
@@ -30,8 +29,6 @@ DOCUMENT_VIEW_ONCLICK_RE = re.compile(
     r"""window[.]open[(]\s*(['"])(/public/jsp/processos/"""
     r"""documento_visualizacao[.]jsf[?]idDoc=\d+)\1\s*[,)]"""
 )
-
-
 
 
 class SipacParseError(ParseError, ValueError):

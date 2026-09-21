@@ -4,11 +4,9 @@ from __future__ import annotations
 
 from bs4 import BeautifulSoup
 
-from ._variants import page_parser
-from ._common import fold
-
 from ..models import CoursePlan, PlanEntry, PlanEvaluation
-
+from ._common import fold
+from ._variants import page_parser
 
 _SCHEDULE_CAPTION = "cronograma de aulas"
 _EVALUATIONS_CAPTION = "avalia"

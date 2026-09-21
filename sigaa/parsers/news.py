@@ -13,13 +13,12 @@ from __future__ import annotations
 
 import re
 
-from ._common import fold as _fold
-
 from bs4 import BeautifulSoup, NavigableString
 
 from ..errors import ParseError, UnrecognizedPageError
-from ._common import page_fingerprint
 from ..models import NewsItem
+from ._common import fold as _fold
+from ._common import page_fingerprint
 
 _PANEL_HEADER_RE = re.compile(r"Not(?:&iacute;|í)cias")
 _JSFCLJS_PARAM_RE = re.compile(r"jsfcljs\([^,]+,\{'([^']+)':'([^']+)'\}")
@@ -113,8 +112,6 @@ def news_panel(soup: BeautifulSoup):
 
 def _declares_no_news(panel) -> bool:
     return bool(_EMPTY_PANEL_RE.search(_fold(panel.get_text(" ", strip=True))))
-
-
 
 
 def _date_and_title(form) -> tuple[str, str]:

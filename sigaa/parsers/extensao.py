@@ -25,12 +25,13 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from ._common import fold as _fold, clean as _clean, jsf_params
-
 from bs4 import BeautifulSoup
 
 from ..errors import ParseError
 from ..models import ExtensionParticipation
+from ._common import clean as _clean
+from ._common import fold as _fold
+from ._common import jsf_params
 
 KIND_TEAM_MEMBER = "team_member"
 KIND_AUDIENCE = "audience"

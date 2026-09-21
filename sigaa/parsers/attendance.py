@@ -6,10 +6,9 @@ import re
 
 from bs4 import BeautifulSoup
 
-from ._variants import page_parser
-from ._common import fold
-
 from ..models import Attendance, AttendanceRecord
+from ._common import fold
+from ._variants import page_parser
 
 _TOTAL_RE = re.compile(r"Total de Faltas:\s*(\d+)")
 _JUSTIFIED_RE = re.compile(r"Total de Faltas Justificadas:\s*(\d+)")

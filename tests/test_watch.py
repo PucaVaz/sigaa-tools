@@ -378,13 +378,18 @@ def test_sync_json_keeps_old_keys_and_adds_class_summaries(remote_class, tmp_pat
     assert payload["class_summaries"][0]["news_new"] == 1
 
 
-@pytest.mark.parametrize("method", ["get_turma_grades", "get_attendance", "get_course_plan", "list_professors", "list_materials"])
+@pytest.mark.parametrize("method", [
+    "get_turma_grades", "get_attendance", "get_course_plan", "list_professors", "list_materials",
+])
 def test_class_feature_parse_failure_fails_watch(remote_class, tmp_path, monkeypatch, method):
-    from sigaa.services import sync as sync_module
     from sigaa.errors import UnrecognizedPageError
+    from sigaa.services import sync as sync_module
+
     client_type = remote_class.client_factory()
+
     def broken(self, *args, **kwargs):
         raise UnrecognizedPageError(method, {})
+
     monkeypatch.setattr(client_type, method, broken)
     monkeypatch.setattr(sync_module, "SigaaClient", client_type)
     run = _run(tmp_path)
@@ -394,9 +399,12 @@ def test_class_feature_parse_failure_fails_watch(remote_class, tmp_path, monkeyp
 
 def test_class_network_failure_keeps_network_stage(remote_class, tmp_path, monkeypatch):
     from sigaa.services import sync as sync_module
+
     client_type = remote_class.client_factory()
+
     def broken(self, *args, **kwargs):
         raise httpx.ReadTimeout("timeout")
+
     monkeypatch.setattr(client_type, "get_attendance", broken)
     monkeypatch.setattr(sync_module, "SigaaClient", client_type)
     run = _run(tmp_path)

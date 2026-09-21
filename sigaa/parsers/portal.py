@@ -4,16 +4,13 @@ from __future__ import annotations
 
 import re
 
-from ._common import normalized as _normalized_label
-
-from ._common import jsf_params as _jsf_params
-
 from bs4 import BeautifulSoup
 
-from ._variants import page_parser
-from ._common import fold
-
 from ..models import Deadline, Student, Turma
+from ._common import fold
+from ._common import jsf_params as _jsf_params
+from ._common import normalized as _normalized_label
+from ._variants import page_parser
 
 _PORTAL_FORM_RE = re.compile(r"j_id_jsp_\d+_1$")
 _TURMA_PARAM_RE = re.compile(r"\{'([^']+)':'[^']+','idTurma':'(\d+)'\}")
@@ -39,10 +36,6 @@ def portal_form_id(html: str) -> str:
     if not form:
         raise ValueError("portal form not found")
     return form["id"]
-
-
-_JSF_PARAMS_RE = re.compile(r"jsfcljs\([^,]+,\s*\{(.*?)\}\s*,", re.S)
-_JSF_PARAM_RE = re.compile(r"'([^']+)'\s*:\s*'([^']*)'")
 
 
 def find_menu_field(html: str, link_text: str) -> str | None:
@@ -98,10 +91,6 @@ def _find_menu_anchor(soup: BeautifulSoup, link_text: str):
         if _normalized_label(anchor.get_text(" ", strip=True)) == target:
             return anchor
     return None
-
-
-
-
 
 
 def _shows_student(soup):

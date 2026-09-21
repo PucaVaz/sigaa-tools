@@ -9,14 +9,12 @@ from __future__ import annotations
 
 import re
 
-from ._common import normalized as _normalized
-
 from bs4 import BeautifulSoup
 
-from ._variants import page_parser
-from ._common import fold
-
 from ..models import Professor
+from ._common import fold
+from ._common import normalized as _normalized
+from ._variants import page_parser
 
 _PROFESSOR_LEGEND_RE = re.compile(r"professor(es)?\b")
 _DEPARTMENT_LABEL = "departamento"

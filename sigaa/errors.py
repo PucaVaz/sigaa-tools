@@ -73,6 +73,7 @@ class UnsafeUrlError(SigaaError, ValueError):
 
 class UnrecognizedPageError(ParseError):
     """Unknown markup; diagnostics describe structure, never student values."""
+
     def __init__(self, feature, fingerprint):
         self.feature = feature
         self.fingerprint = fingerprint

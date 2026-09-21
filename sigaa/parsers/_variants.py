@@ -53,8 +53,14 @@ def parse_with_variants(feature, html, variants, *args, **kwargs):
     return variant.parse(soup, *args, **kwargs)
 
 
-def page_parser(feature, matches, *, empty=lambda soup: False, validate=lambda result, soup: True,
-                name="recognized-layout"):
+def page_parser(
+    feature,
+    matches,
+    *,
+    empty=lambda soup: False,
+    validate=lambda result, soup: True,
+    name="recognized-layout",
+):
     """Turn a parser of an already-built soup into a public page parser.
 
     The public function keeps taking the page HTML, builds the soup once, and

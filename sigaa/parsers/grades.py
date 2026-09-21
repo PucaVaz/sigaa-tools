@@ -11,10 +11,10 @@ from __future__ import annotations
 
 from bs4 import BeautifulSoup
 
-from ..models import Grade, TurmaGrade
 from ..errors import UnrecognizedPageError
+from ..models import Grade, TurmaGrade
 from ._common import fold, page_fingerprint
-from ._variants import Variant, parse_with_variants, page_parser
+from ._variants import Variant, page_parser, parse_with_variants
 
 _UNIT_COUNT = 10  # Unidade 1..10
 
@@ -152,10 +152,16 @@ def _grades_by_header(soup):
             values = dict(zip(headers, (c.get_text(" ", strip=True) for c in cells)))
             if not values["codigo"] or not values["disciplina"]:
                 raise UnrecognizedPageError("grades", page_fingerprint(soup))
-            out.append(Grade(semester=semester, code=values["codigo"], discipline=values["disciplina"],
-                             units=[v for k, v in values.items() if k.startswith("unid") and v],
-                             exam=_clean(values.get("exame final", "")), result=_clean(values["resultado"]),
-                             absences=_clean(values["faltas"]), status=_clean(values["situacao"])))
+            out.append(Grade(
+                semester=semester,
+                code=values["codigo"],
+                discipline=values["disciplina"],
+                units=[v for k, v in values.items() if k.startswith("unid") and v],
+                exam=_clean(values.get("exame final", "")),
+                result=_clean(values["resultado"]),
+                absences=_clean(values["faltas"]),
+                status=_clean(values["situacao"]),
+            ))
     return out
 
 
@@ -169,11 +175,20 @@ def _grades_16col(soup):
     return grades
 
 
+_UFPB_16COL_HEADERS = [
+    "codigo", "disciplina", *[f"unidade. {i}" for i in range(1, _UNIT_COUNT + 1)],
+    "exame final", "resultado", "faltas", "situacao",
+]
+
+
+def _matches_16col(soup):
+    return _matches_grades(soup) and all(
+        _grade_headers(t) == _UFPB_16COL_HEADERS for t in _grade_tables(soup)
+    )
+
+
 _GRADE_VARIANTS = (
-    Variant("ufpb-16col", lambda soup: _matches_grades(soup) and all(
-        _grade_headers(t) == ["codigo", "disciplina", *[f"unidade. {i}" for i in range(1, 11)],
-                              "exame final", "resultado", "faltas", "situacao"]
-        for t in _grade_tables(soup)), _grades_16col),
+    Variant("ufpb-16col", _matches_16col, _grades_16col),
     Variant("grade-headers", _matches_grades, _grades_by_header),
 )
 

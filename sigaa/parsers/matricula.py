@@ -6,10 +6,9 @@ import re
 
 from bs4 import BeautifulSoup
 
-from ._variants import page_parser
-from ._common import fold
-
 from ..models import OpenTurma
+from ._common import fold
+from ._variants import page_parser
 
 # Component codes are alphanumeric (e.g. DINF00049, 1107202), not digits-only.
 _COMPONENT_RE = re.compile(r"\*?\s*([A-Z0-9]{7,9}) - (.+?)\s*\(([^)]+)\)")

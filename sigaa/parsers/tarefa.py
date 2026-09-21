@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import re
 
-from ._variants import page_parser
-
 from bs4 import BeautifulSoup
+
+from ._variants import page_parser
 
 # jsfcljs(getElementById('<form>'),{'<field>':'<field>','id':'<event>','idTurma':'<turma>'},'')
 _ONCLICK_RE = re.compile(

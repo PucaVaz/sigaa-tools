@@ -25,7 +25,9 @@ def test_every_page_parser_rejects_auth_redirect(feature):
 @pytest.mark.parametrize("feature", FEATURES, ids=lambda f: f.key)
 def test_every_page_parser_rejects_unrecognized_markup(feature):
     with pytest.raises(ParseError):
-        feature.parse('<html><table class="new-layout"><tr><td>Unexpected</td></tr></table></html>', "123")
+        feature.parse(
+            '<html><table class="new-layout"><tr><td>Unexpected</td></tr></table></html>', "123"
+        )
 
 
 def test_fingerprint_excludes_private_cells_inputs_queries_and_heading_values():
@@ -33,7 +35,8 @@ def test_fingerprint_excludes_private_cells_inputs_queries_and_heading_values():
     html = f'<form action="/page?token={private}"><input value="{private}"></form>'
     html += f'<table><caption>{private}</caption><tr><td>{private}</td></tr></table>'
     assert private not in json.dumps(page_fingerprint(html))
-    changed = html.replace(f'<td>{private}</td>', '<td>OTHER</td>').replace(f'value="{private}"', 'value="OTHER"')
+    changed = html.replace(f"<td>{private}</td>", "<td>OTHER</td>")
+    changed = changed.replace(f'value="{private}"', 'value="OTHER"')
     assert page_fingerprint(html) == page_fingerprint(changed)
 
 
@@ -71,7 +74,10 @@ def test_grades_by_header_do_not_discard_a_malformed_row():
         parse_grades(str(soup))
 
 
-@pytest.mark.parametrize("feature", [f for f in FEATURES if (FIXTURES / f"{f.key}_empty.html").exists()], ids=lambda f: f.key)
+WITH_EMPTY_FIXTURE = [f for f in FEATURES if (FIXTURES / f"{f.key}_empty.html").exists()]
+
+
+@pytest.mark.parametrize("feature", WITH_EMPTY_FIXTURE, ids=lambda f: f.key)
 def test_synthetic_empty_contract(feature):
     html = (FIXTURES / f"{feature.key}_empty.html").read_text()
     if feature.key in {"student", "task"}:

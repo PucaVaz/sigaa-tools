@@ -120,11 +120,12 @@ def _sync_turma(
     except Exception as exc:
         fresh_news = []
         summary.errors.append(SyncIssue(stage=error_stage(exc), message=str(exc)))
-    fresh_materials = _class_fetch(summary, "materials", _sync_turma_materials, client, repo, turma, turma_html)
-    grade_updates = _class_fetch(summary, "grades", _sync_turma_grades, client, repo, turma, turma_html)
-    plan_deadlines = _class_fetch(summary, "plan", _sync_turma_plan, client, repo, turma, turma_html)
-    attendance_updates = _class_fetch(summary, "attendance", _sync_turma_attendance, client, repo, turma, turma_html)
-    _class_fetch(summary, "professors", _sync_turma_professors, client, repo, turma, turma_html)
+    context = (client, repo, turma, turma_html)
+    fresh_materials = _class_fetch(summary, "materials", _sync_turma_materials, *context)
+    grade_updates = _class_fetch(summary, "grades", _sync_turma_grades, *context)
+    plan_deadlines = _class_fetch(summary, "plan", _sync_turma_plan, *context)
+    attendance_updates = _class_fetch(summary, "attendance", _sync_turma_attendance, *context)
+    _class_fetch(summary, "professors", _sync_turma_professors, *context)
 
     summary.news_new = len(fresh_news)
     summary.materials_new = len(fresh_materials)
@@ -262,7 +263,8 @@ def _slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", ascii_text.casefold()).strip("-")
 
 
-def _class_fetch(summary, feature, fetch, *args):
+def _class_fetch(summary: ClassSummary, feature: str, fetch, *args):
+    """Run one class read; a failure is recorded against the class, never swallowed."""
     try:
         return fetch(*args)
     except Exception as exc:

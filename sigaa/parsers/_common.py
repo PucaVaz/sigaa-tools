@@ -3,6 +3,7 @@ import hashlib
 import re
 import unicodedata
 from urllib.parse import urlsplit
+
 from bs4 import BeautifulSoup
 
 
@@ -31,13 +32,18 @@ def page_fingerprint(html):
     Counts and digests support comparisons without disclosing their contents.
     """
     soup = html if isinstance(html, BeautifulSoup) else BeautifulSoup(html, "lxml")
+
     def digest(values):
         return hashlib.sha256("\n".join(sorted(values)).encode()).hexdigest()[:16]
+
+    forms = (
+        str(form.get("id", "")) + ":" + urlsplit(str(form.get("action", ""))).path.split(";")[0]
+        for form in soup.select("form")
+    )
     return {
-        "forms": len(soup.select("form")), "tables": len(soup.select("table")),
-        "form_structure": digest(str(f.get("id", "")) + ":" +
-                                 urlsplit(str(f.get("action", ""))).path.split(";")[0]
-                                 for f in soup.select("form")),
+        "forms": len(soup.select("form")),
+        "tables": len(soup.select("table")),
+        "form_structure": digest(forms),
         "table_classes": digest(" ".join(t.get("class", [])) for t in soup.select("table")),
         "headers": digest(fold(n.get_text(" ", strip=True)) for n in soup.select("th")),
         "legends": digest(fold(n.get_text(" ", strip=True)) for n in soup.select("legend")),
