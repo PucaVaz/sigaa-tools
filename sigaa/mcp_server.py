@@ -52,7 +52,9 @@ from .sipac import (
 from .store.db import connect
 from .store.repository import Repository
 
-mcp = FastMCP("sigaa-ufpb")
+from .config import default_institution
+
+mcp = FastMCP(f"sigaa-{default_institution()}")
 
 # Tools hidden in hosted mode. All five write files to the server's disk, and a shared
 # deployment has no per-tenant download directory yet, so none of them belong there.
@@ -148,7 +150,7 @@ def sigaa_get_news_body(news_id: str) -> str:
     password = settings.resolve_password()
     if not settings.username or not password:
         return "body not cached and no credentials available to fetch it"
-    with SigaaClient(settings.username, password) as client:
+    with SigaaClient(settings.username, password, institution=settings.institution) as client:
         turma = next((t for t in client.list_turmas() if t.id_turma == item.id_turma), None)
         if turma is None:
             return "could not locate the class to fetch this news body"
@@ -226,7 +228,7 @@ def sigaa_download_material(material_id: str, filename: str | None = None) -> st
     password = settings.resolve_password()
     if not settings.username or not password:
         return "no credentials available"
-    with SigaaClient(settings.username, password) as client:
+    with SigaaClient(settings.username, password, institution=settings.institution) as client:
         turma = next((t for t in client.list_turmas() if t.id_turma == material.id_turma), None)
         if turma is None:
             return "could not locate the class for this material"
@@ -286,7 +288,7 @@ def sigaa_get_cra() -> dict:
     if not settings.username or not password:
         raise ToolError("no credentials available")
     try:
-        with SigaaClient(settings.username, password) as client:
+        with SigaaClient(settings.username, password, institution=settings.institution) as client:
             cra = client.get_cra()
     except CraUnavailableError:
         return {"value": None, "source": "unavailable"}
@@ -321,7 +323,7 @@ def sigaa_get_curriculum(
     if not settings.username or not password:
         raise ToolError("no credentials available")
     try:
-        with SigaaClient(settings.username, password) as client:
+        with SigaaClient(settings.username, password, institution=settings.institution) as client:
             curriculum = client.get_curriculum_status(include_cra=include_cra)
         return curriculum_to_dict(
             curriculum,
@@ -359,7 +361,7 @@ def sigaa_list_extension_participations() -> dict:
     if not settings.username or not password:
         raise ToolError("no credentials available")
     try:
-        with SigaaClient(settings.username, password) as client:
+        with SigaaClient(settings.username, password, institution=settings.institution) as client:
             participations = client.list_extension_participations()
     except (AuthError, ParseError, ValueError, httpx.HTTPError) as exc:
         raise ToolError(f"extension lookup failed: {exc}") from None
@@ -485,7 +487,7 @@ def _live_turma(class_code: str):
     repo = _repo()
     stored = repo.get_turma(class_code)
     id_turma = stored.id_turma if stored else class_code
-    client = SigaaClient(settings.username, password)
+    client = SigaaClient(settings.username, password, institution=settings.institution)
     turma = next((t for t in client.list_turmas()
                   if t.id_turma == id_turma or t.code == class_code), None)
     if turma is None:
@@ -524,7 +526,7 @@ def sigaa_get_tarefa_body(deadline_id: str) -> dict:
     password = settings.resolve_password()
     if not settings.username or not password:
         return {"error": "body not cached and no credentials available to fetch it"}
-    with SigaaClient(settings.username, password) as client:
+    with SigaaClient(settings.username, password, institution=settings.institution) as client:
         fields = client.get_tarefa_body(deadline_id)
     if not fields:
         return {"error": "no detail form on this event (it may not be a tarefa)"}
@@ -547,7 +549,7 @@ def sigaa_download_tarefa_anexo(deadline_id: str, filename: str | None = None) -
     password = settings.resolve_password()
     if not settings.username or not password:
         return "no credentials available"
-    with SigaaClient(settings.username, password) as client:
+    with SigaaClient(settings.username, password, institution=settings.institution) as client:
         result = client.download_tarefa_attachment(deadline_id)
     if result is None:
         return "no teacher attachment on this task (or it is not a tarefa)"
@@ -560,7 +562,7 @@ def sigaa_download_tarefa_anexo(deadline_id: str, filename: str | None = None) -
 def sigaa_export_ics() -> str:
     """Return an iCalendar (.ics) feed of classes + deadlines from the store."""
     repo = _repo()
-    return build_calendar(repo.get_turmas(), repo.get_deadlines())
+    return build_calendar(repo.get_turmas(), repo.get_deadlines(), institution=Settings().institution)
 
 
 @mcp.tool()
@@ -649,7 +651,7 @@ def _download_academic_document(kind: str, filename: str) -> CallToolResult:
     password = settings.resolve_password()
     if not settings.username or not password:
         raise ToolError("no credentials available")
-    with SigaaClient(settings.username, password) as client:
+    with SigaaClient(settings.username, password, institution=settings.institution) as client:
         document = client.download_academic_document(kind)
     download_dir.mkdir(parents=True, exist_ok=True)
     try:
@@ -795,7 +797,7 @@ def sigaa_matricula_open_turmas() -> list[dict]:
     password = settings.resolve_password()
     if not settings.username or not password:
         return [{"error": "no credentials available"}]
-    with SigaaClient(settings.username, password) as client:
+    with SigaaClient(settings.username, password, institution=settings.institution) as client:
         return [vars(t) for t in client.list_open_turmas()]
 
 

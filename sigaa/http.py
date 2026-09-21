@@ -13,6 +13,7 @@ import re
 import httpx
 
 from . import config
+from .institutions import get
 from .errors import STAGE_AUTH, SigaaError
 
 _VIEWSTATE_RE = re.compile(
@@ -39,21 +40,30 @@ class Session:
         client: httpx.Client | None = None,
         *,
         timeout: float | httpx.Timeout = 30.0,
+        profile=None,
+        navigator=None,
     ):
+        self.profile = profile or get().profile
+        self.navigator = navigator or get(self.profile.key).navigator
         self._username = username
         self._password = password
         self._client = client or httpx.Client(
             headers={"User-Agent": config.USER_AGENT},
             follow_redirects=True,
             timeout=timeout,
+            event_hooks={"request": [self._validate_request]},
         )
         self._authenticated = False
+        if client is not None:
+            self._client.event_hooks.setdefault("request", []).append(self._validate_request)
+
+    def _validate_request(self, request):
+        self.profile.validate_url(str(request.url))
+
 
     def login(self) -> str:
         """Authenticate and return the rendered portal HTML."""
-        from .auth import perform_login  # lazy import avoids circular dependency
-
-        portal_html = perform_login(self._client, self._username, self._password)
+        portal_html = self.navigator.login(self)
         self._authenticated = True
         return portal_html
 
@@ -133,9 +143,8 @@ class Session:
         resp.raise_for_status()
         return resp.text
 
-    @staticmethod
-    def _looks_logged_out(text: str) -> bool:
-        return config.AUTH_MARKER not in text and config.LOGIN_REDIRECT_MARKER in text
+    def _looks_logged_out(self, text: str) -> bool:
+        return self.navigator.looks_logged_out(text)
 
     def close(self) -> None:
         self._client.close()

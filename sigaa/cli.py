@@ -26,7 +26,9 @@ from .documents import (
     AcademicDocumentError,
     write_academic_document,
 )
-from .errors import ParseError
+from .errors import ParseError, UnsupportedFeatureError
+from .institutions import get, Capability
+from .config import default_institution
 from .exporters.ics import build_calendar
 from .extensao import participations_to_dict
 from .http import AuthError
@@ -60,28 +62,44 @@ def main(argv: list[str] | None = None) -> int:
     if getattr(args, "public_without_settings", False):
         settings = None
     else:
-        settings = Settings()
+        settings = Settings(institution=args.institution) if getattr(args, "institution", None) else Settings()
         if getattr(args, "user", None):
             settings.username = args.user
         if getattr(args, "db", None):
             settings.db_path = Path(args.db).expanduser()
     try:
+        capability = {
+            "sipac": Capability.SIPAC, "curriculum": Capability.CURRICULUM_JSON,
+            "matricula": Capability.MATRICULA, "extensao": Capability.EXTENSAO,
+            "historico": Capability.DOCUMENTS, "cra": Capability.DOCUMENTS,
+            "declaracao-vinculo": Capability.DOCUMENTS, "atestado": Capability.DOCUMENTS,
+        }.get(args.command)
+        if capability:
+            get(settings.institution if settings else default_institution()).profile.require(capability)
         return args.func(args, settings)
+    except UnsupportedFeatureError as exc:
+        if getattr(args, "json", False):
+            print(json.dumps({"error": str(exc), "status": "unsupported"}))
+        else:
+            print(str(exc), file=sys.stderr)
+        return 1
     except KeyboardInterrupt:
         print("\nsetup cancelled", file=sys.stderr)
         return 130
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="sigaa", description="SIGAA UFPB client")
+    parser = argparse.ArgumentParser(prog="sigaa", description="SIGAA client")
     parser.add_argument("--user", help="override SIGAA username")
     parser.add_argument("--db", help="override SQLite path")
     sub = parser.add_subparsers(dest="command")
 
     p_login = sub.add_parser("login", help="store password in keychain and verify")
+    p_login.add_argument("--institution", help="institution key")
     p_login.set_defaults(func=_cmd_login)
 
     p_init = sub.add_parser("init", help="interactive first-run setup wizard")
+    p_init.add_argument("--institution", help="institution key")
     p_init.set_defaults(func=_cmd_init)
 
     p_sync = sub.add_parser(
@@ -422,7 +440,7 @@ def _cmd_curriculum(args, settings: Settings) -> int:
         return 1
 
     try:
-        with SigaaClient(settings.username, password) as client:
+        with SigaaClient(settings.username, password, institution=settings.institution) as client:
             curriculum = client.get_curriculum_status(include_cra=not args.no_cra)
     except (
         AcademicDocumentError,
@@ -456,7 +474,7 @@ def _cmd_cra(args, settings: Settings) -> int:
         return 1
 
     try:
-        with SigaaClient(settings.username, password) as client:
+        with SigaaClient(settings.username, password, institution=settings.institution) as client:
             cra = client.get_cra()
     except CraUnavailableError:
         data = {"value": None, "source": "unavailable"}
@@ -489,7 +507,7 @@ def _cmd_extensao(args, settings: Settings) -> int:
         return 1
 
     try:
-        with SigaaClient(settings.username, password) as client:
+        with SigaaClient(settings.username, password, institution=settings.institution) as client:
             participations = client.list_extension_participations()
     except (AuthError, ParseError, ValueError, httpx.HTTPError) as exc:
         print(f"extension lookup failed: {exc}", file=sys.stderr)
@@ -580,7 +598,7 @@ def _cmd_deadlines(args, settings: Settings) -> int:
 
 def _cmd_ics(args, settings: Settings) -> int:
     repo = Repository(connect(settings.db_path))
-    ics = build_calendar(repo.get_turmas(), repo.get_deadlines())
+    ics = build_calendar(repo.get_turmas(), repo.get_deadlines(), institution=settings.institution)
     if args.out:
         with open(args.out, "w", encoding="utf-8") as fh:
             fh.write(ics)
@@ -600,7 +618,7 @@ def _cmd_matricula(args, settings: Settings) -> int:
     if args.confirm and not args.select:
         print("--confirm requires --select", file=sys.stderr)
         return 1
-    with SigaaClient(settings.username, password) as client:
+    with SigaaClient(settings.username, password, institution=settings.institution) as client:
         curriculo_html = client.open_matricula_curriculo()
         if not args.select:
             turmas = client.list_open_turmas(curriculo_html)
@@ -639,7 +657,7 @@ def _cmd_academic_document(args, settings: Settings) -> int:
         print(settings.credentials_problem(), file=sys.stderr)
         return 1
     try:
-        with SigaaClient(settings.username, password) as client:
+        with SigaaClient(settings.username, password, institution=settings.institution) as client:
             document = client.download_academic_document(args.document_kind)
     except (AcademicDocumentError, AuthError, ValueError) as exc:
         print(f"download failed: {exc}", file=sys.stderr)
@@ -693,7 +711,7 @@ def _download_materials(args, settings: Settings, repo: Repository, id_turma) ->
 
     out_dir = Path(args.dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    with SigaaClient(settings.username, password) as client:
+    with SigaaClient(settings.username, password, institution=settings.institution) as client:
         turmas = {t.id_turma: t for t in client.list_turmas()}
         for m in stored:
             turma = turmas.get(m.id_turma)
@@ -717,7 +735,7 @@ def _live_turma(args, settings: Settings):
     repo = Repository(connect(settings.db_path))
     stored = repo.get_turma(args.klass)
     id_turma = stored.id_turma if stored else args.klass
-    client = SigaaClient(settings.username, password)
+    client = SigaaClient(settings.username, password, institution=settings.institution)
     turma = next((t for t in client.list_turmas()
                   if t.id_turma == id_turma or t.code == args.klass), None)
     if turma is None:

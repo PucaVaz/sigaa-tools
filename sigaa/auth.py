@@ -33,7 +33,7 @@ def perform_login(client: httpx.Client, username: str, password: str) -> str:
     # http->https hop drops a trailing slash and 404s. The session cookie is set
     # regardless, so the status of this response is irrelevant.
     try:
-        client.post(config.LOGON_URL, data=fields)
+        client.post(config.LOGON_URL, data=fields, follow_redirects=False)
     except httpx.HTTPError:
         pass
 

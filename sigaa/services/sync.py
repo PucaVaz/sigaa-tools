@@ -78,7 +78,7 @@ def sync(settings: Settings, fetch_bodies: bool = False) -> SyncResult:
     result = SyncResult()
     try:
         username, password = settings.require_credentials()
-        with SigaaClient(username, password) as client:
+        with SigaaClient(username, password, institution=settings.institution) as client:
             result.student = client.get_student()
             repo.upsert_student(result.student)
 

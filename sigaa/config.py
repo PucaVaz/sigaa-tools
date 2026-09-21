@@ -11,54 +11,51 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-HOST = "https://sigaa.ufpb.br"
+from .institutions import DEFAULT, get
+
+_DEFAULT_PROFILE = get().profile
+HOST = _DEFAULT_PROFILE.host
+LOGON_URL = _DEFAULT_PROFILE.logon_url
+PORTAL_ENTRY_URL = _DEFAULT_PROFILE.portal_entry_url
+PORTAL_ACTION_URL = _DEFAULT_PROFILE.portal_action_url
+CURRICULUM_ENTRY_URL = _DEFAULT_PROFILE.curriculum_entry_url
+CURRICULUM_DATA_URL = _DEFAULT_PROFILE.curriculum_data_url
+AVA_URL = _DEFAULT_PROFILE.ava_url
+AUTH_MARKER = _DEFAULT_PROFILE.auth_marker
+LOGIN_REDIRECT_MARKER = _DEFAULT_PROFILE.login_redirect_marker
+KEYRING_SERVICE = _DEFAULT_PROFILE.keyring_service
+SLOT_TIMES_UNCONFIRMED = _DEFAULT_PROFILE.slot_times
+MATRICULA_INSTRUCOES_URL = _DEFAULT_PROFILE.matricula_instrucoes_url
+MATRICULA_TURMAS_CURRICULO_URL = _DEFAULT_PROFILE.matricula_turmas_curriculo_url
 BASE = f"{HOST}/sigaa"
-LOGON_URL = f"{BASE}/logon.jsf"
-# Entry point that 302-redirects to the fully rendered beta portal. A plain GET
-# of the beta URL returns only a loading shell, so this slash-terminated classic
-# URL is the reliable way in.
-PORTAL_ENTRY_URL = f"{BASE}/portal/discente/"
-# Form action used for in-portal JSF postbacks (entering a turma).
-PORTAL_ACTION_URL = f"{BASE}/portais/discente/beta/discente.jsf"
-# Curriculum-progress shell and the JSON request it issues after rendering.
-CURRICULUM_ENTRY_URL = f"{BASE}/portal/discente/integralizacao/"
-CURRICULUM_DATA_URL = f"{BASE}/portal/discente/integralizacao/dados/"
-# Turma Virtual base; news bodies are fetched here.
-AVA_URL = f"{BASE}/ava/index.jsf"
-
 USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
-
-# Marker proving an authenticated page; absence means the session is dead.
-AUTH_MARKER = "Sair do SIGAA"
-# Substring of the URL we get bounced to when a session expires.
-LOGIN_REDIRECT_MARKER = "logon.jsf"
-
-KEYRING_SERVICE = "sigaa-ufpb"
 KEYRING_ACTIVE_USERNAME = "__active_username__"
-
-# MCP tool surfaces. Local keeps every tool; hosted is the reduced surface for a
-# shared deployment. Nothing is ever removed from the local/self-hosted build.
+KEYRING_ACTIVE_INSTITUTION = "__active_institution__"
+KEYRING_SETTINGS_SERVICE = "sigaa-tools"
 LOCAL_MODE = "local"
 HOSTED_MODE = "hosted"
 SERVER_MODES = (LOCAL_MODE, HOSTED_MODE)
 
-# UFPB class-time slots. Day digits: 2=Mon .. 7=Sat. Shift: M/T/N.
-# NOTE: clock times below are an UNCONFIRMED default; confirm against a turma's
-# "Plano de Curso" before trusting them for calendar/ICS export.
-SLOT_TIMES_UNCONFIRMED = {
-    "M": {1: "07:00", 2: "07:50", 3: "08:50", 4: "09:40", 5: "10:40", 6: "11:30"},
-    "T": {1: "13:00", 2: "13:50", 3: "14:50", 4: "15:40", 5: "16:40", 6: "17:30"},
-    "N": {1: "18:30", 2: "19:20", 3: "20:20", 4: "21:10"},
-}
 
+def default_institution() -> str:
+    key = os.environ.get("SIGAA_INSTITUTION")
+    if not key:
+        try:
+            import keyring
+            key = keyring.get_password(KEYRING_SETTINGS_SERVICE, KEYRING_ACTIVE_INSTITUTION)
+        except Exception:
+            pass
+    return get(key or DEFAULT).profile.key
 
-def default_db_path() -> Path:
+def default_db_path(institution: str | None = None) -> Path:
     """Local SQLite path under the user config dir (override via SIGAA_DB)."""
     override = os.environ.get("SIGAA_DB")
     if override:
         return Path(override).expanduser()
     base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
-    return base / "sigaa-tools" / "sigaa.db"
+    key = get(institution or default_institution()).profile.key
+    directory = base / "sigaa-tools"
+    return directory / "sigaa.db" if key == DEFAULT else directory / key / "sigaa.db"
 
 
 def default_download_dir() -> Path:
@@ -86,7 +83,7 @@ def default_mode() -> str:
     return mode
 
 
-def default_username() -> str | None:
+def default_username(institution: str | None = None) -> str | None:
     """Return the environment override or the last account saved by login."""
     username = os.environ.get("SIGAA_USER")
     if username:
@@ -94,7 +91,8 @@ def default_username() -> str | None:
     try:
         import keyring
 
-        saved = keyring.get_password(KEYRING_SERVICE, KEYRING_ACTIVE_USERNAME)
+        service = get(institution or default_institution()).profile.keyring_service
+        saved = keyring.get_password(service, KEYRING_ACTIVE_USERNAME)
         return saved or None
     except Exception:
         return None
@@ -102,8 +100,16 @@ def default_username() -> str | None:
 
 @dataclass
 class Settings:
-    db_path: Path = field(default_factory=default_db_path)
-    username: str | None = field(default_factory=default_username)
+    db_path: Path | None = None
+    username: str | None = None
+    institution: str = field(default_factory=default_institution)
+
+    def __post_init__(self):
+        get(self.institution)
+        if self.db_path is None:
+            self.db_path = default_db_path(self.institution)
+        if self.username is None:
+            self.username = default_username(self.institution)
 
     def resolve_password(self) -> str | None:
         """keyring first (Keychain), then SIGAA_PASS env var."""
@@ -111,7 +117,7 @@ class Settings:
             try:
                 import keyring
 
-                secret = keyring.get_password(KEYRING_SERVICE, self.username)
+                secret = keyring.get_password(get(self.institution).profile.keyring_service, self.username)
                 if secret:
                     return secret
             except Exception:
@@ -147,7 +153,3 @@ class Settings:
         except MissingCredentialsError as exc:
             return str(exc)
         return None
-
-# Matrícula on-line (enrollment request) flow.
-MATRICULA_INSTRUCOES_URL = f"{BASE}/graduacao/matricula/instrucoes.jsf"
-MATRICULA_TURMAS_CURRICULO_URL = f"{BASE}/graduacao/matricula/turmas_curriculo.jsf"

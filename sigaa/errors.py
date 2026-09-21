@@ -47,3 +47,11 @@ def error_stage(exc: BaseException) -> str:
     if isinstance(exc, (httpx.HTTPError, OSError)):
         return STAGE_NETWORK
     return STAGE_SYNC
+
+
+class UnsupportedFeatureError(SigaaError, ValueError):
+    """The selected institution does not implement this feature."""
+
+
+class UnsafeUrlError(SigaaError, ValueError):
+    """A request or redirect left the selected institution's HTTPS origin."""

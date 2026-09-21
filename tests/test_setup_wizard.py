@@ -20,7 +20,7 @@ def test_login_persists_username_for_the_next_process(monkeypatch):
     events: list[str] = []
 
     class FakeClient:
-        def __init__(self, username, password):
+        def __init__(self, username, password, **kwargs):
             assert (username, password) == ("alice", "test-password")
 
         def __enter__(self):
@@ -56,6 +56,7 @@ def test_login_persists_username_for_the_next_process(monkeypatch):
         "verified",
         "stored:alice",
         f"stored:{KEYRING_ACTIVE_USERNAME}",
+        "stored:__active_institution__",
     ]
 
 
@@ -145,7 +146,7 @@ def _run_init_writing_mcp(monkeypatch, tmp_path, *, password_stored: bool) -> di
     monkeypatch.setattr("sigaa.setup_wizard.shutil.which", lambda name: "/opt/bin/uv")
 
     mcp_path = tmp_path / ".mcp.json"
-    answers = ["1"]  # institution
+    answers = []  # institution is resolved by Settings
     if not password_stored:
         answers.append("n")  # .env template, only offered when keyring failed
     answers += [

@@ -24,7 +24,7 @@ EXPECTED_COUNTS = {
 
 
 def _settings():
-    return SimpleNamespace(
+    return SimpleNamespace(institution="ufpb",
         username="configured-user",
         resolve_password=lambda: "test-password",
     )
@@ -32,7 +32,7 @@ def _settings():
 
 def _fake_client(page: str | None = None, failure: Exception | None = None):
     class FakeClient:
-        def __init__(self, username, password):
+        def __init__(self, username, password, **kwargs):
             assert (username, password) == ("configured-user", "test-password")
 
         def __enter__(self):
@@ -184,7 +184,7 @@ class TestMcpTool:
     def test_requires_credentials(self, monkeypatch):
         from mcp.server.fastmcp.exceptions import ToolError
 
-        settings = SimpleNamespace(username=None, resolve_password=lambda: None)
+        settings = SimpleNamespace(institution="ufpb", username=None, resolve_password=lambda: None)
         monkeypatch.setattr(self.mcp_server, "Settings", lambda: settings)
 
         with pytest.raises(ToolError, match="no credentials"):

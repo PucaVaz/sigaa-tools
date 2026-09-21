@@ -205,7 +205,7 @@ def test_session_can_delegate_auth_retry_to_jsf_operation():
     session._authenticated = True
     try:
         with pytest.raises(AuthError, match="expired"):
-            session.post_download("https://sigaa.invalid/report", {}, retry_on_auth=False)
+            session.post_download("https://sigaa.ufpb.br/report", {}, retry_on_auth=False)
     finally:
         session.close()
 
@@ -256,7 +256,7 @@ def test_cli_download_writes_only_validated_document(monkeypatch, tmp_path, caps
     )
 
     class FakeClient:
-        def __init__(self, username, password):
+        def __init__(self, username, password, **kwargs):
             assert username == "configured-user"
             assert password == "test-password"
 
@@ -270,7 +270,7 @@ def test_cli_download_writes_only_validated_document(monkeypatch, tmp_path, caps
             assert kind == DECLARACAO_VINCULO
             return document
 
-    settings = SimpleNamespace(
+    settings = SimpleNamespace(institution="ufpb",
         username="configured-user", resolve_password=lambda: "test-password"
     )
     target = tmp_path / "declaracao.pdf"
@@ -306,7 +306,7 @@ def test_cli_existing_output_short_circuits_before_credentials(tmp_path, capsys)
 
 def test_cli_invalid_response_does_not_create_output(monkeypatch, tmp_path, capsys):
     class FakeClient:
-        def __init__(self, username, password):
+        def __init__(self, username, password, **kwargs):
             pass
 
         def __enter__(self):
@@ -318,7 +318,7 @@ def test_cli_invalid_response_does_not_create_output(monkeypatch, tmp_path, caps
         def download_academic_document(self, kind):
             raise AcademicDocumentError("SIGAA did not return a valid PDF")
 
-    settings = SimpleNamespace(
+    settings = SimpleNamespace(institution="ufpb",
         username="configured-user", resolve_password=lambda: "test-password"
     )
     target = tmp_path / "historico.pdf"

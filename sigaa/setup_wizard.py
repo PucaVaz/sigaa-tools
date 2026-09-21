@@ -15,13 +15,9 @@ from xml.sax.saxutils import escape
 from . import config
 from .client import SigaaClient
 from .config import Settings
+from .institutions import all, get
+from .institutions.base import InstitutionProfile
 from .services.sync import sync
-
-
-@dataclass(frozen=True)
-class Institution:
-    key: str
-    label: str
 
 
 @dataclass(frozen=True)
@@ -33,10 +29,11 @@ class LoginResult:
     password: str = field(repr=False)
 
 
-INSTITUTIONS = (Institution(key="ufpb", label="UFPB"),)
+
+INSTITUTIONS = tuple(provider.profile for provider in all())
 
 
-def select_institution(input_func: Callable[[str], str] = input) -> Institution:
+def select_institution(input_func: Callable[[str], str] = input) -> InstitutionProfile:
     print("Institution:")
     for index, institution in enumerate(INSTITUTIONS, start=1):
         print(f"  {index}. {institution.label}")
@@ -51,9 +48,9 @@ def select_institution(input_func: Callable[[str], str] = input) -> Institution:
     return selected
 
 
-def verify_and_store_login(username: str, password: str) -> LoginResult:
+def verify_and_store_login(username: str, password: str, *, institution: str | None = None) -> LoginResult:
     try:
-        with SigaaClient(username, password) as client:
+        with SigaaClient(username, password, **({"institution": institution} if institution else {})) as client:
             student = client.get_student()
     except Exception as e:
         error_msg = str(e).lower()
@@ -73,12 +70,15 @@ def verify_and_store_login(username: str, password: str) -> LoginResult:
     try:
         import keyring
 
-        keyring.set_password(config.KEYRING_SERVICE, username, password)
+        service = get(institution).profile.keyring_service
+        keyring.set_password(service, username, password)
         keyring.set_password(
-            config.KEYRING_SERVICE,
+            service,
             config.KEYRING_ACTIVE_USERNAME,
             username,
         )
+        keyring.set_password(config.KEYRING_SETTINGS_SERVICE, config.KEYRING_ACTIVE_INSTITUTION,
+                             get(institution).profile.key)
     except Exception:
         password_stored = False
         storage_message = (
@@ -98,7 +98,7 @@ def prompt_login(settings: Settings, input_func: Callable[[str], str] = input) -
     if not settings.username:
         settings.username = input_func("SIGAA username: ").strip()
     password = getpass.getpass("SIGAA password: ")
-    result = verify_and_store_login(settings.username, password)
+    result = verify_and_store_login(settings.username, password, institution=settings.institution)
     print(f"login ok: {result.name} ({result.matricula}) - {result.storage_message}")
     return result
 
@@ -185,7 +185,7 @@ def write_env_template(path: Path, *, username: str) -> None:
 
 def run_init(settings: Settings, input_func: Callable[[str], str] = input) -> int:
     print("sigaa init")
-    institution = select_institution(input_func)
+    institution = get(settings.institution).profile
     print(f"Using {institution.label}.")
 
     login = _prompt_login_until_ok(settings, input_func)
@@ -243,7 +243,7 @@ def _sync_settings(settings: Settings, login: LoginResult) -> Settings:
         def resolve_password(self) -> str | None:
             return login.password
 
-    return InitSettings(db_path=settings.db_path, username=settings.username)
+    return InitSettings(db_path=settings.db_path, username=settings.username, institution=settings.institution)
 
 
 def _write_schedule(*, username: str) -> None:
