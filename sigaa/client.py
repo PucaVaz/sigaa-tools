@@ -25,6 +25,7 @@ from .models import (
     CoursePlan,
     CurriculumStatus,
     Deadline,
+    ExtensionParticipation,
     Grade,
     Material,
     NewsItem,
@@ -35,6 +36,7 @@ from .models import (
 )
 from .parsers import attendance as attendance_parser
 from .parsers import curriculum as curriculum_parser
+from .parsers import extensao as extensao_parser
 from .parsers import grades as grades_parser
 from .parsers import plano as plano_parser
 from .parsers import materials as materials_parser
@@ -43,6 +45,8 @@ from .parsers import participantes as participantes_parser
 from .parsers import portal as portal_parser
 from .parsers import tarefa as tarefa_parser
 from .parsers import transcript as transcript_parser
+
+EXTENSION_DOCUMENTS_MENU_LABEL = "Certificados e Declarações"
 
 
 class SigaaClient:
@@ -75,6 +79,15 @@ class SigaaClient:
     def get_grades(self) -> list[Grade]:
         html = self._portal_menu_post("Minhas Notas")
         return grades_parser.parse_grades(html)
+
+    def list_extension_participations(self) -> list[ExtensionParticipation]:
+        """Extension participations and which of their documents can be issued now.
+
+        Read-only: opens the 'Certificados e Declarações' page and never
+        triggers a declaration or certificate emission.
+        """
+        html = self._portal_menu_post(EXTENSION_DOCUMENTS_MENU_LABEL)
+        return extensao_parser.parse_extension_participations(html)
 
     def open_matricula_curriculo(self) -> str:
         """Navigate Portal -> Realizar Matrícula -> Iniciar Seleção; return the
