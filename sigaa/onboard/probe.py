@@ -1,7 +1,7 @@
 """Offline, value-free parser diagnostics from immutable capture bodies."""
-from dataclasses import fields, is_dataclass
 import hashlib
 import json
+from dataclasses import fields, is_dataclass
 from pathlib import Path
 
 from ..errors import ParseError
@@ -28,7 +28,8 @@ def summarize(value):
         for item in value:
             if is_dataclass(item):
                 for field in fields(item):
-                    present[field.name] = present.get(field.name, False) or bool(getattr(item, field.name))
+                    has_value = bool(getattr(item, field.name))
+                    present[field.name] = present.get(field.name, False) or has_value
         return count, present
     if is_dataclass(value):
         present = {field.name: bool(getattr(value, field.name)) for field in fields(value)}
@@ -79,6 +80,10 @@ def probe(directory: Path):
                 row["status"] = "ok" if row["count"] else "empty_confirmed"
             except (ParseError, ValueError, KeyError, TypeError, OSError, LookupError):
                 row["status"] = "unrecognized"
-    return {"institution": provider.profile.key, "captured_at": manifest.get("captured_at"),
-            "versions": sorted({str(e["sigaa_version"]) for e in entries if e.get("sigaa_version")}),
-            "features": results}
+    versions = {str(entry["sigaa_version"]) for entry in entries if entry.get("sigaa_version")}
+    return {
+        "institution": provider.profile.key,
+        "captured_at": manifest.get("captured_at"),
+        "versions": sorted(versions),
+        "features": results,
+    }

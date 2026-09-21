@@ -65,7 +65,7 @@ def _repo(tmp_path):
 
 def test_privacy_gate_scans_staged_blob_even_when_working_copy_is_clean(tmp_path):
     root = _repo(tmp_path)
-    identity = {"name": secrets.token_hex(), "username": secrets.token_hex(), "matricula": secrets.token_hex()}
+    identity = {key: secrets.token_hex() for key in ("name", "username", "matricula")}
     target = root / "fixture.html"
     target.write_text(identity["matricula"])
     subprocess.run(["git", "add", "fixture.html"], cwd=root, check=True)

@@ -47,7 +47,9 @@ def register(sub):
     gate.add_argument("--explanations", type=Path, help="JSON feature-to-explanation mapping")
     gate.add_argument("--json", action="store_true")
     gate.set_defaults(func=run_check, public_without_settings=True)
-    report_cmd = commands.add_parser("report", help="write compatibility documentation and a PR body")
+    report_cmd = commands.add_parser(
+        "report", help="write compatibility documentation and a PR body"
+    )
     report_cmd.add_argument("--from", dest="source", type=Path, required=True)
     report_cmd.set_defaults(func=run_report, public_without_settings=True)
 
