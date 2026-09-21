@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 import time
@@ -17,7 +18,7 @@ import httpx
 
 from . import setup_wizard
 from .client import SigaaClient
-from .config import Settings
+from .config import Settings, default_institution
 from .curriculum import COMPONENT_VIEWS, curriculum_to_dict
 from .documents import (
     ATESTADO_MATRICULA,
@@ -27,11 +28,11 @@ from .documents import (
     write_academic_document,
 )
 from .errors import ParseError, UnsupportedFeatureError
-from .institutions import get, Capability
-from .config import default_institution
 from .exporters.ics import build_calendar
 from .extensao import participations_to_dict
 from .http import AuthError
+from .institutions import Capability, get
+from .onboard.cli import register as register_onboard
 from .parsers.curriculum import CurriculumDataError
 from .parsers.schedule import day_name, decode_schedule
 from .parsers.sipac import SipacParseError
@@ -47,6 +48,9 @@ from .sipac import (
 from .store.db import connect
 from .store.repository import Repository
 
+# What a live SIGAA read can raise once credentials resolved: auth, a page or
+# menu item that is not recognized (ParseError), a rejected value, the network.
+_LIVE_ERRORS = (AuthError, ParseError, ValueError, httpx.HTTPError)
 DEFAULT_WATCH_INTERVAL_SECONDS = 900
 EXIT_WATCH_FAILED = 1
 _INTERVAL_RE = re.compile(r"^(\d+)([smh]?)$")
@@ -62,20 +66,12 @@ def main(argv: list[str] | None = None) -> int:
     if getattr(args, "public_without_settings", False):
         settings = None
     else:
-        settings = Settings(institution=args.institution) if getattr(args, "institution", None) else Settings()
-        if getattr(args, "user", None):
-            settings.username = args.user
-        if getattr(args, "db", None):
-            settings.db_path = Path(args.db).expanduser()
+        settings = _settings(args, getattr(args, "institution", None))
     try:
-        capability = {
-            "sipac": Capability.SIPAC, "curriculum": Capability.CURRICULUM_JSON,
-            "matricula": Capability.MATRICULA, "extensao": Capability.EXTENSAO,
-            "historico": Capability.DOCUMENTS, "cra": Capability.DOCUMENTS,
-            "declaracao-vinculo": Capability.DOCUMENTS, "atestado": Capability.DOCUMENTS,
-        }.get(args.command)
-        if capability:
-            get(settings.institution if settings else default_institution()).profile.require(capability)
+        capability = getattr(args, "capability", None)
+        if capability is not None:
+            institution = settings.institution if settings else default_institution()
+            get(institution).profile.require(capability)
         return args.func(args, settings)
     except UnsupportedFeatureError as exc:
         if getattr(args, "json", False):
@@ -86,6 +82,15 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("\nsetup cancelled", file=sys.stderr)
         return 130
+
+
+def _settings(args, institution: str | None) -> Settings:
+    settings = Settings(institution=institution) if institution else Settings()
+    if getattr(args, "user", None):
+        settings.username = args.user
+    if getattr(args, "db", None):
+        settings.db_path = Path(args.db).expanduser()
+    return settings
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -119,13 +124,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "--professor", help="only classes taught by a teacher whose name contains this text"
     )
     p_classes.add_argument("--json", action="store_true")
-    p_classes.set_defaults(func=_cmd_classes)
+    p_classes.set_defaults(func=_cmd_classes, capability=Capability.PORTAL)
 
     p_grades = sub.add_parser("grades", help="list grades from the store")
     p_grades.add_argument("--semester", help="filter by semester, e.g. 2025.1")
     p_grades.add_argument("--class", dest="klass", help="show one class's per-turma grade breakdown")
     p_grades.add_argument("--json", action="store_true")
-    p_grades.set_defaults(func=_cmd_grades)
+    p_grades.set_defaults(func=_cmd_grades, capability=Capability.GRADES)
 
     p_curriculum = sub.add_parser(
         "curriculum",
@@ -154,11 +159,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="skip the academic-transcript request",
     )
     p_curriculum.add_argument("--json", action="store_true")
-    p_curriculum.set_defaults(func=_cmd_curriculum)
+    p_curriculum.set_defaults(func=_cmd_curriculum, capability=Capability.CURRICULUM_JSON)
 
     p_cra = sub.add_parser("cra", help="show the official CRA from the transcript")
     p_cra.add_argument("--json", action="store_true")
-    p_cra.set_defaults(func=_cmd_cra)
+    p_cra.set_defaults(func=_cmd_cra, capability=Capability.DOCUMENTS)
 
     p_extensao = sub.add_parser(
         "extensao",
@@ -166,7 +171,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "(networked)",
     )
     p_extensao.add_argument("--json", action="store_true")
-    p_extensao.set_defaults(func=_cmd_extensao)
+    p_extensao.set_defaults(func=_cmd_extensao, capability=Capability.EXTENSAO)
 
     p_sipac = sub.add_parser(
         "sipac",
@@ -181,6 +186,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_sipac_process.add_argument("--json", action="store_true")
     p_sipac_process.set_defaults(
         func=_cmd_sipac_process,
+        capability=Capability.SIPAC,
         public_without_settings=True,
     )
     p_sipac_search = sipac_sub.add_parser(
@@ -196,28 +202,33 @@ def _build_parser() -> argparse.ArgumentParser:
     p_sipac_search.add_argument("--json", action="store_true")
     p_sipac_search.set_defaults(
         func=_cmd_sipac_search,
+        capability=Capability.SIPAC,
         public_without_settings=True,
     )
 
     p_dl = sub.add_parser("deadlines", help="list assessment/task deadlines from the store")
     p_dl.add_argument("--class", dest="klass", help="filter by class code")
     p_dl.add_argument("--json", action="store_true")
-    p_dl.set_defaults(func=_cmd_deadlines)
+    p_dl.set_defaults(func=_cmd_deadlines, capability=Capability.PORTAL)
 
     p_ics = sub.add_parser("ics", help="export classes + deadlines as an .ics calendar")
     p_ics.add_argument("--out", help="output file (default: stdout)")
-    p_ics.set_defaults(func=_cmd_ics)
+    p_ics.set_defaults(func=_cmd_ics, capability=Capability.CALENDAR)
 
     p_matr = sub.add_parser("matricula", help="matrícula on-line: list open sections, select, confirm (networked)")
     p_matr.add_argument("--select", nargs="+", metavar="TURMA_ID", help="add these sections to the enrollment request")
     p_matr.add_argument("--confirm", action="store_true", help="press CONFIRMAR MATRÍCULAS after selecting (submits the request)")
     p_matr.add_argument("--json", action="store_true")
-    p_matr.set_defaults(func=_cmd_matricula)
+    p_matr.set_defaults(func=_cmd_matricula, capability=Capability.MATRICULA)
 
     p_hist = sub.add_parser("historico", help="download the academic transcript PDF (networked)")
     p_hist.add_argument("--out", default="historico.pdf", help="output file (default: historico.pdf)")
     p_hist.add_argument("--force", action="store_true", help="overwrite an existing output file")
-    p_hist.set_defaults(func=_cmd_academic_document, document_kind=HISTORICO)
+    p_hist.set_defaults(
+        func=_cmd_academic_document,
+        document_kind=HISTORICO,
+        capability=Capability.DOCUMENTS,
+    )
 
     p_decl = sub.add_parser(
         "declaracao-vinculo",
@@ -229,7 +240,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="output file (default: declaracao-vinculo.pdf)",
     )
     p_decl.add_argument("--force", action="store_true", help="overwrite an existing output file")
-    p_decl.set_defaults(func=_cmd_academic_document, document_kind=DECLARACAO_VINCULO)
+    p_decl.set_defaults(
+        func=_cmd_academic_document,
+        document_kind=DECLARACAO_VINCULO,
+        capability=Capability.DOCUMENTS,
+    )
 
     p_cert = sub.add_parser(
         "atestado-matricula",
@@ -241,14 +256,18 @@ def _build_parser() -> argparse.ArgumentParser:
         help="output file (default: atestado-matricula.html)",
     )
     p_cert.add_argument("--force", action="store_true", help="overwrite an existing output file")
-    p_cert.set_defaults(func=_cmd_academic_document, document_kind=ATESTADO_MATRICULA)
+    p_cert.set_defaults(
+        func=_cmd_academic_document,
+        document_kind=ATESTADO_MATRICULA,
+        capability=Capability.DOCUMENTS,
+    )
 
     p_news = sub.add_parser("news", help="list news from the store")
     p_news.add_argument("--class", dest="klass", help="filter by class code")
     p_news.add_argument("--unread", action="store_true")
     p_news.add_argument("--mark-seen", action="store_true")
     p_news.add_argument("--json", action="store_true")
-    p_news.set_defaults(func=_cmd_news)
+    p_news.set_defaults(func=_cmd_news, capability=Capability.NEWS)
 
     p_mat = sub.add_parser("materials", help="list class materials; download with --download/--download-all")
     p_mat.add_argument("--class", dest="klass", help="filter by class code")
@@ -257,17 +276,17 @@ def _build_parser() -> argparse.ArgumentParser:
     p_mat.add_argument("--download-all", action="store_true", help="download all file materials (networked)")
     p_mat.add_argument("--dir", default=".", help="output directory for downloads (default: .)")
     p_mat.add_argument("--json", action="store_true")
-    p_mat.set_defaults(func=_cmd_materials)
+    p_mat.set_defaults(func=_cmd_materials, capability=Capability.MATERIALS)
 
     p_att = sub.add_parser("attendance", help="per-date attendance map for a class (networked)")
     p_att.add_argument("--class", dest="klass", required=True, help="class code")
     p_att.add_argument("--json", action="store_true")
-    p_att.set_defaults(func=_cmd_attendance)
+    p_att.set_defaults(func=_cmd_attendance, capability=Capability.ATTENDANCE)
 
     p_plan = sub.add_parser("plan", help="Plano de Curso: cronograma + evaluation dates (networked)")
     p_plan.add_argument("--class", dest="klass", required=True, help="class code")
     p_plan.add_argument("--json", action="store_true")
-    p_plan.set_defaults(func=_cmd_plan)
+    p_plan.set_defaults(func=_cmd_plan, capability=Capability.PLAN)
 
     p_whatsnew = sub.add_parser("whatsnew", help="everything unseen: news, materials, deadlines, grades")
     p_whatsnew.add_argument("--mark-seen", action="store_true", help="clear items after showing them")
@@ -302,8 +321,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="mark everything currently stored as already reported, without emitting it",
     )
     p_watch.set_defaults(func=_cmd_watch)
-    from .onboard.cli import register
-    register(sub)
+    register_onboard(sub)
     return parser
 
 
@@ -313,7 +331,9 @@ def _cmd_login(args, settings: Settings) -> int:
 
 
 def _cmd_init(args, settings: Settings) -> int:
-    return setup_wizard.run_init(settings)
+    if args.institution or os.environ.get("SIGAA_INSTITUTION"):
+        return setup_wizard.run_init(settings)
+    return setup_wizard.run_init(settings, settings_for=lambda key: _settings(args, key))
 
 
 def _cmd_sync(args, settings: Settings) -> int:
@@ -448,6 +468,7 @@ def _cmd_curriculum(args, settings: Settings) -> int:
         AcademicDocumentError,
         AuthError,
         CurriculumDataError,
+        ParseError,
         TranscriptParseError,
         ValueError,
         httpx.HTTPError,
@@ -483,6 +504,7 @@ def _cmd_cra(args, settings: Settings) -> int:
     except (
         AcademicDocumentError,
         AuthError,
+        ParseError,
         TranscriptParseError,
         ValueError,
         httpx.HTTPError,
@@ -600,7 +622,9 @@ def _cmd_deadlines(args, settings: Settings) -> int:
 
 def _cmd_ics(args, settings: Settings) -> int:
     repo = Repository(connect(settings.db_path))
-    ics = build_calendar(repo.get_turmas(), repo.get_deadlines(), institution=settings.institution)
+    ics = build_calendar(
+        repo.get_turmas(), repo.get_deadlines(), institution=settings.institution
+    )
     if args.out:
         with open(args.out, "w", encoding="utf-8") as fh:
             fh.write(ics)
@@ -611,8 +635,6 @@ def _cmd_ics(args, settings: Settings) -> int:
 
 
 def _cmd_matricula(args, settings: Settings) -> int:
-    from .parsers import matricula as matricula_parser
-
     password = settings.resolve_password()
     if not settings.username or not password:
         print(settings.credentials_problem(), file=sys.stderr)
@@ -620,6 +642,16 @@ def _cmd_matricula(args, settings: Settings) -> int:
     if args.confirm and not args.select:
         print("--confirm requires --select", file=sys.stderr)
         return 1
+    try:
+        return _run_matricula(args, settings, password)
+    except _LIVE_ERRORS as exc:
+        print(f"matrícula failed: {exc}", file=sys.stderr)
+        return 1
+
+
+def _run_matricula(args, settings: Settings, password: str) -> int:
+    from .parsers import matricula as matricula_parser
+
     with SigaaClient(settings.username, password, institution=settings.institution) as client:
         curriculo_html = client.open_matricula_curriculo()
         if not args.select:
@@ -661,7 +693,7 @@ def _cmd_academic_document(args, settings: Settings) -> int:
     try:
         with SigaaClient(settings.username, password, institution=settings.institution) as client:
             document = client.download_academic_document(args.document_kind)
-    except (AcademicDocumentError, AuthError, ValueError) as exc:
+    except (AcademicDocumentError, AuthError, ParseError, ValueError) as exc:
         print(f"download failed: {exc}", file=sys.stderr)
         return 1
     try:
@@ -713,18 +745,22 @@ def _download_materials(args, settings: Settings, repo: Repository, id_turma) ->
 
     out_dir = Path(args.dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    with SigaaClient(settings.username, password, institution=settings.institution) as client:
-        turmas = {t.id_turma: t for t in client.list_turmas()}
-        for m in stored:
-            turma = turmas.get(m.id_turma)
-            if turma is None:
-                print(f"  ! {m.title}: class not found", file=sys.stderr)
-                continue
-            content, filename = client.download_material(turma, m.id)
-            path = out_dir / filename
-            with open(path, "wb") as fh:
-                fh.write(content)
-            print(f"  wrote {path} ({len(content)} bytes)")
+    try:
+        with SigaaClient(settings.username, password, institution=settings.institution) as client:
+            turmas = {t.id_turma: t for t in client.list_turmas()}
+            for m in stored:
+                turma = turmas.get(m.id_turma)
+                if turma is None:
+                    print(f"  ! {m.title}: class not found", file=sys.stderr)
+                    continue
+                content, filename = client.download_material(turma, m.id)
+                path = out_dir / filename
+                with open(path, "wb") as fh:
+                    fh.write(content)
+                print(f"  wrote {path} ({len(content)} bytes)")
+    except _LIVE_ERRORS as exc:
+        print(f"download failed: {exc}", file=sys.stderr)
+        return 1
     return 0
 
 
@@ -738,8 +774,13 @@ def _live_turma(args, settings: Settings):
     stored = repo.get_turma(args.klass)
     id_turma = stored.id_turma if stored else args.klass
     client = SigaaClient(settings.username, password, institution=settings.institution)
-    turma = next((t for t in client.list_turmas()
-                  if t.id_turma == id_turma or t.code == args.klass), None)
+    try:
+        turma = next((t for t in client.list_turmas()
+                      if t.id_turma == id_turma or t.code == args.klass), None)
+    except _LIVE_ERRORS as exc:
+        client.close()
+        print(f"class lookup failed: {exc}", file=sys.stderr)
+        return None, None
     if turma is None:
         client.close()
         print(f"class {args.klass!r} not found", file=sys.stderr)
@@ -751,8 +792,12 @@ def _cmd_attendance(args, settings: Settings) -> int:
     client, turma = _live_turma(args, settings)
     if client is None:
         return 1
-    with client:
-        attendance = client.get_attendance(turma)
+    try:
+        with client:
+            attendance = client.get_attendance(turma)
+    except _LIVE_ERRORS as exc:
+        print(f"attendance lookup failed: {exc}", file=sys.stderr)
+        return 1
     if attendance is None:
         print("attendance map not available for this class", file=sys.stderr)
         return 1
@@ -779,8 +824,12 @@ def _cmd_plan(args, settings: Settings) -> int:
     client, turma = _live_turma(args, settings)
     if client is None:
         return 1
-    with client:
-        plan = client.get_course_plan(turma)
+    try:
+        with client:
+            plan = client.get_course_plan(turma)
+    except _LIVE_ERRORS as exc:
+        print(f"course plan lookup failed: {exc}", file=sys.stderr)
+        return 1
     if plan is None:
         print("course plan not available for this class", file=sys.stderr)
         return 1

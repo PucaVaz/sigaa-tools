@@ -10,12 +10,29 @@ import pytest
 from sigaa.client import SigaaClient
 from sigaa.config import Settings
 from sigaa.http import Session
-from sigaa.institutions import get
+from sigaa.institutions import Capability, get
 from sigaa.models import Turma
 from sigaa.onboard import capture as module
-from sigaa.onboard.capture import ReadOnlySession, ReadOnlyViolation, private_write, private_directory
+from sigaa.onboard.capture import (
+    ReadOnlySession,
+    ReadOnlyViolation,
+    private_directory,
+    private_write,
+)
 from sigaa.onboard.features import Feature
-from sigaa.institutions import Capability
+
+
+UFPB = get("ufpb")
+
+
+def _session(raw):
+    return Session(
+        "test-student",
+        secrets.token_urlsafe(),
+        client=raw,
+        profile=UFPB.profile,
+        navigator=UFPB.navigator,
+    )
 
 
 @pytest.mark.parametrize("data", [
@@ -30,10 +47,10 @@ def test_read_only_refuses_submit_controls(data):
 def test_transport_guard_cannot_be_bypassed_by_a_navigator():
     requests = []
     raw = httpx.Client(transport=httpx.MockTransport(lambda req: requests.append(req)))
-    with Session("test", secrets.token_urlsafe(), client=raw) as session:
+    with _session(raw) as session:
         ReadOnlySession(session)
         with pytest.raises(ReadOnlyViolation):
-            raw.post(get().profile.ava_url, data={"form:botaoSubmissao": "x"})
+            raw.post(UFPB.profile.ava_url, data={"form:botaoSubmissao": "x"})
     assert requests == []
 
 
@@ -66,24 +83,29 @@ def test_capture_preserves_http_bytes_metadata_and_two_class_contexts(monkeypatc
     def factory(username, password, **kwargs):
         client = SigaaClient(username, password, **kwargs)
         client._session.close()
-        client._session = Session(username, password,
-                                  client=httpx.Client(transport=httpx.MockTransport(handler)))
+        client._session = _session(httpx.Client(transport=httpx.MockTransport(handler)))
+        url = UFPB.profile.portal_entry_url
         client._session._authenticated = True
-        client._session.login = lambda: client._session._client.get(get().profile.portal_entry_url).text
-        client.list_turmas = lambda: [Turma(id_turma="1", name="First"), Turma(id_turma="2", name="Second")]
+        client._session.login = lambda: client._session._client.get(url).text
+        turmas = [Turma(id_turma="1", name="First"), Turma(id_turma="2", name="Second")]
+        client.list_turmas = lambda: turmas
         return client
     feature = Feature("class", Capability.PORTAL,
                       lambda client, turma: client._session.post(client.profile.ava_url,
                                                                  {"idTurma": turma.id_turma}),
                       lambda *_: [], True)
     monkeypatch.setattr(module, "SigaaClient", factory)
-    monkeypatch.setattr(module, "FEATURES", (feature, replace(feature, key="enroll", opt_in=True)))
+    cached = replace(feature, key="cached", needs_turma=False,
+                     fetcher=lambda client, turma: "<html>served from memory</html>")
+    features = (feature, replace(feature, key="enroll", opt_in=True), cached)
+    monkeypatch.setattr(module, "FEATURES", features)
     monkeypatch.setenv("SIGAA_PASS", secrets.token_urlsafe())
     settings = Settings(username="test-student", db_path=tmp_path / "db")
     directory, manifest = module.capture(settings, output=tmp_path / "captures")
     entries = manifest["entries"]
     assert [e["turma_id"] for e in entries[:2]] == ["1", "2"]
     assert all(e["status"] == "not_captured" for e in entries[2:])
+    assert entries[-1]["feature"] == "cached" and "file" not in entries[-1]
     assert len(requests) == 3
     for entry in entries[:2]:
         assert (directory / entry["file"]).read_bytes() == payload
@@ -94,3 +116,53 @@ def test_capture_preserves_http_bytes_metadata_and_two_class_contexts(monkeypatc
     for path in directory.iterdir():
         assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert json.loads((directory / "identity.json").read_text())["username"] == "test-student"
+
+
+def test_recorder_keeps_only_the_last_non_redirect_response():
+    def handler(request):
+        if request.url.path == "/start":
+            return httpx.Response(302, headers={"Location": "https://sigaa.ufpb.br/final"})
+        return httpx.Response(200, text=request.url.path)
+
+    raw = httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True)
+    with _session(raw) as session:
+        recorder = ReadOnlySession(session)
+        raw.get("https://sigaa.ufpb.br/start")
+        assert recorder.last_response.text == "/final"
+        raw.get("https://sigaa.ufpb.br/other")
+        assert recorder.last_response.text == "/other"
+        assert not hasattr(recorder, "responses")
+
+
+def test_login_probe_defaults_to_the_active_institution(monkeypatch, capsys):
+    from sigaa import cli
+    from sigaa.institutions import registry
+    from sigaa.institutions.base import Institution
+
+    other = replace(
+        UFPB.profile,
+        key="example",
+        host="https://sigaa.example.edu",
+        logon_url="https://sigaa.example.edu/login",
+    )
+    monkeypatch.setitem(registry._PROVIDERS, other.key, Institution(other, UFPB.navigator))
+    monkeypatch.setenv("SIGAA_INSTITUTION", other.key)
+    requested = []
+
+    class Client:
+        def __init__(self, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def get(self, url):
+            requested.append(url)
+            return httpx.Response(200, text="<form></form>", request=httpx.Request("GET", url))
+
+    monkeypatch.setattr("sigaa.onboard.cli.httpx.Client", Client)
+    assert cli.main(["onboard", "login-probe"]) == 1
+    assert requested == ["https://sigaa.example.edu/login"]

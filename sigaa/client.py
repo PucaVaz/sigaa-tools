@@ -9,8 +9,6 @@ from decimal import Decimal
 
 import httpx
 
-from .errors import NavigationError
-from .institutions import get, MenuLabel, Capability
 from .documents import (
     ATESTADO_MATRICULA,
     DECLARACAO_VINCULO,
@@ -20,7 +18,9 @@ from .documents import (
     document_spec,
     validate_academic_document,
 )
+from .errors import NavigationError
 from .http import AuthError, Session, extract_viewstate
+from .institutions import Capability, MenuLabel, get
 from .models import (
     Attendance,
     CoursePlan,
@@ -47,13 +47,8 @@ from .parsers import portal as portal_parser
 from .parsers import tarefa as tarefa_parser
 from .parsers import transcript as transcript_parser
 
-EXTENSION_DOCUMENTS_MENU_LABEL = get().profile.menu_labels[MenuLabel.EXTENSION_DOCS]
-
 
 class SigaaClient:
-    profile = get().profile
-    navigator = get().navigator
-
     def __init__(
         self,
         username: str,
@@ -63,9 +58,15 @@ class SigaaClient:
         institution: str | None = None,
     ):
         provider = get(institution)
-        self.profile, self.navigator = provider.profile, provider.navigator
-        options = {"profile": self.profile, "navigator": self.navigator} if institution else {}
-        self._session = Session(username, password, timeout=timeout, **options)
+        self.profile = provider.profile
+        self.navigator = provider.navigator
+        self._session = Session(
+            username,
+            password,
+            timeout=timeout,
+            profile=self.profile,
+            navigator=self.navigator,
+        )
         self._portal_html: str | None = None
         self._spent_principals: set[str] = set()
 
@@ -228,12 +229,13 @@ class SigaaClient:
         and rebuild the payload from the newly rendered portal before retrying.
         """
         self.profile.require(Capability.DOCUMENTS)
-        spec = document_spec(kind, self.profile)
+        spec = document_spec(kind)
+        menu_label = self.profile.menu_labels[spec.menu_label]
         for attempt in range(2):
             portal = self._portal()
-            fields = portal_parser.build_menu_postback(portal, spec.menu_label)
+            fields = portal_parser.build_menu_postback(portal, menu_label)
             if fields is None:
-                raise NavigationError(f"portal document menu item not found: {spec.menu_label!r}")
+                raise NavigationError(f"portal document menu item not found: {menu_label!r}")
             try:
                 content, content_type, _ = self._session.post_download(
                     self.profile.portal_action_url,
@@ -283,25 +285,29 @@ class SigaaClient:
     def get_turma_grades(self, turma: Turma, turma_html: str | None = None) -> TurmaGrade | None:
         """Per-turma grade report (Ver Notas), linked to the turma."""
         self.profile.require(Capability.GRADES)
-        html = self._turma_menu_post(turma, self.profile.menu_labels[MenuLabel.TURMA_GRADES], turma_html)
+        label = self.profile.menu_labels[MenuLabel.TURMA_GRADES]
+        html = self._turma_menu_post(turma, label, turma_html)
         return grades_parser.parse_turma_grades(html, turma.id_turma)
 
     def get_attendance(self, turma: Turma, turma_html: str | None = None) -> Attendance | None:
         """Per-date attendance map (Frequência)."""
         self.profile.require(Capability.ATTENDANCE)
-        html = self._turma_menu_post(turma, self.profile.menu_labels[MenuLabel.ATTENDANCE], turma_html)
+        label = self.profile.menu_labels[MenuLabel.ATTENDANCE]
+        html = self._turma_menu_post(turma, label, turma_html)
         return attendance_parser.parse_attendance(html, turma.id_turma)
 
     def get_course_plan(self, turma: Turma, turma_html: str | None = None) -> CoursePlan | None:
         """Plano de Curso: class schedule (cronograma) and evaluation dates."""
         self.profile.require(Capability.PLAN)
-        html = self._turma_menu_post(turma, self.profile.menu_labels[MenuLabel.PLAN], turma_html)
+        label = self.profile.menu_labels[MenuLabel.PLAN]
+        html = self._turma_menu_post(turma, label, turma_html)
         return plano_parser.parse_course_plan(html, turma.id_turma)
 
     def list_professors(self, turma: Turma, turma_html: str | None = None) -> list[Professor]:
         """Teaching staff of a turma (Participantes)."""
         self.profile.require(Capability.PARTICIPANTS)
-        html = self._turma_menu_post(turma, self.profile.menu_labels[MenuLabel.PARTICIPANTS], turma_html)
+        label = self.profile.menu_labels[MenuLabel.PARTICIPANTS]
+        html = self._turma_menu_post(turma, label, turma_html)
         return participantes_parser.parse_professors(html, turma.id_turma)
 
     def list_news(self, turma: Turma, turma_html: str | None = None) -> list[NewsItem]:
@@ -309,31 +315,29 @@ class SigaaClient:
         html = turma_html or self.enter_turma(turma)
         return news_parser.parse_news_list(html, turma.id_turma)
 
-    def get_news_body(self, turma: Turma, news_id: str, turma_html: str | None = None) -> str | None:
+    def get_news_body(self, turma: Turma, news_id: str, turma_html: str | None = None) -> str:
         html = self._principal_for_postback(turma, turma_html)
         fields = news_parser.build_body_postback(
             html, news_id, extract_viewstate(html, default="j_id2")
         )
         if fields is None:
-            return None
+            raise NavigationError(f"news body postback not found: {news_id!r}")
         body_html = self._session.post(self.profile.ava_url, fields)
         return news_parser.parse_news_body(body_html)
 
-    def _open_event(self, event_id: str) -> str | None:
+    def _open_event(self, event_id: str) -> str:
         """Replay the portal deadline anchor's postback to render the event page."""
         return self.navigator.open_event(self._session, self._portal(), event_id)
 
-    def get_tarefa_body(self, event_id: str) -> dict | None:
+    def get_tarefa_body(self, event_id: str) -> dict:
         """Open a portal deadline event (tarefa/atividade) and scrape its details.
 
         The deadline's portal anchor carries the idTurma, so only the event id is
-        needed. Returns the detail rows as a dict, or None if the event has no
-        scrapeable form (e.g. it is not a tarefa).
+        needed. Returns the detail rows as a dict. An event page without a detail
+        form (e.g. an avaliação) raises ``UnrecognizedPageError``, and an event
+        that is no longer on the portal raises ``NavigationError``.
         """
-        html = self._open_event(event_id)
-        if html is None:
-            return None
-        return tarefa_parser.parse_tarefa_body(html)
+        return tarefa_parser.parse_tarefa_body(self._open_event(event_id))
 
     def download_tarefa_attachment(self, event_id: str) -> tuple[bytes, str] | None:
         """Download a tarefa's teacher attachment (Arquivo do Professor).
@@ -342,8 +346,6 @@ class SigaaClient:
         attachment. The filename falls back to the task's own name + extension.
         """
         html = self._open_event(event_id)
-        if html is None:
-            return None
         href = tarefa_parser.find_professor_attachment(html)
         if href is None:
             return None
@@ -374,7 +376,9 @@ class SigaaClient:
         )
         if fields is None:
             raise ValueError(f"could not build download request for material {material_id!r}")
-        content, content_type, disposition = self._session.post_download(self.profile.ava_url, fields)
+        content, content_type, disposition = self._session.post_download(
+            self.profile.ava_url, fields
+        )
         filename = materials_parser.filename_for(material.title, content_type, disposition)
         return content, filename
 

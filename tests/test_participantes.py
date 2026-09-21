@@ -1,7 +1,8 @@
-import pytest
-from sigaa.errors import ParseError
 from pathlib import Path
 
+import pytest
+
+from sigaa.errors import ParseError
 from sigaa.parsers import participantes as participantes_parser
 from sigaa.store.db import connect
 from sigaa.store.repository import Repository

@@ -54,11 +54,26 @@ class UnsupportedFeatureError(SigaaError, ValueError):
 
 
 class UnsafeUrlError(SigaaError, ValueError):
-    """A request or redirect left the selected institution's HTTPS origin."""
+    """A request or redirect left the selected institution's HTTPS origin.
+
+    Staged as ``network``: SIGAA answered with a hop the allowlist refuses, for
+    example an ``http://`` redirect. The message names only the scheme, host and
+    port, never a path, query or embedded credentials.
+    """
+
+    stage = STAGE_NETWORK
+
+    def __init__(self, scheme: str, host: str | None, port: int | None, reason: str):
+        self.scheme = scheme
+        self.host = host
+        self.port = port
+        origin = f"{scheme}://{host or ''}" + (f":{port}" if port else "")
+        super().__init__(f"request blocked: {origin} {reason}")
 
 
 class UnrecognizedPageError(ParseError):
     """Unknown markup; diagnostics describe structure, never student values."""
+
     def __init__(self, feature, fingerprint):
         self.feature = feature
         self.fingerprint = fingerprint

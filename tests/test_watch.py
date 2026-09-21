@@ -9,8 +9,15 @@ import pytest
 
 from conftest import FIXTURES, TEST_PASSWORD, TEST_USERNAME
 from sigaa import cli, config
+from sigaa.institutions import ufpb
 from sigaa.config import Settings
-from sigaa.errors import STAGE_AUTH, STAGE_NETWORK, STAGE_PARSE, LoginRejectedError
+from sigaa.errors import (
+    STAGE_AUTH,
+    STAGE_NETWORK,
+    STAGE_PARSE,
+    LoginRejectedError,
+    UnsafeUrlError,
+)
 from sigaa.services import watch
 from sigaa.store.db import connect
 from sigaa.store.repository import Repository
@@ -25,8 +32,8 @@ FIXED_NOW = datetime(2026, 9, 14, 1, 40, tzinfo=timezone.utc)
 
 @pytest.fixture
 def logged_in(clean_credentials):
-    clean_credentials[(config.KEYRING_SERVICE, config.KEYRING_ACTIVE_USERNAME)] = TEST_USERNAME
-    clean_credentials[(config.KEYRING_SERVICE, TEST_USERNAME)] = TEST_PASSWORD
+    clean_credentials[(ufpb.KEYRING_SERVICE, config.KEYRING_ACTIVE_USERNAME)] = TEST_USERNAME
+    clean_credentials[(ufpb.KEYRING_SERVICE, TEST_USERNAME)] = TEST_PASSWORD
 
 
 @pytest.fixture
@@ -180,6 +187,16 @@ def test_auth_failure_is_an_error_event_not_no_changes(remote_class, tmp_path):
         "message": "login failed: SIGAA rejected the credentials",
         "class_id": None, "class_code": None,
     }]
+
+
+def test_blocked_redirect_is_a_network_error_naming_the_hop(remote_class, tmp_path):
+    remote_class.failure = UnsafeUrlError("http", "sigaa.ufpb.br", None, "is not HTTPS")
+
+    run = _run(tmp_path)
+
+    assert run.status == watch.STATUS_FAILED
+    assert run.events[0]["stage"] == STAGE_NETWORK
+    assert "http://sigaa.ufpb.br" in run.events[0]["message"]
 
 
 def test_missing_credentials_are_an_auth_error(fake_sigaa, clean_credentials, tmp_path):
@@ -361,13 +378,18 @@ def test_sync_json_keeps_old_keys_and_adds_class_summaries(remote_class, tmp_pat
     assert payload["class_summaries"][0]["news_new"] == 1
 
 
-@pytest.mark.parametrize("method", ["get_turma_grades", "get_attendance", "get_course_plan", "list_professors", "list_materials"])
+@pytest.mark.parametrize("method", [
+    "get_turma_grades", "get_attendance", "get_course_plan", "list_professors", "list_materials",
+])
 def test_class_feature_parse_failure_fails_watch(remote_class, tmp_path, monkeypatch, method):
-    from sigaa.services import sync as sync_module
     from sigaa.errors import UnrecognizedPageError
+    from sigaa.services import sync as sync_module
+
     client_type = remote_class.client_factory()
+
     def broken(self, *args, **kwargs):
         raise UnrecognizedPageError(method, {})
+
     monkeypatch.setattr(client_type, method, broken)
     monkeypatch.setattr(sync_module, "SigaaClient", client_type)
     run = _run(tmp_path)
@@ -377,11 +399,38 @@ def test_class_feature_parse_failure_fails_watch(remote_class, tmp_path, monkeyp
 
 def test_class_network_failure_keeps_network_stage(remote_class, tmp_path, monkeypatch):
     from sigaa.services import sync as sync_module
+
     client_type = remote_class.client_factory()
+
     def broken(self, *args, **kwargs):
         raise httpx.ReadTimeout("timeout")
+
     monkeypatch.setattr(client_type, "get_attendance", broken)
     monkeypatch.setattr(sync_module, "SigaaClient", client_type)
     run = _run(tmp_path)
     assert run.status == "failed"
     assert any(event.get("stage") == "network" for event in run.events)
+
+
+def test_missing_class_menu_item_fails_the_class_loudly(remote_class, tmp_path, monkeypatch):
+    # Before the stack a missing "Ver Notas" was swallowed as "no grades". Whether
+    # some UFPB classes legitimately lack a menu item is still open (ACCEPTANCE.md),
+    # so until then it is recorded against the class and fails the run.
+    from sigaa.errors import NavigationError
+    from sigaa.services import sync as sync_module
+
+    client_type = remote_class.client_factory()
+
+    def missing(self, *args, **kwargs):
+        raise NavigationError("turma menu item not found: 'Ver Notas'")
+
+    monkeypatch.setattr(client_type, "get_turma_grades", missing)
+    monkeypatch.setattr(sync_module, "SigaaClient", client_type)
+
+    run = _run(tmp_path)
+
+    assert run.status == watch.STATUS_FAILED
+    error = next(event for event in run.events if event["type"] == "error")
+    assert error["stage"] == STAGE_PARSE
+    assert error["class_id"] == REMOTE_ID
+    assert "grades: turma menu item not found: 'Ver Notas'" in error["message"]

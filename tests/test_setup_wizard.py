@@ -4,7 +4,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from sigaa import setup_wizard
-from sigaa.config import KEYRING_ACTIVE_USERNAME, KEYRING_SERVICE, Settings
+from sigaa.config import KEYRING_ACTIVE_USERNAME, Settings
+from sigaa.institutions.ufpb import KEYRING_SERVICE
 from sigaa.setup_wizard import (
     MCP_PACKAGE_SPEC,
     build_cron_line,
@@ -128,6 +129,10 @@ def test_merge_mcp_config_reports_unchanged_when_server_already_matches(tmp_path
     assert merge_mcp_config(path, server=server) is False
 
 
+def _unexpected_rebuild(key):
+    raise AssertionError(f"settings rebuilt for {key}")
+
+
 def _run_init_writing_mcp(monkeypatch, tmp_path, *, password_stored: bool) -> dict:
     """Drive run_init far enough to write .mcp.json, declining everything else."""
     login = setup_wizard.LoginResult(
@@ -146,7 +151,7 @@ def _run_init_writing_mcp(monkeypatch, tmp_path, *, password_stored: bool) -> di
     monkeypatch.setattr("sigaa.setup_wizard.shutil.which", lambda name: "/opt/bin/uv")
 
     mcp_path = tmp_path / ".mcp.json"
-    answers = []  # institution is resolved by Settings
+    answers = ["1"]  # institution
     if not password_stored:
         answers.append("n")  # .env template, only offered when keyring failed
     answers += [
@@ -157,7 +162,9 @@ def _run_init_writing_mcp(monkeypatch, tmp_path, *, password_stored: bool) -> di
     replies = iter(answers)
     settings = Settings(db_path=tmp_path / "sigaa.db", username="alice")
 
-    assert setup_wizard.run_init(settings, lambda _prompt: next(replies)) == 0
+    assert setup_wizard.run_init(
+        settings, lambda _prompt: next(replies), settings_for=_unexpected_rebuild
+    ) == 0
 
     return json.loads(mcp_path.read_text(encoding="utf-8"))["mcpServers"]["sigaa"]
 
@@ -205,3 +212,44 @@ def test_resolve_script_falls_back_to_current_python_dir(monkeypatch):
     monkeypatch.setattr("sigaa.setup_wizard.sys.executable", "/opt/venv/bin/python")
 
     assert resolve_script("sigaa-mcp") == str(Path("/opt/venv/bin/sigaa-mcp"))
+
+
+def test_init_offers_the_picker_only_without_an_explicit_institution(monkeypatch):
+    from sigaa import cli
+
+    calls = []
+    monkeypatch.setattr(
+        setup_wizard, "run_init", lambda settings, **kwargs: calls.append(kwargs) or 0
+    )
+    monkeypatch.delenv("SIGAA_INSTITUTION", raising=False)
+    assert cli.main(["init"]) == 0
+    assert cli.main(["init", "--institution", "ufpb"]) == 0
+    monkeypatch.setenv("SIGAA_INSTITUTION", "ufpb")
+    assert cli.main(["init"]) == 0
+    assert [bool(kwargs.get("settings_for")) for kwargs in calls] == [True, False, False]
+
+
+def test_picker_rebuilds_settings_for_another_institution(monkeypatch, tmp_path, capsys):
+    from dataclasses import replace
+
+    from sigaa.institutions import get, registry
+    from sigaa.institutions.base import Institution
+
+    ufpb = get("ufpb")
+    other = replace(ufpb.profile, key="example", label="EXAMPLE")
+    monkeypatch.setitem(registry._PROVIDERS, other.key, Institution(other, ufpb.navigator))
+    rebuilt = Settings(db_path=tmp_path / "other.db", username="bob", institution=other.key)
+    logins = []
+    monkeypatch.setattr(
+        setup_wizard, "_prompt_login_until_ok", lambda settings, _: logins.append(settings)
+    )
+
+    replies = iter(["2"])
+    settings = Settings(db_path=tmp_path / "sigaa.db", username="alice", institution="ufpb")
+    assert setup_wizard.run_init(
+        settings, lambda _prompt: next(replies), settings_for=lambda key: rebuilt
+    ) == 1
+    output = capsys.readouterr().out
+    assert "1. UFPB" in output and "2. EXAMPLE" in output
+    assert "Using EXAMPLE." in output
+    assert logins == [rebuilt]

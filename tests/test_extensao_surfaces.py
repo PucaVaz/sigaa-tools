@@ -7,8 +7,9 @@ from types import SimpleNamespace
 import pytest
 
 from sigaa import cli as cli_module
-from sigaa.client import EXTENSION_DOCUMENTS_MENU_LABEL, SigaaClient
+from sigaa.client import SigaaClient
 from sigaa.config import Settings
+from sigaa.institutions import get
 from sigaa.parsers.extensao import ExtensaoParseError, parse_extension_participations
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -24,7 +25,8 @@ EXPECTED_COUNTS = {
 
 
 def _settings():
-    return SimpleNamespace(institution="ufpb",
+    return SimpleNamespace(
+        institution="ufpb",
         username="configured-user",
         resolve_password=lambda: "test-password",
     )
@@ -52,6 +54,7 @@ def _fake_client(page: str | None = None, failure: Exception | None = None):
 def test_client_opens_the_documents_menu_item_and_parses_it():
     clicked = []
     client = object.__new__(SigaaClient)
+    client.profile = get("ufpb").profile
 
     def menu_post(label):
         clicked.append(label)
@@ -61,7 +64,7 @@ def test_client_opens_the_documents_menu_item_and_parses_it():
 
     participations = client.list_extension_participations()
 
-    assert clicked == [EXTENSION_DOCUMENTS_MENU_LABEL]
+    assert clicked == ["Certificados e Declarações"]
     assert len(participations) == 5
 
 
