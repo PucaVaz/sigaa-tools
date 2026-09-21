@@ -66,3 +66,10 @@ needs and anonymize any personal data left in it.
 Generate test passwords at runtime (e.g. `secrets.token_urlsafe()`). Never
 hard-code a password literal, even a dummy one: a literal dummy password once
 set off GitGuardian secret scanning.
+
+## New institutions
+
+Use the private capture → probe → sanitized fixture → check workflow in
+[docs/onboarding.md](docs/onboarding.md). The agent entry point is
+[onboard-institution](.claude/skills/onboard-institution/SKILL.md).
+Never commit captures or turn an unrecognized page into an empty result.
