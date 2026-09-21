@@ -94,13 +94,17 @@ def test_capture_preserves_http_bytes_metadata_and_two_class_contexts(monkeypatc
                                                                  {"idTurma": turma.id_turma}),
                       lambda *_: [], True)
     monkeypatch.setattr(module, "SigaaClient", factory)
-    monkeypatch.setattr(module, "FEATURES", (feature, replace(feature, key="enroll", opt_in=True)))
+    cached = replace(feature, key="cached", needs_turma=False,
+                     fetcher=lambda client, turma: "<html>served from memory</html>")
+    features = (feature, replace(feature, key="enroll", opt_in=True), cached)
+    monkeypatch.setattr(module, "FEATURES", features)
     monkeypatch.setenv("SIGAA_PASS", secrets.token_urlsafe())
     settings = Settings(username="test-student", db_path=tmp_path / "db")
     directory, manifest = module.capture(settings, output=tmp_path / "captures")
     entries = manifest["entries"]
     assert [e["turma_id"] for e in entries[:2]] == ["1", "2"]
     assert all(e["status"] == "not_captured" for e in entries[2:])
+    assert entries[-1]["feature"] == "cached" and "file" not in entries[-1]
     assert len(requests) == 3
     for entry in entries[:2]:
         assert (directory / entry["file"]).read_bytes() == payload
@@ -111,3 +115,19 @@ def test_capture_preserves_http_bytes_metadata_and_two_class_contexts(monkeypatc
     for path in directory.iterdir():
         assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert json.loads((directory / "identity.json").read_text())["username"] == "test-student"
+
+
+def test_recorder_keeps_only_the_last_non_redirect_response():
+    def handler(request):
+        if request.url.path == "/start":
+            return httpx.Response(302, headers={"Location": "https://sigaa.ufpb.br/final"})
+        return httpx.Response(200, text=request.url.path)
+
+    raw = httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True)
+    with _session(raw) as session:
+        recorder = ReadOnlySession(session)
+        raw.get("https://sigaa.ufpb.br/start")
+        assert recorder.last_response.text == "/final"
+        raw.get("https://sigaa.ufpb.br/other")
+        assert recorder.last_response.text == "/other"
+        assert not hasattr(recorder, "responses")
