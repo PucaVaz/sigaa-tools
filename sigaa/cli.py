@@ -302,6 +302,8 @@ def _build_parser() -> argparse.ArgumentParser:
         help="mark everything currently stored as already reported, without emitting it",
     )
     p_watch.set_defaults(func=_cmd_watch)
+    from .onboard.cli import register
+    register(sub)
     return parser
 
 
