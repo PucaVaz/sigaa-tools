@@ -154,3 +154,25 @@ def test_blocked_http_hop_names_scheme_and_host_and_stages_as_network():
     assert secret not in message and "student" not in message and "/portal" not in message
     assert (caught.value.scheme, caught.value.host) == ("http", "sigaa.ufpb.br")
     assert error_stage(caught.value) == "network"
+
+
+def test_session_gives_the_navigator_the_final_response_url():
+    seen = []
+
+    class Recorder:
+        def looks_logged_out(self, text, url=""):
+            seen.append(url)
+            return False
+
+    def handler(request):
+        if request.url.path == "/start":
+            return httpx.Response(302, headers={"Location": "https://sigaa.ufpb.br/final"})
+        return httpx.Response(200, text="<html>page</html>")
+
+    raw = httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True)
+    session = Session("test", secrets.token_urlsafe(), client=raw,
+                      profile=get("ufpb").profile, navigator=Recorder())
+    session._authenticated = True
+    with session:
+        session.get("https://sigaa.ufpb.br/start")
+    assert seen == ["https://sigaa.ufpb.br/final"]

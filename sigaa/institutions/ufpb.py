@@ -68,9 +68,11 @@ class UfpbNavigator:
         )
 
     def looks_logged_out(self, text, url=""):
-        return (self.profile.login_redirect_marker in url or
-                (self.profile.auth_marker not in text and
-                 self.profile.login_redirect_marker in text))
+        # Text only, as before providers existed; the final URL is not consulted.
+        return (
+            self.profile.auth_marker not in text
+            and self.profile.login_redirect_marker in text
+        )
 
     def portal_menu_post(self, session, portal, label):
         from ..parsers.portal import build_menu_postback
