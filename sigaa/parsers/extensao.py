@@ -74,14 +74,10 @@ _COLUMN_FIELDS = {
 
 _CODED_HEADING_RE = re.compile(r"^(?P<code>[A-Z]{2,}\d+-(?P<year>\d{4}))\s+-\s+(?P<title>.+)$")
 _YEAR_HEADING_RE = re.compile(r"^(?P<year>\d{4})\s+-\s+(?P<title>.+)$")
-_JSF_PARAMS_RE = re.compile(r"jsfcljs\([^,]+,\s*\{(.*?)\}\s*,", re.S)
-_JSF_PARAM_RE = re.compile(r"'([^']+)'\s*:\s*'([^']*)'")
 _RECORD_ID_PARAMS = ("idMembro", "idCadastroParticipante", "idDiscenteExtensao")
 _EMPTY_NOTICE_RE = re.compile(r"\b(nenhum|nenhuma|nao ha|nao possui)\b")
 _DECLARATION_MARKERS = ("declaracao", "comprovante.png")
 _CERTIFICATE_MARKERS = ("certificado", "certificate.png")
-# Windows-1252 en dash that SIGAA emits as the numeric reference &#150;.
-_C1_EN_DASH = "\x96"
 
 
 class ExtensaoParseError(ParseError):
@@ -210,9 +206,6 @@ def _is_document_link(anchor, markers: tuple[str, ...]) -> bool:
 
 def _record_id(anchors) -> str | None:
     for anchor in anchors:
-        match = _JSF_PARAMS_RE.search(anchor.get("onclick") or "")
-        if not match:
-            continue
         params = jsf_params(anchor.get("onclick") or "")
         for name in _RECORD_ID_PARAMS:
             if params.get(name):

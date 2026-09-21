@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 
 
 def clean(value):
+    # \x96 is the Windows-1252 en dash that SIGAA emits as the reference &#150;.
     return " ".join(unicodedata.normalize("NFKC", value.replace("\x96", "–")).split())
 
 
