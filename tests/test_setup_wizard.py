@@ -202,6 +202,14 @@ def test_build_cron_line_uses_resolved_command_and_username():
     assert line == "*/30 * * * * SIGAA_USER=alice /opt/bin/sigaa sync"
 
 
+def test_schedules_pin_the_institution():
+    plist = build_launchd_plist(sigaa_cmd="/opt/bin/sigaa", username="alice", institution="ufpb")
+    line = build_cron_line(sigaa_cmd="/opt/bin/my sigaa", username="alice", institution="ufpb")
+
+    assert "<key>SIGAA_INSTITUTION</key><string>ufpb</string></dict>" in plist
+    assert line == "*/30 * * * * SIGAA_USER=alice SIGAA_INSTITUTION=ufpb '/opt/bin/my sigaa' sync"
+
+
 def test_resolve_script_prefers_path_lookup(monkeypatch):
     monkeypatch.setattr("sigaa.setup_wizard.shutil.which", lambda name: f"/usr/local/bin/{name}")
 

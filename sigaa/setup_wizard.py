@@ -5,8 +5,8 @@ from __future__ import annotations
 import getpass
 import json
 import platform
-import shutil
 import shlex
+import shutil
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -125,7 +125,9 @@ def resolve_script(name: str) -> str:
 MCP_PACKAGE_SPEC = "sigaa-tools[mcp] @ git+https://github.com/PucaVaz/sigaa-tools"
 
 
-def build_mcp_server(*, username: str | None = None, institution: str | None = None) -> dict[str, object]:
+def build_mcp_server(
+    *, username: str | None = None, institution: str | None = None
+) -> dict[str, object]:
     """Return an MCP server entry, preferring a portable ``uvx`` invocation.
 
     Pass ``username`` only when keyring cannot store the active account; the
@@ -139,12 +141,13 @@ def build_mcp_server(*, username: str | None = None, institution: str | None = N
         }
     else:
         server = {"command": resolve_script("sigaa-mcp")}
-    if username or institution:
-        server["env"] = {}
-        if username:
-            server["env"]["SIGAA_USER"] = username
-        if institution:
-            server["env"]["SIGAA_INSTITUTION"] = institution
+    env = {}
+    if username:
+        env["SIGAA_USER"] = username
+    if institution:
+        env["SIGAA_INSTITUTION"] = institution
+    if env:
+        server["env"] = env
     return server
 
 
@@ -165,8 +168,10 @@ def merge_mcp_config(path: Path, *, server: dict[str, object]) -> bool:
 def build_launchd_plist(*, sigaa_cmd: str, username: str, institution: str | None = None) -> str:
     sigaa_cmd_xml = escape(sigaa_cmd)
     username_xml = escape(username)
-    institution_xml = (f"<key>SIGAA_INSTITUTION</key><string>{escape(institution)}</string>"
-                       if institution else "")
+    institution_xml = (
+        f"<key>SIGAA_INSTITUTION</key><string>{escape(institution)}</string>"
+        if institution else ""
+    )
     return (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"\n'
@@ -187,7 +192,8 @@ def build_launchd_plist(*, sigaa_cmd: str, username: str, institution: str | Non
 
 def build_cron_line(*, sigaa_cmd: str, username: str, institution: str | None = None) -> str:
     selection = f" SIGAA_INSTITUTION={shlex.quote(institution)}" if institution else ""
-    return f"*/30 * * * * SIGAA_USER={shlex.quote(username)}{selection} {shlex.quote(sigaa_cmd)} sync"
+    user = shlex.quote(username)
+    return f"*/30 * * * * SIGAA_USER={user}{selection} {shlex.quote(sigaa_cmd)} sync"
 
 
 def write_env_template(path: Path, *, username: str) -> None:
@@ -241,7 +247,10 @@ def run_init(
         mcp_path = Path(answer).expanduser() if answer else default_mcp
         # The active account comes back from keyring, so only pin it in the
         # config when keyring could not store it.
-        server = build_mcp_server(username=None if login.password_stored else username, institution=settings.institution)
+        server = build_mcp_server(
+            username=None if login.password_stored else username,
+            institution=settings.institution,
+        )
         merge_mcp_config(mcp_path, server=server)
         print(f"wrote MCP server config to {mcp_path}")
 
@@ -283,7 +292,8 @@ def _write_schedule(*, username: str, institution: str | None = None) -> None:
     if platform.system() == "Darwin":
         plist_path = Path.home() / "Library" / "LaunchAgents" / "ai.sigaa.sync.plist"
         plist_path.parent.mkdir(parents=True, exist_ok=True)
-        plist_path.write_text(build_launchd_plist(sigaa_cmd=sigaa_cmd, username=username, institution=institution), encoding="utf-8")
+        plist = build_launchd_plist(sigaa_cmd=sigaa_cmd, username=username, institution=institution)
+        plist_path.write_text(plist, encoding="utf-8")
         print(f"wrote {plist_path}")
         print(f"load it with: launchctl load {plist_path}")
         return
