@@ -13,7 +13,12 @@ from mcp.client.stdio import stdio_client
 from sigaa import mcp_server
 from sigaa.config import HOSTED_MODE, LOCAL_MODE
 
-KEPT_IN_HOSTED = {"sigaa_sync", "sigaa_list_classes", "sigaa_matricula_open_turmas"}
+KEPT_IN_HOSTED = {
+    "sigaa_sync",
+    "sigaa_list_classes",
+    "sigaa_matricula_open_turmas",
+    "sigaa_list_extension_participations",
+}
 
 
 def _spawn(environment):
