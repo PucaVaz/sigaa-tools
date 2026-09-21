@@ -160,3 +160,28 @@ def test_check_reports_test_and_lint_failures_without_hiding_them(tmp_path):
     assert result["checks"]["pytest"] != 0
     assert result["checks"]["ruff"] != 0
     assert "attendance" in result["not_captured"]
+
+
+def _identity():
+    return {"username": secrets.token_hex(), "matricula": secrets.token_hex(),
+            "name": "JOSÉ ANTÔNIO DA COSTA", "email": "jose.costa@academico.ufpb.br"}
+
+
+@pytest.mark.parametrize("text, found", [
+    ("<td>Antonio</td>", True),          # one name token, accents folded
+    ("<p>Prof. COSTA</p>", True),        # a surname alone
+    ("contato: jose.costa", True),       # e-mail local part without the domain
+    ("<td>COSTAS</td>", False),          # token inside a longer word
+    ("<td>da</td>", False),              # tokens shorter than 4 letters are ignored
+    ("<td>José Silva</td>", True),       # 4-letter first name
+])
+def test_privacy_gate_matches_name_tokens_and_email_local_part(tmp_path, text, found):
+    root = _repo(tmp_path)
+    (root / "fixture.html").write_text(text)
+    identity = _identity()
+
+    findings = privacy_findings(root, identity)
+
+    assert any(f["category"] == "identity" for f in findings) is found
+    for finding in findings:
+        assert set(finding) == {"source", "file_index", "category"}

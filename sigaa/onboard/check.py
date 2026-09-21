@@ -5,8 +5,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .probe import probe, capture_file
 from bs4 import BeautifulSoup
+
+from ..parsers._common import fold
+from .probe import capture_file, probe
 
 _PATTERNS = {
     "cpf": re.compile(r"(?<!\d)\d{3}\.\d{3}\.\d{3}-\d{2}(?!\d)"),
@@ -28,6 +30,26 @@ def _identity_values(value):
     return [value] if isinstance(value, str) and value else []
 
 
+def _identity_pattern(identity: dict):
+    """Match any identity value, each name token of 4+ letters, and the e-mail
+    local part, accent- and case-insensitively. Tokens match as whole words only.
+
+    This fails closed: a teacher or place sharing a surname with the student is
+    also a finding (see docs/onboarding.md).
+    """
+    anywhere = [fold(value) for value in _identity_values(identity)]
+    words = []
+    name = identity.get("name")
+    if isinstance(name, str):
+        words += [token for token in fold(name).split() if len(token) >= 4]
+    email = identity.get("email")
+    if isinstance(email, str) and "@" in email:
+        words.append(fold(email).split("@", 1)[0])
+    alternatives = [re.escape(value) for value in anywhere if value]
+    alternatives += [rf"(?<!\w){re.escape(word)}(?!\w)" for word in words if word]
+    return re.compile("|".join(alternatives)) if alternatives else None
+
+
 def privacy_findings(root: Path, identity: dict):
     """Scan staged blobs (not just working copies) and untracked source files.
 
@@ -35,7 +57,7 @@ def privacy_findings(root: Path, identity: dict):
     """
     staged = _git(root, "diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z").split(b"\0")
     untracked = _git(root, "ls-files", "--others", "--exclude-standard", "-z").split(b"\0")
-    values = _identity_values(identity)
+    identity_pattern = _identity_pattern(identity)
     findings = []
     for source, paths in (("staged", staged), ("untracked", untracked)):
         for index, raw in enumerate(paths):
@@ -52,7 +74,7 @@ def privacy_findings(root: Path, identity: dict):
             content = _git(root, "show", f":{name}") if source == "staged" else path.read_bytes()
             encoding = "utf-16" if content.startswith((b"\xff\xfe", b"\xfe\xff")) else "utf-8"
             text = name + "\n" + content.decode(encoding, "replace")
-            if any(value.casefold() in text.casefold() for value in values):
+            if identity_pattern and identity_pattern.search(fold(text)):
                 findings.append({"source": source, "file_index": index, "category": "identity"})
             for node in BeautifulSoup(text, "html.parser").select('input[name="javax.faces.ViewState"], input[type="password"]'):
                 value = str(node.get("value", ""))
