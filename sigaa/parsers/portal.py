@@ -228,5 +228,7 @@ parse_deadlines = page_parser(
     empty=lambda soup: all(not ul.select("li > a[onclick]")
                            for ul in soup.select('ul[class*="dropdown-menu-"]')
                            if _menu_kind(ul.get("class", [])) in _DEADLINE_KINDS),
-    validate=lambda result, soup: all(d.title and d.date for d in result), name="beta-deadlines",
+    validate=lambda result, soup: all(d.title and d.date for d in result) and len(result) == sum(
+        len(menu.select("li > a[onclick]")) for menu in soup.select('ul[class*="dropdown-menu-"]')
+        if _menu_kind(menu.get("class", [])) in _DEADLINE_KINDS), name="beta-deadlines",
 )(parse_deadlines)

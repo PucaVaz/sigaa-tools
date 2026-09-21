@@ -113,6 +113,8 @@ def _grades_by_header(soup):
         for row in table.select("tr")[1:]:
             cells = row.find_all("td", recursive=False)
             if not cells:
+                if row.get_text(strip=True):
+                    raise UnrecognizedPageError("grades", page_fingerprint(soup))
                 continue
             if len(cells) != len(headers):
                 raise UnrecognizedPageError("grades", page_fingerprint(soup))
@@ -151,5 +153,8 @@ parse_turma_grades = page_parser(
         {"matricula", "nome", "faltas", "resultado"}.issubset(_grade_headers(t)) for t in _grade_tables(soup)),
     empty=lambda soup: bool(soup.select("table.tabelaRelatorio tbody"))
     and not soup.select("table.tabelaRelatorio tbody td"),
+    validate=lambda result, soup: (result is None or len([
+        row for row in _grade_tables(soup)[0].select("tr")[1:] if row.find("td")
+    ]) == 1),
     name="class-grade-headers",
 )(parse_turma_grades)

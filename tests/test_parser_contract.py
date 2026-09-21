@@ -71,3 +71,30 @@ def test_synthetic_empty_contract(feature):
             assert not result
     with pytest.raises(ParseError):
         feature.parse((FIXTURES / f"{feature.key}_changed_markup.html").read_text(), "123")
+
+
+def test_attendance_uses_headers_after_column_reordering():
+    from sigaa.parsers.attendance import parse_attendance
+    original = (FIXTURES / "frequencia.html").read_text()
+    soup = BeautifulSoup(original, "lxml")
+    for row in soup.select("table tr"):
+        row.append(row.find(["td", "th"]).extract())
+    assert parse_attendance(str(soup), "123") == parse_attendance(original, "123")
+
+
+def test_class_grades_reject_an_ambiguous_second_student_row():
+    from sigaa.parsers.grades import parse_turma_grades
+    soup = BeautifulSoup((FIXTURES / "vernotas.html").read_text(), "lxml")
+    row = soup.select_one("tbody tr")
+    row.parent.append(BeautifulSoup(str(row), "lxml").find("tr"))
+    with pytest.raises(UnrecognizedPageError):
+        parse_turma_grades(str(soup), "123")
+
+
+def test_deadlines_reject_partial_results_when_one_link_changes():
+    from sigaa.parsers.portal import parse_deadlines
+    soup = BeautifulSoup((FIXTURES / "portal.html").read_text(), "lxml")
+    anchor = soup.select_one('ul[class*="dropdown-menu-atividade"] a[onclick]')
+    anchor["onclick"] = "changedPostback()"
+    with pytest.raises(UnrecognizedPageError):
+        parse_deadlines(str(soup))

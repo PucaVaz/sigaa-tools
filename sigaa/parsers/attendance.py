@@ -33,15 +33,19 @@ def parse_attendance(html: str, id_turma: str) -> Attendance | None:
     records = []
     table = fieldset.find("table")
     if table is not None:
+        headers = [fold(th.get_text(" ", strip=True)) for th in table.select("thead th")]
         for row in table.select("tbody tr"):
             cells = [td.get_text(" ", strip=True) for td in row.find_all("td")]
-            if len(cells) < 2:
+            if len(cells) != len(headers):
+                continue  # the integrity check below turns malformed rows into a parse error
+            by_label = dict(zip(headers, cells))
+            if not by_label.get("data") or not by_label.get("situacao"):
                 continue
             records.append(
                 AttendanceRecord(
-                    date=cells[0],
-                    status=cells[1],
-                    justified=len(cells) > 2 and cells[2].casefold().startswith("sim"),
+                    date=by_label["data"],
+                    status=by_label["situacao"],
+                    justified=fold(by_label.get("falta justificada?", "")).startswith("sim"),
                 )
             )
 
