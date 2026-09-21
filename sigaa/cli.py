@@ -48,6 +48,9 @@ from .sipac import (
 from .store.db import connect
 from .store.repository import Repository
 
+# What a live SIGAA read can raise once credentials resolved: auth, a page or
+# menu item that is not recognized (ParseError), a rejected value, the network.
+_LIVE_ERRORS = (AuthError, ParseError, ValueError, httpx.HTTPError)
 DEFAULT_WATCH_INTERVAL_SECONDS = 900
 EXIT_WATCH_FAILED = 1
 _INTERVAL_RE = re.compile(r"^(\d+)([smh]?)$")
@@ -465,6 +468,7 @@ def _cmd_curriculum(args, settings: Settings) -> int:
         AcademicDocumentError,
         AuthError,
         CurriculumDataError,
+        ParseError,
         TranscriptParseError,
         ValueError,
         httpx.HTTPError,
@@ -500,6 +504,7 @@ def _cmd_cra(args, settings: Settings) -> int:
     except (
         AcademicDocumentError,
         AuthError,
+        ParseError,
         TranscriptParseError,
         ValueError,
         httpx.HTTPError,
@@ -630,8 +635,6 @@ def _cmd_ics(args, settings: Settings) -> int:
 
 
 def _cmd_matricula(args, settings: Settings) -> int:
-    from .parsers import matricula as matricula_parser
-
     password = settings.resolve_password()
     if not settings.username or not password:
         print(settings.credentials_problem(), file=sys.stderr)
@@ -639,6 +642,16 @@ def _cmd_matricula(args, settings: Settings) -> int:
     if args.confirm and not args.select:
         print("--confirm requires --select", file=sys.stderr)
         return 1
+    try:
+        return _run_matricula(args, settings, password)
+    except _LIVE_ERRORS as exc:
+        print(f"matrícula failed: {exc}", file=sys.stderr)
+        return 1
+
+
+def _run_matricula(args, settings: Settings, password: str) -> int:
+    from .parsers import matricula as matricula_parser
+
     with SigaaClient(settings.username, password, institution=settings.institution) as client:
         curriculo_html = client.open_matricula_curriculo()
         if not args.select:
@@ -680,7 +693,7 @@ def _cmd_academic_document(args, settings: Settings) -> int:
     try:
         with SigaaClient(settings.username, password, institution=settings.institution) as client:
             document = client.download_academic_document(args.document_kind)
-    except (AcademicDocumentError, AuthError, ValueError) as exc:
+    except (AcademicDocumentError, AuthError, ParseError, ValueError) as exc:
         print(f"download failed: {exc}", file=sys.stderr)
         return 1
     try:
@@ -732,18 +745,22 @@ def _download_materials(args, settings: Settings, repo: Repository, id_turma) ->
 
     out_dir = Path(args.dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    with SigaaClient(settings.username, password, institution=settings.institution) as client:
-        turmas = {t.id_turma: t for t in client.list_turmas()}
-        for m in stored:
-            turma = turmas.get(m.id_turma)
-            if turma is None:
-                print(f"  ! {m.title}: class not found", file=sys.stderr)
-                continue
-            content, filename = client.download_material(turma, m.id)
-            path = out_dir / filename
-            with open(path, "wb") as fh:
-                fh.write(content)
-            print(f"  wrote {path} ({len(content)} bytes)")
+    try:
+        with SigaaClient(settings.username, password, institution=settings.institution) as client:
+            turmas = {t.id_turma: t for t in client.list_turmas()}
+            for m in stored:
+                turma = turmas.get(m.id_turma)
+                if turma is None:
+                    print(f"  ! {m.title}: class not found", file=sys.stderr)
+                    continue
+                content, filename = client.download_material(turma, m.id)
+                path = out_dir / filename
+                with open(path, "wb") as fh:
+                    fh.write(content)
+                print(f"  wrote {path} ({len(content)} bytes)")
+    except _LIVE_ERRORS as exc:
+        print(f"download failed: {exc}", file=sys.stderr)
+        return 1
     return 0
 
 
@@ -757,8 +774,13 @@ def _live_turma(args, settings: Settings):
     stored = repo.get_turma(args.klass)
     id_turma = stored.id_turma if stored else args.klass
     client = SigaaClient(settings.username, password, institution=settings.institution)
-    turma = next((t for t in client.list_turmas()
-                  if t.id_turma == id_turma or t.code == args.klass), None)
+    try:
+        turma = next((t for t in client.list_turmas()
+                      if t.id_turma == id_turma or t.code == args.klass), None)
+    except _LIVE_ERRORS as exc:
+        client.close()
+        print(f"class lookup failed: {exc}", file=sys.stderr)
+        return None, None
     if turma is None:
         client.close()
         print(f"class {args.klass!r} not found", file=sys.stderr)
@@ -770,8 +792,12 @@ def _cmd_attendance(args, settings: Settings) -> int:
     client, turma = _live_turma(args, settings)
     if client is None:
         return 1
-    with client:
-        attendance = client.get_attendance(turma)
+    try:
+        with client:
+            attendance = client.get_attendance(turma)
+    except _LIVE_ERRORS as exc:
+        print(f"attendance lookup failed: {exc}", file=sys.stderr)
+        return 1
     if attendance is None:
         print("attendance map not available for this class", file=sys.stderr)
         return 1
@@ -798,8 +824,12 @@ def _cmd_plan(args, settings: Settings) -> int:
     client, turma = _live_turma(args, settings)
     if client is None:
         return 1
-    with client:
-        plan = client.get_course_plan(turma)
+    try:
+        with client:
+            plan = client.get_course_plan(turma)
+    except _LIVE_ERRORS as exc:
+        print(f"course plan lookup failed: {exc}", file=sys.stderr)
+        return 1
     if plan is None:
         print("course plan not available for this class", file=sys.stderr)
         return 1
