@@ -271,9 +271,11 @@ def test_provisional_institutions_are_selectable_only_explicitly(monkeypatch):
 
     assert get("ufcg").profile.provisional and not get("ufpb").profile.provisional
     picked = []
-    monkeypatch.setattr(
-        setup_wizard, "run_init", lambda settings, **kwargs: picked.append(settings.institution) or 0
-    )
+    def run_init(settings, **kwargs):
+        picked.append(settings.institution)
+        return 0
+
+    monkeypatch.setattr(setup_wizard, "run_init", run_init)
     monkeypatch.delenv("SIGAA_INSTITUTION", raising=False)
     assert cli.main(["init", "--institution", "ufcg"]) == 0
     monkeypatch.setenv("SIGAA_INSTITUTION", "ufcg")

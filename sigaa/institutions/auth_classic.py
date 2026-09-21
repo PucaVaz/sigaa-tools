@@ -4,7 +4,7 @@ The flow is based on JucaGF/sigaa-tools-ufcg (MIT); see docs/institutions/ufcg.m
 No enrollment worker or submission logic is included.
 """
 from dataclasses import dataclass
-from urllib.parse import urljoin, urlsplit, parse_qs
+from urllib.parse import parse_qs, urljoin, urlsplit
 
 from bs4 import BeautifulSoup
 
@@ -22,7 +22,9 @@ class LoginForm:
 
 def login_action(html, url):
     soup = BeautifulSoup(html, "lxml")
-    forms = [form for form in soup.select("form") if form.select_one('input[type="password"][name]')]
+    forms = [
+        form for form in soup.select("form") if form.select_one('input[type="password"][name]')
+    ]
     if len(forms) != 1:
         raise UnrecognizedPageError("login", page_fingerprint(soup))
     form = forms[0]
@@ -46,8 +48,12 @@ def login_action(html, url):
         raise UnrecognizedPageError("login", page_fingerprint(soup))
     if submits:
         fields[str(submits[0]["name"])] = str(submits[0].get("value", ""))
-    return LoginForm(urljoin(url, str(form["action"])), fields,
-                     str(users[0]["name"]), str(passwords[0]["name"]))
+    return LoginForm(
+        urljoin(url, str(form["action"])),
+        fields,
+        str(users[0]["name"]),
+        str(passwords[0]["name"]),
+    )
 
 
 def authenticated_portal(html, url, profile):
@@ -56,8 +62,11 @@ def authenticated_portal(html, url, profile):
     soup = BeautifulSoup(html, "lxml")
     if soup.select_one('input[type="password"], form[name="loginForm"]'):
         return False
-    return any(parse_qs(urlsplit(str(a["href"])).query).get("dispatch") == ["logOff"]
-               and "sair" in a.get_text().casefold() for a in soup.select("a[href]"))
+    return any(
+        parse_qs(urlsplit(str(a["href"])).query).get("dispatch") == ["logOff"]
+        and "sair" in a.get_text().casefold()
+        for a in soup.select("a[href]")
+    )
 
 
 def perform_login(session, profile):

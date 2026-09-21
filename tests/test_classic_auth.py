@@ -1,11 +1,19 @@
-from pathlib import Path
+import hashlib
+import json
 import secrets
+from pathlib import Path
 from urllib.parse import parse_qs
 
 import httpx
 import pytest
 
-from sigaa.errors import LoginRejectedError, UnsafeUrlError, UnrecognizedPageError, UnsupportedFeatureError
+from sigaa.errors import (
+    LoginRejectedError,
+    UnrecognizedPageError,
+    UnsafeUrlError,
+    UnsupportedFeatureError,
+)
+from sigaa.exporters.ics import build_calendar
 from sigaa.http import Session
 from sigaa.institutions import get
 from sigaa.institutions.auth_classic import login_action
@@ -20,7 +28,9 @@ NAVIGATOR = get("ufcg").navigator
 def test_classic_login_uses_rendered_fields_and_redirects(portal):
     secret = secrets.token_urlsafe()
     requests = []
-    login = (FIXTURES / "login.html").read_text().replace("user.login", "account").replace("user.senha", "passcode")
+    login = (FIXTURES / "login.html").read_text()
+    login = login.replace("user.login", "account").replace("user.senha", "passcode")
+
     def handler(request):
         requests.append(request)
         if request.url.path.endswith("verTelaLogin.do"):
@@ -32,6 +42,7 @@ def test_classic_login_uses_rendered_fields_and_redirects(portal):
             assert fields["width"] == ["1280"]
             return httpx.Response(302, headers={"Location": PROFILE.portal_entry_url})
         return httpx.Response(200, text=(FIXTURES / portal).read_text())
+
     with Session("test-student", secret, profile=PROFILE, navigator=NAVIGATOR,
                  client=httpx.Client(transport=httpx.MockTransport(handler))) as session:
         html = session.login()
@@ -47,11 +58,13 @@ def test_classic_login_blocks_foreign_action_and_redirect(redirect):
     login = (FIXTURES / "login.html").read_text()
     if not redirect:
         login = login.replace('/sigaa/logar.do', 'https://foreign.example/logar.do')
+
     def handler(request):
         requests.append(request)
         if request.method == "GET":
             return httpx.Response(200, text=login)
         return httpx.Response(307, headers={"Location": "https://foreign.example/"})
+
     with Session("test", secrets.token_urlsafe(), profile=PROFILE, navigator=NAVIGATOR,
                  client=httpx.Client(transport=httpx.MockTransport(handler))) as session:
         with pytest.raises(UnsafeUrlError):
@@ -62,9 +75,11 @@ def test_classic_login_blocks_foreign_action_and_redirect(redirect):
 
 def test_classic_rejection_does_not_fall_back_past_login():
     calls = []
+
     def handler(request):
         calls.append(request)
         return httpx.Response(200, text=(FIXTURES / "login.html").read_text())
+
     with Session("test", secrets.token_urlsafe(), profile=PROFILE, navigator=NAVIGATOR,
                  client=httpx.Client(transport=httpx.MockTransport(handler))) as session:
         with pytest.raises(LoginRejectedError):
@@ -79,9 +94,6 @@ def test_classic_ambiguous_form_is_rejected():
 
 
 def test_ufcg_portal_probe_is_loud_and_calendar_is_unsupported(tmp_path):
-    import hashlib
-    import json
-    from sigaa.exporters.ics import build_calendar
     body = (FIXTURES / "portal.html").read_bytes()
     (tmp_path / "portal.body").write_bytes(body)
     (tmp_path / "manifest.json").write_text(json.dumps({"institution": "ufcg", "entries": [
@@ -89,8 +101,9 @@ def test_ufcg_portal_probe_is_loud_and_calendar_is_unsupported(tmp_path):
          "sha256": hashlib.sha256(body).hexdigest()}
         for feature in ("student", "turmas", "deadlines")
     ]}))
-    rows = probe(tmp_path)["features"]
-    assert all(row["status"] == "unrecognized" for row in rows if row["feature"] in {"student", "turmas", "deadlines"})
+    portal_features = {"student", "turmas", "deadlines"}
+    rows = [row for row in probe(tmp_path)["features"] if row["feature"] in portal_features]
+    assert rows and all(row["status"] == "unrecognized" for row in rows)
     with pytest.raises(UnsupportedFeatureError):
         build_calendar([], [], institution="ufcg")
 
