@@ -315,7 +315,7 @@ class SigaaClient:
             html, news_id, extract_viewstate(html, default="j_id2")
         )
         if fields is None:
-            return None
+            raise NavigationError("news body postback not found")
         body_html = self._session.post(self.profile.ava_url, fields)
         return news_parser.parse_news_body(body_html)
 

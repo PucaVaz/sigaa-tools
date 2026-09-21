@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
 
-from ..institutions import get
+from ..institutions import get, Capability
 from ..models import Deadline, Turma
 from ..parsers.schedule import decode_schedule
 
@@ -24,6 +24,7 @@ def build_calendar(
     year: int | None = None,
     *, institution: str | None = None,
 ) -> str:
+    get(institution).profile.require(Capability.CALENDAR)
     lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//sigaa-tools//PT-BR", "CALSCALE:GREGORIAN"]
     anchor = term_start or date.today()
     for turma in turmas:

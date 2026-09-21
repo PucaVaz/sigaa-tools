@@ -118,3 +118,11 @@ def test_check_reports_test_and_lint_failures_without_hiding_them(tmp_path):
     assert result["checks"]["pytest"] != 0
     assert result["checks"]["ruff"] != 0
     assert "attendance" in result["not_captured"]
+
+
+def test_offline_probe_does_not_resolve_local_credentials_or_active_institution(tmp_path, monkeypatch, capsys):
+    from sigaa.cli import main
+    directory = _capture(tmp_path)
+    monkeypatch.setenv("SIGAA_INSTITUTION", "invalid-local-configuration")
+    assert main(["onboard", "probe", "--from", str(directory), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["institution"] == "ufpb"

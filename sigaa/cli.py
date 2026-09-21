@@ -72,7 +72,10 @@ def main(argv: list[str] | None = None) -> int:
             "sipac": Capability.SIPAC, "curriculum": Capability.CURRICULUM_JSON,
             "matricula": Capability.MATRICULA, "extensao": Capability.EXTENSAO,
             "historico": Capability.DOCUMENTS, "cra": Capability.DOCUMENTS,
-            "declaracao-vinculo": Capability.DOCUMENTS, "atestado": Capability.DOCUMENTS,
+            "declaracao-vinculo": Capability.DOCUMENTS, "atestado-matricula": Capability.DOCUMENTS,
+            "classes": Capability.PORTAL, "grades": Capability.GRADES, "news": Capability.NEWS,
+            "materials": Capability.MATERIALS, "attendance": Capability.ATTENDANCE,
+            "plan": Capability.PLAN, "ics": Capability.CALENDAR, "deadlines": Capability.PORTAL,
         }.get(args.command)
         if capability:
             get(settings.institution if settings else default_institution()).profile.require(capability)

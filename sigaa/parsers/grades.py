@@ -64,15 +64,15 @@ def parse_turma_grades(html: str, id_turma: str) -> TurmaGrade | None:
     if data is None:
         return None
 
-    by_label = dict(zip(headers, data))
+    by_label = dict(zip(map(fold, headers), data))
     units = [v for label, v in by_label.items() if label.lower().startswith("unid") and v]
     return TurmaGrade(
         id_turma=id_turma,
         units=units,
-        exam=_clean(by_label.get("Exame Final", "")),
-        result=_clean(by_label.get("Resultado", "")),
-        absences=_clean(by_label.get("Faltas", "")),
-        status=_clean(by_label.get("Sit.", "")) or _clean(by_label.get("Situação", "")),
+        exam=_clean(by_label.get("exame final", "")),
+        result=_clean(by_label.get("resultado", "")),
+        absences=_clean(by_label.get("faltas", "")),
+        status=_clean(by_label.get("sit.", "")) or _clean(by_label.get("situacao", "")),
     )
 
 
@@ -147,8 +147,8 @@ def parse_grades(html: str) -> list[Grade]:
 parse_grades.variants = _GRADE_VARIANTS
 parse_grades.feature = "grades"
 parse_turma_grades = page_parser(
-    "turma_grades", lambda soup: bool(_grade_tables(soup)) and all(
-        {"matricula", "nome", "faltas"}.issubset(_grade_headers(t)) for t in _grade_tables(soup)),
+    "turma_grades", lambda soup: len(_grade_tables(soup)) == 1 and all(
+        {"matricula", "nome", "faltas", "resultado"}.issubset(_grade_headers(t)) for t in _grade_tables(soup)),
     empty=lambda soup: bool(soup.select("table.tabelaRelatorio tbody"))
     and not soup.select("table.tabelaRelatorio tbody td"),
     name="class-grade-headers",

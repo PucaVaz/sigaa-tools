@@ -5,6 +5,8 @@ first postback opened, so SIGAA answers with whatever turma it currently sits on
 -- the mechanism behind plan rows landing on the wrong turma.
 """
 
+import pytest
+from sigaa.errors import NavigationError
 from pathlib import Path
 
 from sigaa import config
@@ -79,7 +81,8 @@ def test_news_body_after_a_menu_postback_re_enters_the_turma():
     client, session = _client()
     cached = _principal("cached")
     client.get_course_plan(TURMA, cached)
-    client.get_news_body(TURMA, "1", cached)
+    with pytest.raises(NavigationError):
+        client.get_news_body(TURMA, "1", cached)
 
     assert session.enters == 1
 

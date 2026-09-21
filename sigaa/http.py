@@ -98,7 +98,7 @@ class Session:
         resp = self._client.request("POST", url, data=data)
         resp.raise_for_status()
         content_type = resp.headers.get("content-type", "")
-        if content_type.lower().startswith("text/html") and self._looks_logged_out(resp.text):
+        if content_type.lower().startswith("text/html") and self._looks_logged_out(resp.text, str(resp.url)):
             if not retry_on_auth:
                 self._authenticated = False
                 raise AuthError("session expired before download postback")
@@ -106,7 +106,7 @@ class Session:
             resp = self._client.request("POST", url, data=data)
             resp.raise_for_status()
             retry_type = resp.headers.get("content-type", "")
-            if retry_type.lower().startswith("text/html") and self._looks_logged_out(resp.text):
+            if retry_type.lower().startswith("text/html") and self._looks_logged_out(resp.text, str(resp.url)):
                 self._authenticated = False
                 raise AuthError("session lost and re-login did not restore it")
         return resp.content, resp.headers.get("content-type"), resp.headers.get("content-disposition")
@@ -121,7 +121,7 @@ class Session:
         resp = self._client.request("GET", url)
         resp.raise_for_status()
         content_type = resp.headers.get("content-type", "")
-        if content_type.startswith("text/html") and self._looks_logged_out(resp.text):
+        if content_type.startswith("text/html") and self._looks_logged_out(resp.text, str(resp.url)):
             self.login()
             resp = self._client.request("GET", url)
             resp.raise_for_status()
@@ -131,20 +131,21 @@ class Session:
         if not self._authenticated:
             self.login()
         text = self._send(method, url, data)
-        if self._looks_logged_out(text):
+        if self._looks_logged_out(text, getattr(self, "_last_response_url", "")):
             self.login()
             text = self._send(method, url, data)
-            if self._looks_logged_out(text):
+            if self._looks_logged_out(text, getattr(self, "_last_response_url", "")):
                 raise AuthError("session lost and re-login did not restore it")
         return text
 
     def _send(self, method: str, url: str, data: dict | None) -> str:
         resp = self._client.request(method, url, data=data)
         resp.raise_for_status()
+        self._last_response_url = str(resp.url)
         return resp.text
 
-    def _looks_logged_out(self, text: str) -> bool:
-        return self.navigator.looks_logged_out(text)
+    def _looks_logged_out(self, text: str, url: str = "") -> bool:
+        return self.navigator.looks_logged_out(text, url)
 
     def close(self) -> None:
         self._client.close()

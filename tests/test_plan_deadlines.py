@@ -1,3 +1,5 @@
+import pytest
+from sigaa.errors import NavigationError
 from pathlib import Path
 
 from sigaa.models import CoursePlan, PlanEvaluation, Turma
@@ -89,7 +91,8 @@ def test_plan_from_another_turma_is_refused(tmp_path):
         id_turma=OTHER_ID_TURMA,
         evaluations=[PlanEvaluation(date="17/12/2026", description="Exame Final")],
     )
-    assert _sync_turma_plan(_StubClient(plan), repo, _turma(ID_TURMA), PLANO) == []
+    with pytest.raises(NavigationError):
+        _sync_turma_plan(_StubClient(plan), repo, _turma(ID_TURMA), PLANO)
     assert repo.get_deadlines() == []
 
 

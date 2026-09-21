@@ -165,17 +165,18 @@ def _run_init_writing_mcp(monkeypatch, tmp_path, *, password_stored: bool) -> di
 def test_run_init_writes_mcp_config_without_personal_data(monkeypatch, tmp_path):
     server = _run_init_writing_mcp(monkeypatch, tmp_path, password_stored=True)
 
-    assert "env" not in server
+    assert "SIGAA_USER" not in server["env"]
     assert server == {
         "command": "uvx",
         "args": ["--from", MCP_PACKAGE_SPEC, "sigaa-mcp"],
+        "env": {"SIGAA_INSTITUTION": "ufpb"},
     }
 
 
 def test_run_init_pins_username_when_keyring_is_unavailable(monkeypatch, tmp_path):
     server = _run_init_writing_mcp(monkeypatch, tmp_path, password_stored=False)
 
-    assert server["env"] == {"SIGAA_USER": "alice"}
+    assert server["env"] == {"SIGAA_USER": "alice", "SIGAA_INSTITUTION": "ufpb"}
 
 
 def test_build_launchd_plist_uses_resolved_command_and_username():

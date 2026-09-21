@@ -53,6 +53,7 @@ from .store.db import connect
 from .store.repository import Repository
 
 from .config import default_institution
+from .institutions import get, Capability
 
 mcp = FastMCP(f"sigaa-{default_institution()}")
 
@@ -110,6 +111,7 @@ def sigaa_list_classes() -> list[dict]:
 @mcp.tool()
 def sigaa_list_professors(class_code: str | None = None) -> list[dict]:
     """List class teachers (name, e-mail, department) from the store, optionally for one class."""
+    get(default_institution()).profile.require(Capability.PARTICIPANTS)
     repo = _repo()
     id_turma = None
     if class_code:
@@ -126,6 +128,7 @@ def sigaa_list_news(
     class_code: str | None = None, unread_only: bool = False, since: str | None = None
 ) -> list[dict]:
     """List class news from the store. Optionally filter by class, unread, or date (DD/MM/YYYY ...)."""
+    get(default_institution()).profile.require(Capability.NEWS)
     repo = _repo()
     id_turma = None
     if class_code:
@@ -138,6 +141,7 @@ def sigaa_list_news(
 @mcp.tool()
 def sigaa_get_news_body(news_id: str) -> str:
     """Get a news item's full text. Served from cache; fetched live if missing."""
+    get(default_institution()).profile.require(Capability.NEWS)
     repo = _repo()
     matches = [n for n in repo.get_news() if n.id == news_id]
     if not matches:
@@ -163,6 +167,7 @@ def sigaa_get_news_body(news_id: str) -> str:
 @mcp.tool()
 def sigaa_list_materials(class_code: str | None = None, kind: str | None = None) -> list[dict]:
     """List class materials (slides, lists, links) from the store. Filter by class or kind (file/link)."""
+    get(default_institution()).profile.require(Capability.MATERIALS)
     repo = _repo()
     id_turma = None
     if class_code:
@@ -215,6 +220,7 @@ def _write_downloaded_file(content: bytes, *, requested: str | None, server_name
 @mcp.tool()
 def sigaa_download_material(material_id: str, filename: str | None = None) -> str:
     """Download an uploaded class material (file) by its id. Networked. Returns the path written."""
+    get(default_institution()).profile.require(Capability.MATERIALS)
     if filename is not None:
         _validate_requested_filename(filename)
     repo = _repo()
@@ -266,6 +272,7 @@ def sigaa_get_schedule(class_code: str | None = None) -> list[dict]:
 @mcp.tool()
 def sigaa_list_grades(semester: str | None = None) -> list[dict]:
     """List grades from the store, optionally filtered by semester (e.g. 2025.1)."""
+    get(default_institution()).profile.require(Capability.GRADES)
     return [
         {
             "semester": g.semester,
@@ -283,6 +290,7 @@ def sigaa_list_grades(semester: str | None = None) -> list[dict]:
 @mcp.tool()
 def sigaa_get_cra() -> dict:
     """Get the official CRA recorded in the academic transcript. Networked."""
+    get(default_institution()).profile.require(Capability.DOCUMENTS)
     settings = Settings()
     password = settings.resolve_password()
     if not settings.username or not password:
@@ -318,6 +326,7 @@ def sigaa_get_curriculum(
     they are alternatives toward workload requirements, not all individually
     required. CRA comes from the official transcript. This tool is networked.
     """
+    get(default_institution()).profile.require(Capability.CURRICULUM_JSON)
     settings = Settings()
     password = settings.resolve_password()
     if not settings.username or not password:
@@ -356,6 +365,7 @@ def sigaa_list_extension_participations() -> dict:
     Final is sent); a declaration can be issued while the participation is
     active. This tool never issues or downloads a document.
     """
+    get(default_institution()).profile.require(Capability.EXTENSAO)
     settings = Settings()
     password = settings.resolve_password()
     if not settings.username or not password:
@@ -378,6 +388,7 @@ def sipac_get_public_process(number: str) -> dict:
     movements, status changes, and attached files when the portal exposes them.
     """
     try:
+        get(default_institution()).profile.require(Capability.SIPAC)
         with SipacClient() as client:
             process = client.get_public_process(number)
         return public_process_to_dict(process)
@@ -399,6 +410,7 @@ def sipac_search_public_processes(
     legitimate purpose and do not expose them unnecessarily.
     """
     try:
+        get(default_institution()).profile.require(Capability.SIPAC)
         with SipacClient() as client:
             result = client.search_public_processes(
                 name=name, identifier=identifier, page=page
@@ -411,6 +423,7 @@ def sipac_search_public_processes(
 @mcp.tool()
 def sigaa_get_turma_grades(class_code: str | None = None) -> list[dict]:
     """Per-class grade breakdown (Ver Notas): Unid. 1..N, Exame, Resultado, Faltas, Situação."""
+    get(default_institution()).profile.require(Capability.GRADES)
     repo = _repo()
     id_turma = None
     if class_code:
@@ -437,6 +450,7 @@ def sigaa_get_turma_grades(class_code: str | None = None) -> list[dict]:
 @mcp.tool()
 def sigaa_get_attendance(class_code: str) -> dict:
     """Per-date attendance map (Frequência) for a class. Networked (live fetch)."""
+    get(default_institution()).profile.require(Capability.ATTENDANCE)
     client, turma, error = _live_turma(class_code)
     if error:
         return {"error": error}
@@ -460,6 +474,7 @@ def sigaa_get_attendance(class_code: str) -> dict:
 def sigaa_get_course_plan(class_code: str) -> dict:
     """Plano de Curso for a class: lecture schedule + scheduled evaluation dates.
     Networked (live fetch)."""
+    get(default_institution()).profile.require(Capability.PLAN)
     client, turma, error = _live_turma(class_code)
     if error:
         return {"error": error}
@@ -515,6 +530,7 @@ def sigaa_list_deadlines(class_code: str | None = None) -> list[dict]:
 def sigaa_get_tarefa_body(deadline_id: str) -> dict:
     """Get a task/assignment's full details (Descrição, Período, ...) by its deadline id.
     Served from cache; fetched live if missing. Run sigaa_sync first to learn ids."""
+    get(default_institution()).profile.require(Capability.TASKS)
     repo = _repo()
     item = next((d for d in repo.get_deadlines() if d.id == deadline_id), None)
     if item is None:
@@ -538,6 +554,7 @@ def sigaa_get_tarefa_body(deadline_id: str) -> dict:
 def sigaa_download_tarefa_anexo(deadline_id: str, filename: str | None = None) -> str:
     """Download a task's teacher attachment (Arquivo do Professor) by its deadline id.
     Networked. Returns the path written, or a message if the task has no attachment."""
+    get(default_institution()).profile.require(Capability.TASKS)
     if filename is not None:
         _validate_requested_filename(filename)
     repo = _repo()
@@ -615,6 +632,7 @@ def _attendance_update(repo: Repository, a) -> dict:
 @mcp.tool()
 def sigaa_download_historico(filename: str = "historico.pdf") -> CallToolResult:
     """Download the transcript into the private MCP download directory."""
+    get(default_institution()).profile.require(Capability.DOCUMENTS)
     return _download_academic_document(HISTORICO, filename)
 
 
@@ -623,6 +641,7 @@ def sigaa_download_declaracao_vinculo(
     filename: str = "declaracao-vinculo.pdf",
 ) -> CallToolResult:
     """Download the declaration into the private MCP download directory."""
+    get(default_institution()).profile.require(Capability.DOCUMENTS)
     return _download_academic_document(DECLARACAO_VINCULO, filename)
 
 
@@ -631,6 +650,7 @@ def sigaa_download_atestado_matricula(
     filename: str = "atestado-matricula.html",
 ) -> CallToolResult:
     """Download the printable HTML into the private MCP download directory."""
+    get(default_institution()).profile.require(Capability.DOCUMENTS)
     return _download_academic_document(ATESTADO_MATRICULA, filename)
 
 
@@ -793,6 +813,7 @@ def sigaa_matricula_open_turmas() -> list[dict]:
     Selection/confirmation is intentionally CLI-only ('sigaa matricula --select --confirm')
     so an agent cannot submit an enrollment request on its own.
     """
+    get(default_institution()).profile.require(Capability.MATRICULA)
     settings = Settings()
     password = settings.resolve_password()
     if not settings.username or not password:

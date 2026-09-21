@@ -63,8 +63,7 @@ class UfpbNavigator:
         self.profile = profile
 
     def login(self, session):
-        from ..auth import perform_login
-        return perform_login(session._client, session._username, session._password)
+        return perform_login(session._client, session._username, session._password, profile=self.profile)
 
     def looks_logged_out(self, text, url=""):
         return (self.profile.login_redirect_marker in url or
@@ -101,5 +100,46 @@ class UfpbNavigator:
         from ..parsers.tarefa import build_event_postback
         fields = build_event_postback(portal, event_id, extract_viewstate(portal))
         if fields is None:
-            return None
+            raise NavigationError("event postback not found")
         return session.post(self.profile.portal_action_url, fields)
+
+
+def perform_login(client, username: str, password: str, *, profile=PROFILE) -> str:
+    """Authenticate and return the rendered portal HTML (with the turma list).
+
+    Raises ``LoginRejectedError`` (a ``ValueError``) if the resulting portal is
+    not authenticated.
+    """
+    import httpx
+    from ..errors import MissingCredentialsError, LoginRejectedError
+    from ..http import extract_viewstate
+
+    if not username or not password:
+        raise MissingCredentialsError("missing SIGAA username or password")
+    login_page = client.get(profile.logon_url)
+    login_page.raise_for_status()
+
+    fields = {
+        "form": "form",
+        "form:width": "1280",
+        "form:height": "800",
+        "form:login": username,
+        "form:senha": password,
+        "form:entrar": "Entrar",
+        "javax.faces.ViewState": extract_viewstate(login_page.text),
+    }
+    # The post-login redirect targets the deprecated classic portal, whose
+    # http->https hop drops a trailing slash and 404s. The session cookie is set
+    # regardless, so the status of this response is irrelevant.
+    try:
+        client.post(profile.logon_url, data=fields, follow_redirects=False)
+    except httpx.HTTPError:
+        pass
+
+    # Enter via the slash-terminated classic URL, which 302s to the full beta
+    # portal. A plain GET of the beta URL returns only a loading shell.
+    portal = client.get(profile.portal_entry_url)
+    portal.raise_for_status()
+    if profile.auth_marker not in portal.text:
+        raise LoginRejectedError("login failed: SIGAA rejected the credentials or showed a CAPTCHA")
+    return portal.text

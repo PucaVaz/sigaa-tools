@@ -28,7 +28,7 @@ def register(sub):
     probe_cmd.add_argument("--from", dest="source", type=Path)
     probe_cmd.add_argument("--institution")
     probe_cmd.add_argument("--json", action="store_true")
-    probe_cmd.set_defaults(func=run_probe)
+    probe_cmd.set_defaults(func=run_probe, public_without_settings=True)
     init = commands.add_parser("init", help="scaffold an unsupported institution provider")
     init.add_argument("key")
     init.add_argument("--host", required=True)
@@ -46,7 +46,8 @@ def register(sub):
 def login_probe(args, settings=None):
     from dataclasses import replace
     from urllib.parse import urlsplit
-    profile = get(args.institution).profile
+    from ..config import default_institution
+    profile = get(args.institution or default_institution()).profile
     url = args.url or profile.logon_url
     if args.url:
         parsed = urlsplit(url)
@@ -85,6 +86,8 @@ def run_probe(args, settings):
     from .probe import probe
     directory = args.source
     if directory is None:
+        from ..config import Settings
+        settings = Settings(institution=args.institution) if args.institution else Settings()
         directory, _ = capture(settings)
     result = probe(directory)
     print(json.dumps(result, indent=2))

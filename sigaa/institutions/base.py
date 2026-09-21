@@ -25,6 +25,7 @@ class MenuLabel(StrEnum):
 
 
 class Capability(StrEnum):
+    CALENDAR = "calendar"
     PORTAL = "portal"
     NEWS = "news"
     MATERIALS = "materials"

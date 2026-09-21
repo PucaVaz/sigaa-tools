@@ -9,8 +9,11 @@ chat or commit a capture. Only the student can complete live acceptance.
 2. Run `sigaa onboard init your_key --host https://your-host`. The generated
    provider deliberately has no supported capabilities and cannot log in.
    Implement navigation and declare capabilities only for available features.
-3. Run `sigaa login --institution your_key`, then
-   `SIGAA_INSTITUTION=your_key sigaa onboard capture`. Enrollment capture needs
+3. Run `SIGAA_INSTITUTION=your_key sigaa onboard capture` with credentials
+   available from keyring or the environment. If the student parser is not yet
+   supported, use environment credentials outside the repository for this first
+   capture; `sigaa login` also verifies that parser. After it passes, run
+   `sigaa login --institution your_key` to save the account. Enrollment capture needs
    `--include-matricula`; capture stops before selection or submission.
 4. Run `sigaa onboard probe --from captures/your_key/<date> --json`. Without
    `--from`, probe captures live pages first. Results contain counts, field
