@@ -1,45 +1,88 @@
 """Create an explicit, unsupported provider skeleton inside a source checkout."""
-from pathlib import Path
 import re
+from pathlib import Path
 from urllib.parse import urlsplit
 
+# The registry discovers every module that defines PROFILE and NAVIGATOR, so the
+# generated file is the only edit. It inherits nothing from another institution:
+# every navigation step raises until live captures establish how it works.
+_TEMPLATE = '''"""{key} provider skeleton. Every step raises until live captures establish it."""
+from ..errors import NavigationError
+from .base import InstitutionProfile
 
-def scaffold(root: Path, key: str, host: str):
-    if not re.fullmatch(r"[a-z][a-z0-9_]{1,31}", key):
-        raise ValueError("institution key must be a short Python module name")
-    url = urlsplit(host)
-    if (url.scheme != "https" or not url.hostname or url.path not in ("", "/")
-            or url.query or url.fragment or url.username or url.password or url.port not in (None, 443)):
-        raise ValueError("host must be a plain HTTPS origin")
-    host = host.rstrip("/")
-    target = root / "sigaa/institutions" / f"{key}.py"
-    registry = root / "sigaa/institutions/registry.py"
-    if target.exists():
-        raise ValueError("institution already exists")
-    registry_text = registry.read_text()
-    source = f'''"""{key} provider skeleton. Navigation must be implemented before login."""
-from dataclasses import replace
-from .ufpb import PROFILE as TEMPLATE, UfpbNavigator
+HOST = {host!r}
+# Confirm with `sigaa onboard login-probe` before implementing login.
+LOGON_URL = HOST + "/sigaa/logon.jsf"
 
-PROFILE = replace(
-    TEMPLATE, key={key!r}, label={key.upper()!r}, host={host!r}, keyring_service={('sigaa-' + key)!r},
-    **{{field: getattr(TEMPLATE, field).replace(TEMPLATE.host, {host!r})
-       for field in TEMPLATE.__dataclass_fields__ if field.endswith("_url")}},
+PROFILE = InstitutionProfile(
+    key={key!r},
+    label={label!r},
+    host=HOST,
+    logon_url=LOGON_URL,
+    portal_entry_url="",
+    portal_action_url="",
+    ava_url="",
+    curriculum_entry_url="",
+    curriculum_data_url="",
+    matricula_instrucoes_url="",
+    matricula_turmas_curriculo_url="",
+    auth_marker="",
+    login_redirect_marker="",
+    keyring_service={keyring_service!r},
+    slot_times={{}},
+    slot_minutes=50,
+    menu_labels={{}},
     capabilities=frozenset(),
 )
 
 
-class Navigator(UfpbNavigator):
+def _pending(step):
+    return NavigationError(f"{key} {{step}} requires live onboarding captures")
+
+
+class Navigator:
     def login(self, session):
-        raise NotImplementedError("Implement and test this institution's login and navigation")
+        raise _pending("login")
+
+    def looks_logged_out(self, text, url=""):
+        raise _pending("session check")
+
+    def portal_menu_post(self, session, portal, label):
+        raise _pending("portal navigation")
+
+    def enter_turma(self, session, portal, turma):
+        raise _pending("class navigation")
+
+    def turma_menu_post(self, session, principal, label):
+        raise _pending("class menu")
+
+    def open_event(self, session, portal, event_id):
+        raise _pending("event navigation")
 
 
-NAVIGATOR = Navigator(PROFILE)
+NAVIGATOR = Navigator()
 '''
-    target.write_text(source)
-    registry_text += (f"\nfrom .{key} import PROFILE as _{key}_profile, NAVIGATOR as _{key}_navigator  # noqa: E402\n"
-                      f"_PROVIDERS[{key!r}] = Institution(_{key}_profile, _{key}_navigator)\n")
-    registry.write_text(registry_text)
+_RESERVED = {"base", "registry"}
+
+
+def scaffold(root: Path, key: str, host: str):
+    if (not re.fullmatch(r"[a-z][a-z0-9_]{1,31}", key)
+            or key in _RESERVED or key.startswith("auth_")):
+        raise ValueError("institution key must be a short Python module name")
+    url = urlsplit(host)
+    if (url.scheme != "https" or not url.hostname or url.path not in ("", "/")
+            or url.query or url.fragment or url.username or url.password
+            or url.port not in (None, 443)):
+        raise ValueError("host must be a plain HTTPS origin")
+    target = root / "sigaa/institutions" / f"{key}.py"
+    if target.exists():
+        raise ValueError("institution already exists")
+    target.write_text(_TEMPLATE.format(
+        key=key,
+        label=key.upper(),
+        host=host.rstrip("/"),
+        keyring_service=f"sigaa-{key}",
+    ))
     fixtures = root / "tests/fixtures" / key
     fixtures.mkdir(parents=True, exist_ok=True)
     (fixtures / ".gitkeep").touch()

@@ -125,3 +125,6 @@ class UfpbNavigator:
         if fields is None:
             raise NavigationError(f"portal event not found: {event_id!r}")
         return session.post(self.profile.portal_action_url, fields)
+
+
+NAVIGATOR = UfpbNavigator()

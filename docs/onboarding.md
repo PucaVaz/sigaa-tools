@@ -7,7 +7,9 @@ chat or commit a capture. Only the student can complete live acceptance.
 1. Run `sigaa onboard login-probe --url https://your-host/sigaa/login-page`.
    This reads the public login form. It never submits credentials.
 2. Run `sigaa onboard init your_key --host https://your-host`. The generated
-   provider deliberately has no supported capabilities and cannot log in.
+   provider deliberately has no supported capabilities, empty menu labels and
+   URLs, and a navigator whose every step raises until you implement it; it
+   inherits nothing from UFPB. The registry picks the module up by itself.
    Implement navigation and declare capabilities only for available features.
 3. Run `sigaa login --institution your_key`, then
    `SIGAA_INSTITUTION=your_key sigaa onboard capture`. Enrollment capture needs
@@ -38,8 +40,8 @@ though Git ignores them. Never use `git add -f` for a capture. The transport gua
 rejects submission controls, but the fixed fetcher registry is the primary
 read-only boundary. Do not add enrollment workers to that registry.
 
-Allowed changes during an institution onboarding: `sigaa/institutions/<key>.py`,
-the corresponding registry entry, new parser variants, tests and sanitized
+Allowed changes during an institution onboarding: `sigaa/institutions/<key>.py`
+(the registry needs no edit), new parser variants, tests and sanitized
 `tests/fixtures/<key>/` files, and `docs/institutions/<key>.md`. Changes to shared
 navigation or existing variants need a separately agreed scope.
 
