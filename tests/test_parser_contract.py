@@ -71,3 +71,25 @@ def test_synthetic_empty_contract(feature):
             assert not result
     with pytest.raises(ParseError):
         feature.parse((FIXTURES / f"{feature.key}_changed_markup.html").read_text(), "123")
+
+
+@pytest.mark.parametrize("feature, fixture", [
+    ("student", "portal.html"), ("turmas", "portal.html"), ("deadlines", "portal.html"),
+    ("grades", "grades.html"), ("turma_grades", "vernotas.html"),
+    ("attendance", "frequencia.html"), ("plan", "plano.html"),
+    ("professors", "participantes.html"), ("materials", "materials.html"),
+    ("task", "tarefa.html"),
+])
+def test_page_parsers_build_the_soup_once(feature, fixture, monkeypatch):
+    built = []
+    original = BeautifulSoup.__init__
+
+    def counting(self, *args, **kwargs):
+        built.append(1)
+        original(self, *args, **kwargs)
+
+    parser = next(f for f in FEATURES if f.key == feature)
+    html = (FIXTURES / fixture).read_text()
+    monkeypatch.setattr(BeautifulSoup, "__init__", counting)
+    parser.parse(html, "123")
+    assert len(built) == 1

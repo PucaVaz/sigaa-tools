@@ -16,9 +16,22 @@ _JUSTIFIED_RE = re.compile(r"Total de Faltas Justificadas:\s*(\d+)")
 _MAX_RE = re.compile(r"M[áa]ximo de Faltas Permitido:\s*(\d+)")
 
 
-def parse_attendance(html: str, id_turma: str) -> Attendance | None:
+def _recognized_map(soup):
+    return any("mapa de frequ" in fold(lg.get_text()) for lg in soup.select("fieldset legend"))
+
+
+def _valid_map(result, soup):
+    if result is None:
+        return False
+    headers = {fold(th.get_text()) for th in soup.select("table th")}
+    return {"data", "situacao"}.issubset(headers) and (
+        len(result.records) == len(soup.select("table tbody tr")) and bool(soup.select("table tbody"))
+    )
+
+
+@page_parser("attendance", _recognized_map, validate=_valid_map, name="frequency-map")
+def parse_attendance(soup: BeautifulSoup, id_turma: str) -> Attendance | None:
     """Extract the attendance map. Returns None if the page has no map."""
-    soup = BeautifulSoup(html, "lxml")
     legend = next(
         (lg for lg in soup.find_all("legend")
          if "mapa de frequ" in lg.get_text(strip=True).casefold()),
@@ -58,20 +71,3 @@ def parse_attendance(html: str, id_turma: str) -> Attendance | None:
 def _int(pattern: re.Pattern, text: str) -> int | None:
     match = pattern.search(text)
     return int(match.group(1)) if match else None
-
-
-def _recognized_map(soup):
-    return any("mapa de frequ" in fold(lg.get_text()) for lg in soup.select("fieldset legend"))
-
-
-def _valid_map(result, soup):
-    if result is None:
-        return False
-    headers = {fold(th.get_text()) for th in soup.select("table th")}
-    return {"data", "situacao"}.issubset(headers) and (
-        len(result.records) == len(soup.select("table tbody tr")) and bool(soup.select("table tbody"))
-    )
-
-
-parse_attendance = page_parser("attendance", _recognized_map, validate=_valid_map,
-                               name="frequency-map")(parse_attendance)

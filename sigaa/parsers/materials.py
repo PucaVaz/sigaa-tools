@@ -35,8 +35,18 @@ _EXT_BY_TYPE = {
 _UNSAFE_RE = re.compile(r'[/\\:*?"<>|]+')
 
 
-def parse_materials(turma_html: str, id_turma: str) -> list[Material]:
-    soup = BeautifulSoup(turma_html, "lxml")
+def _topic_items(soup: BeautifulSoup):
+    return soup.select("div.topico-aula div.item")
+
+
+@page_parser(
+    "materials",
+    lambda soup: bool(soup.select("div.topico-aula")),
+    empty=lambda soup: not _topic_items(soup),
+    validate=lambda result, soup: len(result) == len(_topic_items(soup)),
+    name="class-topic-items",
+)
+def parse_materials(soup: BeautifulSoup, id_turma: str) -> list[Material]:
     materials: list[Material] = []
     for topic in soup.select("div.topico-aula"):
         titulo = topic.select_one(".titulo")
@@ -105,11 +115,3 @@ def filename_for(title: str, content_type: str | None, content_disposition: str 
 
 def _sanitize(name: str) -> str:
     return _UNSAFE_RE.sub("_", name).strip().strip(".")
-
-
-parse_materials = page_parser(
-    "materials", lambda soup: bool(soup.select("div.topico-aula")),
-    empty=lambda soup: not soup.select("div.topico-aula div.item"),
-    validate=lambda result, soup: len(result) == len(soup.select("div.topico-aula div.item")),
-    name="class-topic-items",
-)(parse_materials)

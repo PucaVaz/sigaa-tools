@@ -18,9 +18,23 @@ _SCHEDULE_RE = re.compile(r"\b[2-7]+[MTN][1-6]+\b")
 _REQUEST_NUMBER_RE = re.compile(r"Solicita[^\s]*o de Matr[^\s]*cula N[^\s]*\s*(\d+)")
 
 
-def parse_open_turmas(html: str) -> list[OpenTurma]:
+def _declares_no_open_turmas(soup):
+    return "nao ha turmas abertas" in fold(soup.get_text())
+
+
+def _section_checkboxes(soup):
+    return soup.select('input[name="selecaoTurmas"]')
+
+
+@page_parser(
+    "matricula",
+    lambda soup: bool(_section_checkboxes(soup)) or _declares_no_open_turmas(soup),
+    empty=_declares_no_open_turmas,
+    validate=lambda result, soup: len(result) == len(_section_checkboxes(soup)),
+    name="enrollment-sections",
+)
+def parse_open_turmas(soup: BeautifulSoup) -> list[OpenTurma]:
     """Open sections from the 'Turmas Abertas do Currículo' page."""
-    soup = BeautifulSoup(html, "lxml")
     turmas: list[OpenTurma] = []
     level: str | None = None
     component: tuple[str, str, str, bool] | None = None
@@ -90,12 +104,3 @@ def parse_request_number(html: str) -> str | None:
     flat = re.sub(r"\s+", " ", BeautifulSoup(html, "lxml").get_text(" ", strip=True))
     match = _REQUEST_NUMBER_RE.search(flat)
     return match.group(1) if match else None
-
-
-parse_open_turmas = page_parser(
-    "matricula", lambda soup: bool(soup.select('input[name="selecaoTurmas"]'))
-    or "nao ha turmas abertas" in fold(soup.get_text()),
-    empty=lambda soup: "nao ha turmas abertas" in fold(soup.get_text()),
-    validate=lambda result, soup: len(result) == len(soup.select('input[name="selecaoTurmas"]')),
-    name="enrollment-sections",
-)(parse_open_turmas)

@@ -23,9 +23,23 @@ _DEPARTMENT_LABEL = "departamento"
 _EMAIL_LABEL = "e-mail"
 
 
-def parse_professors(html: str, id_turma: str) -> list[Professor]:
+def _professor_count(soup):
+    for legend in soup.select("fieldset legend"):
+        match = re.fullmatch(r"professores?\s*\((\d+)\)", fold(legend.get_text()))
+        if match:
+            return int(match.group(1))
+    return None
+
+
+@page_parser(
+    "professors",
+    lambda soup: _professor_count(soup) is not None,
+    empty=lambda soup: _professor_count(soup) == 0,
+    validate=lambda result, soup: len(result) == _professor_count(soup),
+    name="participants-role-count",
+)
+def parse_professors(soup: BeautifulSoup, id_turma: str) -> list[Professor]:
     """Teaching staff listed under the 'Professores' fieldset of a turma."""
-    soup = BeautifulSoup(html, "lxml")
     table = _professor_table(soup)
     if table is None:
         return []
@@ -86,20 +100,3 @@ def _preceding_label(value_el) -> str | None:
         return text.rstrip(":") if text.endswith(":") else None
     return None
 
-
-
-
-def _professor_count(soup):
-    for legend in soup.select("fieldset legend"):
-        match = re.fullmatch(r"professores?\s*\((\d+)\)", fold(legend.get_text()))
-        if match:
-            return int(match.group(1))
-    return None
-
-
-parse_professors = page_parser(
-    "professors", lambda soup: _professor_count(soup) is not None,
-    empty=lambda soup: _professor_count(soup) == 0,
-    validate=lambda result, soup: len(result) == _professor_count(soup),
-    name="participants-role-count",
-)(parse_professors)

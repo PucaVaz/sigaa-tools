@@ -19,8 +19,7 @@ from ._variants import Variant, parse_with_variants, page_parser
 _UNIT_COUNT = 10  # Unidade 1..10
 
 
-def _parse_grades_16col(html: str) -> list[Grade]:
-    soup = BeautifulSoup(html, "lxml")
+def _parse_grades_16col(soup: BeautifulSoup) -> list[Grade]:
     grades: list[Grade] = []
     for table in soup.find_all("table", class_="tabelaRelatorio"):
         caption = table.find("caption")
@@ -49,9 +48,36 @@ def _row_to_grade(semester: str, cells: list[str]) -> Grade:
     )
 
 
-def parse_turma_grades(html: str, id_turma: str) -> TurmaGrade | None:
+def _grade_tables(soup):
+    return soup.select("table.tabelaRelatorio")
+
+
+def _grade_headers(table):
+    row = table.find("tr")
+    return [fold(c.get_text(" ", strip=True)) for c in row.find_all(["th", "td"])] if row else []
+
+
+def _matches_turma_grades(soup):
+    tables = _grade_tables(soup)
+    return bool(tables) and all(
+        {"matricula", "nome", "faltas"}.issubset(_grade_headers(t)) for t in tables
+    )
+
+
+def _turma_grades_empty(soup):
+    return bool(soup.select("table.tabelaRelatorio tbody")) and not soup.select(
+        "table.tabelaRelatorio tbody td"
+    )
+
+
+@page_parser(
+    "turma_grades",
+    _matches_turma_grades,
+    empty=_turma_grades_empty,
+    name="class-grade-headers",
+)
+def parse_turma_grades(soup: BeautifulSoup, id_turma: str) -> TurmaGrade | None:
     """Extract the student's grade row from a turma's Ver Notas report."""
-    soup = BeautifulSoup(html, "lxml")
     table = soup.find("table", class_="tabelaRelatorio")
     if table is None:
         return None
@@ -89,15 +115,6 @@ def _clean(value: str) -> str | None:
     return None if value in ("", "--") else value
 
 
-def _grade_tables(soup):
-    return soup.select("table.tabelaRelatorio")
-
-
-def _grade_headers(table):
-    row = table.find("tr")
-    return [fold(c.get_text(" ", strip=True)) for c in row.find_all(["th", "td"])] if row else []
-
-
 def _matches_grades(soup):
     tables = _grade_tables(soup)
     return bool(tables) and all({"codigo", "disciplina", "resultado", "faltas", "situacao"}
@@ -128,7 +145,7 @@ def _grades_by_header(soup):
 
 def _grades_16col(soup):
     _grades_by_header(soup)  # verify row integrity before the positional compatibility reader
-    return _parse_grades_16col(str(soup))
+    return _parse_grades_16col(soup)
 
 
 _GRADE_VARIANTS = (
@@ -146,10 +163,3 @@ def parse_grades(html: str) -> list[Grade]:
 
 parse_grades.variants = _GRADE_VARIANTS
 parse_grades.feature = "grades"
-parse_turma_grades = page_parser(
-    "turma_grades", lambda soup: bool(_grade_tables(soup)) and all(
-        {"matricula", "nome", "faltas"}.issubset(_grade_headers(t)) for t in _grade_tables(soup)),
-    empty=lambda soup: bool(soup.select("table.tabelaRelatorio tbody"))
-    and not soup.select("table.tabelaRelatorio tbody td"),
-    name="class-grade-headers",
-)(parse_turma_grades)

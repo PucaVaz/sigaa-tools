@@ -104,8 +104,18 @@ def _find_menu_anchor(soup: BeautifulSoup, link_text: str):
 
 
 
-def parse_student(html: str) -> Student:
-    soup = BeautifulSoup(html, "lxml")
+def _shows_student(soup):
+    text = _text(soup)
+    return bool(_NAME_RE.search(text) and _MATRICULA_RE.search(text))
+
+
+@page_parser(
+    "student",
+    _shows_student,
+    validate=lambda result, soup: bool(result.name and result.matricula),
+    name="beta-student",
+)
+def parse_student(soup: BeautifulSoup) -> Student:
     text = _text(soup)
 
     matricula = _first(_MATRICULA_RE, text) or ""
@@ -124,8 +134,28 @@ def parse_student(html: str) -> Student:
     )
 
 
-def parse_turmas(html: str) -> list[Turma]:
-    soup = BeautifulSoup(html, "lxml")
+def _turma_anchors(soup):
+    return [
+        anchor for anchor in soup.select("a[onclick*='idTurma']")
+        if anchor.find_parent("tr") is not None and anchor.find_parent("ul") is None
+    ]
+
+
+def _valid_turmas(result, soup):
+    return (
+        all(t.name and t.field and t.form_id for t in result)
+        and len(result) == len(_turma_anchors(soup))
+    )
+
+
+@page_parser(
+    "turmas",
+    lambda soup: soup.find("form", id=_PORTAL_FORM_RE) is not None,
+    empty=lambda soup: "nao ha turmas" in fold(_text(soup)),
+    validate=_valid_turmas,
+    name="beta-turmas",
+)
+def parse_turmas(soup: BeautifulSoup) -> list[Turma]:
     form = soup.find("form", id=_PORTAL_FORM_RE)
     form_id = form["id"] if form else None
     semester = _first(_SEMESTER_RE, _text(soup))
@@ -154,9 +184,22 @@ def parse_turmas(html: str) -> list[Turma]:
     return turmas
 
 
-def parse_deadlines(html: str) -> list[Deadline]:
+def _deadline_menus(soup):
+    return [
+        menu for menu in soup.select('ul[class*="dropdown-menu-"]')
+        if _menu_kind(menu.get("class", [])) in _DEADLINE_KINDS
+    ]
+
+
+@page_parser(
+    "deadlines",
+    lambda soup: bool(soup.select('ul[class*="dropdown-menu-"]')),
+    empty=lambda soup: all(not menu.select("li > a[onclick]") for menu in _deadline_menus(soup)),
+    validate=lambda result, soup: all(d.title and d.date for d in result),
+    name="beta-deadlines",
+)
+def parse_deadlines(soup: BeautifulSoup) -> list[Deadline]:
     """Extract assessment/task deadlines from the portal turma event dropdowns."""
-    soup = BeautifulSoup(html, "lxml")
     deadlines: list[Deadline] = []
     for menu in soup.select('ul[class*="dropdown-menu-"]'):
         kind = _menu_kind(menu.get("class", []))
@@ -210,23 +253,3 @@ def _cell(cells, index: int) -> str | None:
 def _first(pattern: re.Pattern, text: str) -> str | None:
     match = pattern.search(text)
     return match.group(1) if match else None
-
-
-parse_student = page_parser(
-    "student", lambda soup: bool(_NAME_RE.search(_text(soup)) and _MATRICULA_RE.search(_text(soup))),
-    validate=lambda result, soup: bool(result.name and result.matricula), name="beta-student",
-)(parse_student)
-parse_turmas = page_parser(
-    "turmas", lambda soup: soup.find("form", id=_PORTAL_FORM_RE) is not None,
-    empty=lambda soup: "nao ha turmas" in fold(_text(soup)),
-    validate=lambda result, soup: all(t.name and t.field and t.form_id for t in result)
-    and len(result) == len([a for a in soup.select("a[onclick*='idTurma']")
-                           if a.find_parent("tr") is not None and a.find_parent("ul") is None]), name="beta-turmas",
-)(parse_turmas)
-parse_deadlines = page_parser(
-    "deadlines", lambda soup: bool(soup.select('ul[class*="dropdown-menu-"]')),
-    empty=lambda soup: all(not ul.select("li > a[onclick]")
-                           for ul in soup.select('ul[class*="dropdown-menu-"]')
-                           if _menu_kind(ul.get("class", [])) in _DEADLINE_KINDS),
-    validate=lambda result, soup: all(d.title and d.date for d in result), name="beta-deadlines",
-)(parse_deadlines)
