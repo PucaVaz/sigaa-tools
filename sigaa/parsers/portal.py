@@ -191,11 +191,33 @@ def _deadline_menus(soup):
     ]
 
 
+def _event_anchors(soup):
+    """Event links in the deadline dropdowns. Other links there (for example
+    "ver todas") have never been deadlines and are not counted."""
+    return [
+        anchor
+        for menu in _deadline_menus(soup)
+        for anchor in menu.select("li > a[onclick]")
+        if _EVENT_PARAM_RE.search(anchor.get("onclick", ""))
+    ]
+
+
+def _shows_deadlines(soup):
+    """Deadline dropdowns, or the portal form of a student with no class cards."""
+    return bool(soup.select('ul[class*="dropdown-menu-"]')) or (
+        soup.find("form", id=_PORTAL_FORM_RE) is not None
+    )
+
+
 @page_parser(
     "deadlines",
-    lambda soup: bool(soup.select('ul[class*="dropdown-menu-"]')),
-    empty=lambda soup: all(not menu.select("li > a[onclick]") for menu in _deadline_menus(soup)),
-    validate=lambda result, soup: all(d.title and d.date for d in result),
+    _shows_deadlines,
+    empty=lambda soup: not _event_anchors(soup),
+    # Read at portal level: a false rejection fails the whole sync, so an event
+    # without a date is kept, as it always was.
+    validate=lambda result, soup: (
+        len(result) == len(_event_anchors(soup)) and all(d.title for d in result)
+    ),
     name="beta-deadlines",
 )
 def parse_deadlines(soup: BeautifulSoup) -> list[Deadline]:
