@@ -11,7 +11,13 @@ from conftest import FIXTURES, TEST_PASSWORD, TEST_USERNAME
 from sigaa import cli, config
 from sigaa.institutions import ufpb
 from sigaa.config import Settings
-from sigaa.errors import STAGE_AUTH, STAGE_NETWORK, STAGE_PARSE, LoginRejectedError
+from sigaa.errors import (
+    STAGE_AUTH,
+    STAGE_NETWORK,
+    STAGE_PARSE,
+    LoginRejectedError,
+    UnsafeUrlError,
+)
 from sigaa.services import watch
 from sigaa.store.db import connect
 from sigaa.store.repository import Repository
@@ -181,6 +187,16 @@ def test_auth_failure_is_an_error_event_not_no_changes(remote_class, tmp_path):
         "message": "login failed: SIGAA rejected the credentials",
         "class_id": None, "class_code": None,
     }]
+
+
+def test_blocked_redirect_is_a_network_error_naming_the_hop(remote_class, tmp_path):
+    remote_class.failure = UnsafeUrlError("http", "sigaa.ufpb.br", None, "is not HTTPS")
+
+    run = _run(tmp_path)
+
+    assert run.status == watch.STATUS_FAILED
+    assert run.events[0]["stage"] == STAGE_NETWORK
+    assert "http://sigaa.ufpb.br" in run.events[0]["message"]
 
 
 def test_missing_credentials_are_an_auth_error(fake_sigaa, clean_credentials, tmp_path):

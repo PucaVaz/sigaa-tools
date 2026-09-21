@@ -132,3 +132,25 @@ def test_unsupported_mcp_tool_does_not_open_the_store(other, monkeypatch, tmp_pa
         with pytest.raises(UnsupportedFeatureError):
             tool()
     assert not (tmp_path / "never-created.db").exists()
+
+
+def test_blocked_http_hop_names_scheme_and_host_and_stages_as_network():
+    from sigaa.errors import error_stage
+    secret = secrets.token_urlsafe()
+
+    def handler(request):
+        return httpx.Response(302, headers={
+            "Location": f"http://student:{secret}@sigaa.ufpb.br/sigaa/portal/?token={secret}"})
+
+    provider = get("ufpb")
+    raw = httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True)
+    session = Session("test", secrets.token_urlsafe(), client=raw,
+                      profile=provider.profile, navigator=provider.navigator)
+    session._authenticated = True
+    with session, pytest.raises(UnsafeUrlError) as caught:
+        session.get(provider.profile.portal_entry_url)
+    message = str(caught.value)
+    assert "http://sigaa.ufpb.br" in message
+    assert secret not in message and "student" not in message and "/portal" not in message
+    assert (caught.value.scheme, caught.value.host) == ("http", "sigaa.ufpb.br")
+    assert error_stage(caught.value) == "network"
