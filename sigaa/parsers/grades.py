@@ -146,8 +146,6 @@ def _grades_by_header(soup):
         for row in table.select("tr")[1:]:
             cells = row.find_all("td", recursive=False)
             if not cells:
-                if row.get_text(strip=True):
-                    raise UnrecognizedPageError("grades", page_fingerprint(soup))
                 continue
             if len(cells) != len(headers):
                 raise UnrecognizedPageError("grades", page_fingerprint(soup))
