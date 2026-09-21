@@ -33,7 +33,6 @@ PROFILE = InstitutionProfile(
     capabilities=frozenset({Capability.PORTAL}),
     provisional=True,
 )
-_LOGIN_PATHS = ("verTelaLogin.do", "logar.do")
 _LOGIN_FORM = 'input[type="password"], form[name="loginForm"]'
 
 
@@ -42,7 +41,7 @@ class UfcgNavigator:
         return auth_classic.perform_login(session, PROFILE)
 
     def looks_logged_out(self, text, url=""):
-        if urlsplit(url).path.endswith(_LOGIN_PATHS):
+        if urlsplit(url).path.endswith(("verTelaLogin.do", "logar.do")):
             return True
         return BeautifulSoup(text, "lxml").select_one(_LOGIN_FORM) is not None
 
