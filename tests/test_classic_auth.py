@@ -118,3 +118,50 @@ def test_unsupported_ufcg_features_do_not_read_store(monkeypatch, capsys, tmp_pa
     from sigaa.mcp_server import sigaa_list_grades
     with pytest.raises(UnsupportedFeatureError):
         sigaa_list_grades()
+
+
+@pytest.mark.parametrize("name", [
+    "sigaa_list_classes", "sigaa_get_schedule", "sigaa_list_deadlines",
+    "sigaa_whats_new", "sigaa_sync",
+])
+def test_ufcg_portal_tools_reject_before_store_or_network(name, monkeypatch):
+    from sigaa import mcp_server
+    monkeypatch.setenv("SIGAA_INSTITUTION", "ufcg")
+    monkeypatch.setattr(mcp_server, "_repo", lambda: pytest.fail("opened database"))
+    monkeypatch.setattr(mcp_server, "run_sync", lambda *a, **kw: pytest.fail("ran sync"))
+    with pytest.raises(UnsupportedFeatureError):
+        getattr(mcp_server, name)()
+
+
+@pytest.mark.parametrize("method", ["get_student", "list_turmas", "list_deadlines"])
+def test_ufcg_public_portal_client_is_disabled(method, monkeypatch):
+    from sigaa.client import SigaaClient
+    with SigaaClient("synthetic", secrets.token_urlsafe(), institution="ufcg") as client:
+        monkeypatch.setattr(client, "_portal", lambda: pytest.fail("requested portal"))
+        with pytest.raises(UnsupportedFeatureError):
+            getattr(client, method)()
+
+
+def test_ufcg_auth_only_capture_still_diagnoses_portal(monkeypatch, tmp_path):
+    from sigaa.client import SigaaClient
+    from sigaa.config import Settings
+    from sigaa.onboard import capture as capture_module
+
+    body = (FIXTURES / "portal.html").read_bytes()
+    def factory(username, password, **kwargs):
+        client = SigaaClient(username, password, **kwargs)
+        client._session._client.close()
+        client._session._client = httpx.Client(transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, content=body)))
+        client._session.login = lambda: client._session._client.get(PROFILE.portal_entry_url).text
+        return client
+    monkeypatch.setattr(capture_module, "SigaaClient", factory)
+    monkeypatch.setenv("SIGAA_PASS", secrets.token_urlsafe())
+    directory, manifest = capture_module.capture(
+        Settings(username="synthetic", institution="ufcg"), output=tmp_path / "captures")
+    assert sum(e["status"] == "captured" for e in manifest["entries"]) == 3
+    assert any(e["status"] == "nav_failed" for e in manifest["entries"])
+    rows = probe(directory)["features"]
+    assert all(row["status"] == "unrecognized" for row in rows
+               if row["feature"] in {"student", "turmas", "deadlines"})
+    assert any(row["status"] == "nav_failed" for row in rows)

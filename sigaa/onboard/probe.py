@@ -59,9 +59,6 @@ def probe(directory: Path):
             row = {"feature": feature.key, "sample": index, "status": "not_captured",
                    "count": 0, "fields": {}, "variant": None, "fingerprint": None}
             results.append(row)
-            if feature.capability not in provider.profile.capabilities:
-                row["status"] = "unsupported"
-                continue
             if entry.get("status") != "captured":
                 row["status"] = entry.get("status") if entry.get("status") in {
                     "unsupported", "nav_failed", "not_captured"} else "unrecognized"

@@ -66,3 +66,27 @@ fixture. Never work around these conditions or silently select an account.
 Synthetic empty-state fixtures document parser contracts. They do not establish
 what a live institution renders. Capture real empty states before declaring
 compatibility or requesting approval for that institution.
+
+## Shared harness review scope
+
+The multi-institution foundation and its review corrections have a broader
+scope than a normal institution onboarding. The approved foundation includes
+institution boundaries in CLI/MCP, capture privacy, probe/check behavior, and
+parser extraction. The UFCG live review corrections use that shared scope to
+preserve class-discovery failures, gate unsupported portal reads, protect
+capture destinations, and move new HTML parsing into `sigaa/parsers/`.
+This does not expand the allowlist for future institution-only onboarding.
+It also does not declare UFCG compatible or authorize enrollment submissions.
+
+`capture --out` accepts private directories outside Git working trees. Inside
+any Git working tree, the output directory must be ignored and contain no
+tracked files. Git metadata directories and symlink paths are rejected before
+credentials are read or pages are saved. The default `captures/` satisfies the
+repository rule. Do not force-add captures or change ignore rules to publish
+private data.
+
+A provider with working authentication but no declared portal capability can
+still capture the authenticated portal for diagnostics. The three portal
+parsers are probed independently of the public capability gate. Class-discovery
+errors appear as `nav_failed` for dependent features, not `not_captured`.
+Capture may return nonzero while still writing useful private evidence.

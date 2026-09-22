@@ -7,12 +7,15 @@ import json
 import os
 from pathlib import Path
 import re
+import subprocess
 from urllib.parse import urlsplit, urlunsplit, parse_qsl
 
-from bs4 import BeautifulSoup
+from ..parsers.onboarding import sigaa_version
+from ..parsers import portal
 
 from ..client import SigaaClient
 from ..errors import SigaaError
+from ..institutions import Capability
 from .features import FEATURES, CaptureUnavailable
 
 _BLOCKED = re.compile(
@@ -92,15 +95,39 @@ def safe_url(url):
     return urlunsplit((parsed.scheme, parsed.netloc, parsed.path.split(";")[0], "", ""))
 
 
-def sigaa_version(text):
-    soup = BeautifulSoup(text, "lxml")
-    footer = soup.select_one("#rodape, #footer, footer")
-    match = re.search(r"(?:v|vers[aã]o\s*)([0-9]+(?:\.[0-9]+)+(?:[-.][a-zA-Z0-9]+)*)",
-                      footer.get_text(" ", strip=True) if footer else "", re.I)
-    return match.group(1) if match else None
+def validate_output(path: Path):
+    """Require a Git-ignored directory in every containing repository."""
+    for parent in [path.absolute(), *path.absolute().parents]:
+        if parent.is_symlink():
+            raise ValueError("capture path cannot contain symlinks")
+    path = Path(os.path.abspath(path))
+    if ".git" in path.parts:
+        raise ValueError("capture output cannot be Git metadata")
+    for parent in [path, *path.parents]:
+        if parent.is_symlink():
+            raise ValueError("capture path cannot contain symlinks")
+        marker = parent / ".git"
+        if not marker.exists():
+            continue
+        # An empty directory is not a Git repository (some sandboxes create
+        # these placeholders). Nonempty or unreadable metadata fails closed.
+        if marker.is_dir() and not any(marker.iterdir()):
+            continue
+        ignored = subprocess.run(
+            ["git", "-C", str(parent), "check-ignore", "-q", str(path) + "/"],
+            capture_output=True,
+        )
+        tracked = subprocess.run(
+            ["git", "--literal-pathspecs", "-C", str(parent), "ls-files", "-z", "--", str(path)],
+            capture_output=True,
+        )
+        if ignored.returncode != 0 or tracked.returncode != 0 or tracked.stdout:
+            raise ValueError("capture output must be Git-ignored and contain no tracked files")
+    return path
 
 
 def capture(settings, *, output: Path = Path("captures"), include_matricula=False):
+    output = validate_output(output)
     username, password = settings.require_credentials()
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%S.%fZ")
     directory = output / settings.institution / stamp
@@ -112,20 +139,27 @@ def capture(settings, *, output: Path = Path("captures"), include_matricula=Fals
         client._session = recorder
         client._portal()
         try:
-            student = client.get_student()
+            student = (client.get_student() if Capability.PORTAL in client.profile.capabilities
+                       else portal.parse_student(client._portal()))
             identity.update({k: getattr(student, k, None) for k in ("name", "matricula", "email")})
         except Exception:
             # Keep the private portal even when a new fork cannot identify the student.
             pass
         private_write(directory / "identity.json", json.dumps(identity).encode())
+        turma_error = None
         try:
-            turmas = client.list_turmas()[:2]
-        except Exception:
+            turmas = (client.list_turmas() if Capability.PORTAL in client.profile.capabilities
+                      else portal.parse_turmas(client._portal()))[:2]
+        except Exception as exc:
             turmas = []
+            turma_error = type(exc).__name__
         for feature in FEATURES:
             contexts = turmas if feature.needs_turma else [None]
             if not contexts:
-                manifest["entries"].append({"feature": feature.key, "status": "not_captured"})
+                entry = {"feature": feature.key, "status": "not_captured"}
+                if turma_error:
+                    entry.update(status="nav_failed", error_type=turma_error)
+                manifest["entries"].append(entry)
             for turma in contexts:
                 entry = {
                     "feature": feature.key,
@@ -133,7 +167,8 @@ def capture(settings, *, output: Path = Path("captures"), include_matricula=Fals
                     "source_action": feature.key,
                 }
                 manifest["entries"].append(entry)
-                if feature.capability not in client.profile.capabilities:
+                if (feature.capability not in client.profile.capabilities
+                        and feature.key not in {"student", "turmas", "deadlines"}):
                     entry["status"] = "unsupported"
                     continue
                 if feature.opt_in and not include_matricula:

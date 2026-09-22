@@ -107,6 +107,7 @@ def _require(capability: Capability) -> None:
 @mcp.tool()
 def sigaa_list_classes() -> list[dict]:
     """List enrolled classes, with their teachers, from the local store."""
+    _require(Capability.PORTAL)
     repo = _repo()
     professors: dict[str, list[str]] = {}
     for prof in repo.get_professors():
@@ -268,6 +269,7 @@ def sigaa_download_material(material_id: str, filename: str | None = None) -> st
 @mcp.tool()
 def sigaa_get_schedule(class_code: str | None = None) -> list[dict]:
     """Decoded weekly schedule (days/shift/slots) for one or all classes."""
+    _require(Capability.PORTAL)
     repo = _repo()
     turmas = [repo.get_turma(class_code)] if class_code else repo.get_turmas()
     out = []
@@ -548,6 +550,7 @@ def _live_turma(class_code: str):
 @mcp.tool()
 def sigaa_list_deadlines(class_code: str | None = None) -> list[dict]:
     """List assessment/task deadlines from the store, optionally filtered by class."""
+    _require(Capability.PORTAL)
     repo = _repo()
     id_turma = None
     if class_code:
@@ -633,6 +636,7 @@ def sigaa_export_ics() -> str:
 def sigaa_whats_new(mark_seen: bool = False) -> dict:
     """Everything unseen since last check: news, materials, deadlines, and posted
     grade changes. Pass mark_seen=true to clear them after reading."""
+    _require(Capability.PORTAL)
     repo = _repo()
     feed = whatsnew.collect(repo)
     out = {
@@ -879,6 +883,7 @@ def sigaa_matricula_open_turmas() -> list[dict]:
 @mcp.tool()
 def sigaa_sync(fetch_bodies: bool = False) -> dict:
     """Refresh the local store from SIGAA."""
+    _require(Capability.PORTAL)
     result = run_sync(Settings(), fetch_bodies=fetch_bodies)
     return {
         "ok": result.ok,

@@ -5,7 +5,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import httpx
-from bs4 import BeautifulSoup
+from ..parsers.onboarding import login_forms
 
 from ..config import default_institution
 from ..institutions import get
@@ -69,17 +69,9 @@ def login_probe(args, settings=None):
     with httpx.Client(follow_redirects=True, timeout=30, event_hooks=hooks) as client:
         response = client.get(url)
         response.raise_for_status()
-    soup = BeautifulSoup(response.text, "lxml")
-    forms = []
-    for form in soup.select("form"):
-        fields = [str(node.get("name")) for node in form.select("input[name]")]
-        action = str(form.get("action", ""))
-        strategy = None
-        if {"form:login", "form:senha"}.issubset(fields):
-            strategy = "jsf-logon"
-        elif form.select_one('input[type="password"]') and "logar.do" in action:
-            strategy = "classic-struts"
-        forms.append({"action": safe_url(action), "fields": fields, "strategy": strategy})
+    forms = login_forms(response.text)
+    for form in forms:
+        form["action"] = safe_url(form["action"])
     print(json.dumps({"url": safe_url(response.url), "forms": forms}, indent=2))
     return 0 if any(form["strategy"] for form in forms) else 1
 
