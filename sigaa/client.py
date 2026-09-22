@@ -76,13 +76,16 @@ class SigaaClient:
         return self._portal_html
 
     def get_student(self) -> Student:
+        self.profile.require(Capability.PORTAL)
         return portal_parser.parse_student(self._portal())
 
     def list_turmas(self) -> list[Turma]:
+        self.profile.require(Capability.PORTAL)
         return portal_parser.parse_turmas(self._portal())
 
     def list_deadlines(self) -> list[Deadline]:
         """Assessment/task deadlines (already present in the portal HTML)."""
+        self.profile.require(Capability.PORTAL)
         return portal_parser.parse_deadlines(self._portal())
 
     def get_grades(self) -> list[Grade]:

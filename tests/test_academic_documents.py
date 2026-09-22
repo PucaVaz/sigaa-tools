@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import secrets
 import stat
 import unicodedata
 from pathlib import Path
@@ -46,7 +47,7 @@ def test_build_document_postback_copies_current_form_fields(label, source):
     assert fields["j_id_jsp_987654321_1"] == "j_id_jsp_987654321_1"
     assert fields["subsistema"] == "12100"
     assert fields["portal-context"] == "student"
-    assert fields["javax.faces.ViewState"] == "fresh-view-state"
+    assert fields["javax.faces.ViewState"] == "j_id1"
     assert fields[source] == source
 
 
@@ -60,7 +61,7 @@ def test_build_document_postback_copies_all_jsf_params_and_normalizes_label():
 
 def test_build_document_postback_requires_viewstate():
     html = PORTAL.replace(
-        '<input type="hidden" name="javax.faces.ViewState" value="fresh-view-state">',
+        '<input type="hidden" name="javax.faces.ViewState" value="j_id1">',
         "",
     )
     with pytest.raises(ValueError, match="ViewState"):
@@ -168,7 +169,7 @@ def test_client_downloads_each_document_with_its_dynamic_source_field():
 
 def test_client_rebuilds_postback_after_session_expiry():
     stale = PORTAL.replace("987654321", "111111111").replace(
-        "fresh-view-state", "stale-view-state"
+        "j_id1", "j_id2"
     )
     pdf = (b"%PDF-1.7\nfresh", "application/pdf", None)
     session = _DocumentSession([AuthError("expired"), pdf], fresh_portal=PORTAL)
@@ -178,8 +179,8 @@ def test_client_rebuilds_postback_after_session_expiry():
 
     assert document.content == pdf[0]
     assert session.login_count == 1
-    assert session.posts[0][1]["javax.faces.ViewState"] == "stale-view-state"
-    assert session.posts[1][1]["javax.faces.ViewState"] == "fresh-view-state"
+    assert session.posts[0][1]["javax.faces.ViewState"] == "j_id2"
+    assert session.posts[1][1]["javax.faces.ViewState"] == "j_id1"
     assert "j_id_jsp_111111111_1:history" in session.posts[0][1]
     assert "j_id_jsp_987654321_1:history" in session.posts[1][1]
 
@@ -210,7 +211,7 @@ def test_session_can_delegate_auth_retry_to_jsf_operation():
     provider = get("ufpb")
     session = Session(
         "example",
-        "not-a-real-password",
+        secrets.token_urlsafe(),
         client=raw_client,
         profile=provider.profile,
         navigator=provider.navigator,

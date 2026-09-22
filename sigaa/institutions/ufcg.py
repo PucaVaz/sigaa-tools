@@ -1,11 +1,11 @@
 """Provisional UFCG profile: classic authentication, pending live onboarding."""
 from urllib.parse import urlsplit
 
-from bs4 import BeautifulSoup
+from ..parsers.authentication import has_login_form
 
 from ..errors import NavigationError
 from . import auth_classic
-from .base import Capability, InstitutionProfile
+from .base import InstitutionProfile
 
 HOST = "https://sigaa.ufcg.edu.br"
 BASE = HOST + "/sigaa"
@@ -30,10 +30,9 @@ PROFILE = InstitutionProfile(
     slot_times={shift: {slot: "" for slot in slots} for shift, slots in SLOT_GRID.items()},
     slot_minutes=50,
     menu_labels={},
-    capabilities=frozenset({Capability.PORTAL}),
+    capabilities=frozenset(),
     provisional=True,
 )
-_LOGIN_FORM = 'input[type="password"], form[name="loginForm"]'
 
 
 class UfcgNavigator:
@@ -43,7 +42,7 @@ class UfcgNavigator:
     def looks_logged_out(self, text, url=""):
         if urlsplit(url).path.endswith(("verTelaLogin.do", "logar.do")):
             return True
-        return BeautifulSoup(text, "lxml").select_one(_LOGIN_FORM) is not None
+        return has_login_form(text)
 
     def portal_menu_post(self, session, portal, label):
         raise NavigationError("UFCG portal navigation requires live onboarding captures")

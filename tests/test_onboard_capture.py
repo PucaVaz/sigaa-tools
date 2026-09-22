@@ -166,3 +166,63 @@ def test_login_probe_defaults_to_the_active_institution(monkeypatch, capsys):
     monkeypatch.setattr("sigaa.onboard.cli.httpx.Client", Client)
     assert cli.main(["onboard", "login-probe"]) == 1
     assert requested == ["https://sigaa.example.edu/login"]
+
+
+@pytest.mark.parametrize("failure", [ValueError, RuntimeError])
+def test_failed_class_lookup_survives_capture_and_probe(monkeypatch, tmp_path, failure):
+    from pathlib import Path
+    from sigaa.onboard.probe import probe
+
+    body = (Path(__file__).parent / "fixtures/portal.html").read_bytes()
+    def factory(username, password, **kwargs):
+        client = SigaaClient(username, password, **kwargs)
+        client._session.close()
+        client._session = _session(httpx.Client(transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, content=body))))
+        client._session.login = lambda: client._session._client.get(
+            UFPB.profile.portal_entry_url).text
+        def fail():
+            raise failure("private exception details")
+        client.list_turmas = fail
+        return client
+    monkeypatch.setattr(module, "SigaaClient", factory)
+    monkeypatch.setenv("SIGAA_PASS", secrets.token_urlsafe())
+    directory, manifest = module.capture(
+        Settings(username="test-student", institution="ufpb"), output=tmp_path / "captures")
+    class_keys = {f.key for f in module.FEATURES if f.needs_turma}
+    entries = [e for e in manifest["entries"] if e["feature"] in class_keys]
+    assert entries and all(e["status"] == "nav_failed" for e in entries)
+    assert all(e["error_type"] == failure.__name__ for e in entries)
+    assert "private exception details" not in json.dumps(manifest)
+    rows = [row for row in probe(directory)["features"] if row["feature"] in class_keys]
+    assert rows and all(row["status"] == "nav_failed" for row in rows)
+
+
+def test_capture_destination_must_be_ignored_and_untracked(tmp_path):
+    import subprocess
+    def git(*args):
+        return subprocess.run(["git", "-C", str(tmp_path), *args], check=True,
+                              capture_output=True)
+    git("init")
+    (tmp_path / ".gitignore").write_text("/captures/\n")
+    assert module.validate_output(tmp_path / "captures") == tmp_path / "captures"
+    with pytest.raises(ValueError, match="Git-ignored"):
+        module.validate_output(tmp_path / "tests" / "fixtures")
+    assert not (tmp_path / "tests").exists()
+    (tmp_path / "captures").mkdir()
+    (tmp_path / "captures" / "tracked.body").write_text("synthetic")
+    git("add", "-f", "captures/tracked.body")
+    with pytest.raises(ValueError, match="tracked"):
+        module.validate_output(tmp_path / "captures")
+    with pytest.raises(ValueError, match="metadata"):
+        module.validate_output(tmp_path / ".git" / "captures")
+
+
+def test_nested_repository_cannot_bypass_outer_ignore_rules(tmp_path):
+    import subprocess
+    subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
+    nested = tmp_path / "nested"
+    subprocess.run(["git", "init", str(nested)], check=True, capture_output=True)
+    (nested / ".git/info/exclude").write_text("/captures/\n")
+    with pytest.raises(ValueError, match="Git-ignored"):
+        module.validate_output(nested / "captures")

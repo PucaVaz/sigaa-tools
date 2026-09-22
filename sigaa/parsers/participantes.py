@@ -103,4 +103,3 @@ def _preceding_label(value_el) -> str | None:
             continue
         return text.rstrip(":") if text.endswith(":") else None
     return None
-
