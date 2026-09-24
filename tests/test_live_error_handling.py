@@ -7,9 +7,12 @@ from types import SimpleNamespace
 import pytest
 
 from sigaa import cli
-from sigaa.errors import NavigationError, UnrecognizedPageError
+from sigaa.config import Settings
+from sigaa.errors import NavigationError, UnrecognizedPageError, UnsupportedFeatureError
 from sigaa.models import Turma
 from sigaa.parsers import tarefa as tarefa_parser
+from sigaa.services import sync as sync_module
+from sigaa.store.db import connect as connect_store
 
 pytest.importorskip("mcp")
 
@@ -178,3 +181,66 @@ def test_cli_reports_parse_failures_without_a_traceback(cli_live, capsys, argv, 
     assert cli.main(argv) == 1
 
     assert f"{prefix}: unrecognized attendance page" in capsys.readouterr().err
+
+
+def _populate_store(path):
+    conn = connect_store(path)
+    conn.execute(
+        "INSERT INTO turma (id_turma, code, name) VALUES (?, ?, ?)",
+        ("test-class-id", "TEST00001", "Synthetic test class"),
+    )
+    conn.execute(
+        "INSERT INTO deadline (id, id_turma, kind, title, date) VALUES (?, ?, ?, ?, ?)",
+        ("test-deadline-id", "test-class-id", "avaliacao", "Synthetic deadline", "2099-01-01"),
+    )
+    conn.commit()
+    conn.close()
+
+
+def test_provisional_mcp_store_tools_reject_db_override_before_connect(
+    clean_credentials, monkeypatch, tmp_path
+):
+    db_path = tmp_path / "ufpb-test.db"
+    _populate_store(db_path)
+    original = db_path.read_bytes()
+    monkeypatch.setenv("SIGAA_INSTITUTION", "ufcg")
+    monkeypatch.setenv("SIGAA_DB", str(db_path))
+
+    calls = []
+
+    def unexpected_connect(path):
+        calls.append(path)
+        raise UnsupportedFeatureError("unexpected database access")
+
+    monkeypatch.setattr(mcp_server, "connect", unexpected_connect)
+    for tool in (
+        mcp_server.sigaa_list_classes,
+        mcp_server.sigaa_list_deadlines,
+        mcp_server.sigaa_whats_new,
+    ):
+        with pytest.raises(UnsupportedFeatureError, match="provisional"):
+            tool()
+
+    assert calls == []
+    assert db_path.read_bytes() == original
+
+
+def test_ufpb_mcp_and_direct_sync_store_access_remains_available(
+    clean_credentials, fake_sigaa, monkeypatch, tmp_path
+):
+    db_path = tmp_path / "ufpb-test.db"
+    _populate_store(db_path)
+    monkeypatch.setenv("SIGAA_INSTITUTION", "ufpb")
+    monkeypatch.setenv("SIGAA_DB", str(db_path))
+
+    classes = mcp_server.sigaa_list_classes()
+    deadlines = mcp_server.sigaa_list_deadlines()
+    feed = mcp_server.sigaa_whats_new()
+    assert classes[0]["code"] == "TEST00001"
+    assert deadlines[0]["title"] == "Synthetic deadline"
+    assert feed["total"] == 1
+
+    monkeypatch.setenv("SIGAA_USER", "synthetic-user")
+    monkeypatch.setenv("SIGAA_PASS", secrets.token_urlsafe())
+    result = sync_module.sync(Settings(institution="ufpb"))
+    assert result.ok

@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from ..client import SigaaClient
 from ..config import Settings
 from ..errors import NavigationError, error_stage
+from ..institutions import get
 from ..models import (
     Attendance,
     Deadline,
@@ -73,6 +74,7 @@ class SyncResult:
 
 
 def sync(settings: Settings, fetch_bodies: bool = False) -> SyncResult:
+    get(settings.institution).profile.require_store_access()
     conn = connect(settings.db_path)
     repo = Repository(conn)
     result = SyncResult()

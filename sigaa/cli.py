@@ -68,6 +68,8 @@ def main(argv: list[str] | None = None) -> int:
     else:
         settings = _settings(args, getattr(args, "institution", None))
     try:
+        if settings and args.command in {"sync", "classes", "deadlines", "whatsnew", "watch"}:
+            get(settings.institution).profile.require_store_access()
         capability = getattr(args, "capability", None)
         if capability is not None:
             institution = settings.institution if settings else default_institution()

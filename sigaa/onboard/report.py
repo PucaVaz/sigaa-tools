@@ -19,12 +19,12 @@ def report(directory: Path, root: Path):
     for row in result["features"]:
         cells = [row["feature"], row["sample"], row["status"], row["count"], row["variant"] or "—"]
         lines.append("| " + " | ".join(str(cell) for cell in cells) + " |")
-    path = root / "docs/institutions" / f"{key}.md"
+    path = root / "docs/institutions" / f"{key}-compatibility.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n")
     unresolved = sum(row["status"] in {"unrecognized", "nav_failed"} for row in result["features"])
     body = (f"Add {key.upper()} institution support.\n\n"
-            f"Compatibility report: docs/institutions/{key}.md. "
+            f"Compatibility report: docs/institutions/{key}-compatibility.md. "
             f"The probe has {unresolved} unrecognized or navigation-failed samples. "
             "See the report for unsupported and uncaptured features.\n\n"
             "Attach the tested commit and the actual onboard check result "

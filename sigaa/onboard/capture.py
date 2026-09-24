@@ -101,6 +101,11 @@ def sigaa_version(text):
 
 
 def capture(settings, *, output: Path = Path("captures"), include_matricula=False):
+    repository = Path(__file__).resolve().parents[2]
+    resolved_output = output.resolve()
+    captures = repository / "captures"
+    if resolved_output.is_relative_to(repository) and not resolved_output.is_relative_to(captures):
+        raise ValueError("capture output under the repository must be inside ignored captures/")
     username, password = settings.require_credentials()
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%S.%fZ")
     directory = output / settings.institution / stamp
@@ -118,14 +123,19 @@ def capture(settings, *, output: Path = Path("captures"), include_matricula=Fals
             # Keep the private portal even when a new fork cannot identify the student.
             pass
         private_write(directory / "identity.json", json.dumps(identity).encode())
+        turma_error_type = None
         try:
             turmas = client.list_turmas()[:2]
-        except Exception:
+        except Exception as exc:
             turmas = []
+            turma_error_type = type(exc).__name__
         for feature in FEATURES:
             contexts = turmas if feature.needs_turma else [None]
             if not contexts:
-                manifest["entries"].append({"feature": feature.key, "status": "not_captured"})
+                entry = {"feature": feature.key, "status": "not_captured"}
+                if feature.needs_turma and turma_error_type:
+                    entry.update(status="nav_failed", error_type=turma_error_type)
+                manifest["entries"].append(entry)
             for turma in contexts:
                 entry = {
                     "feature": feature.key,

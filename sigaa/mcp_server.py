@@ -96,7 +96,9 @@ _TASK_KINDS = {"tarefa", "atividade"}
 
 
 def _repo() -> Repository:
-    return Repository(connect(Settings().db_path))
+    settings = Settings()
+    get(settings.institution).profile.require_store_access()
+    return Repository(connect(settings.db_path))
 
 
 def _require(capability: Capability) -> None:
@@ -107,6 +109,7 @@ def _require(capability: Capability) -> None:
 @mcp.tool()
 def sigaa_list_classes() -> list[dict]:
     """List enrolled classes, with their teachers, from the local store."""
+    _require(Capability.PORTAL)
     repo = _repo()
     professors: dict[str, list[str]] = {}
     for prof in repo.get_professors():
@@ -548,6 +551,7 @@ def _live_turma(class_code: str):
 @mcp.tool()
 def sigaa_list_deadlines(class_code: str | None = None) -> list[dict]:
     """List assessment/task deadlines from the store, optionally filtered by class."""
+    _require(Capability.PORTAL)
     repo = _repo()
     id_turma = None
     if class_code:

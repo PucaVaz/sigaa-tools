@@ -105,8 +105,8 @@ def privacy_findings(root: Path, identity: dict):
 
 def check(root: Path, directory: Path, explanations=None):
     identity = json.loads(capture_file(directory, "identity.json").read_text())
-    if not all(identity.get(key) for key in ("username", "name", "matricula")):
-        return {"ok": False, "error": "private identity.json lacks username, name, or matricula"}
+    if not all(identity.get(key) for key in ("username", "name", "matricula", "email")):
+        return {"ok": False, "error": "private identity.json lacks username, name, matricula, or email"}
     findings = privacy_findings(root, identity)
     if findings:
         return {"ok": False, "privacy_findings": findings}

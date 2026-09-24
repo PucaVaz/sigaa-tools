@@ -16,6 +16,8 @@ from sigaa.errors import UnsafeUrlError, UnsupportedFeatureError, error_stage
 from sigaa.http import Session
 from sigaa.institutions import Capability, get, registry
 from sigaa.institutions.base import Institution
+from sigaa.services import sync as sync_module
+from sigaa.store.db import connect as connect_store
 
 
 @pytest.fixture
@@ -156,6 +158,20 @@ def test_unsupported_mcp_tool_does_not_open_the_store(other, monkeypatch, tmp_pa
     assert not (tmp_path / "never-created.db").exists()
 
 
+def test_unsupported_portal_mcp_store_reads_fail_before_opening_store(other, monkeypatch):
+    pytest.importorskip("mcp")
+    from sigaa import mcp_server
+
+    assert Capability.PORTAL not in other.capabilities
+    monkeypatch.setenv("SIGAA_INSTITUTION", other.key)
+    monkeypatch.setattr(
+        mcp_server, "_repo", lambda: pytest.fail("MCP read opened the store")
+    )
+    for tool in (mcp_server.sigaa_list_classes, mcp_server.sigaa_list_deadlines):
+        with pytest.raises(UnsupportedFeatureError):
+            tool()
+
+
 def test_blocked_http_hop_names_scheme_and_host_and_stages_as_network():
     secret = secrets.token_urlsafe()
     location = f"http://student:{secret}@sigaa.ufpb.br/sigaa/portal/?token={secret}"
@@ -188,3 +204,103 @@ def test_session_gives_the_navigator_the_final_response_url():
     with _session(handler, Recorder()) as session:
         session.get("https://sigaa.ufpb.br/start")
     assert seen == ["https://sigaa.ufpb.br/final"]
+
+
+def _populate_store(path):
+    conn = connect_store(path)
+    conn.execute(
+        "INSERT INTO turma (id_turma, code, name) VALUES (?, ?, ?)",
+        ("test-class-id", "TEST00001", "Synthetic test class"),
+    )
+    conn.execute(
+        "INSERT INTO deadline (id, id_turma, kind, title, date) VALUES (?, ?, ?, ?, ?)",
+        ("test-deadline-id", "test-class-id", "avaliacao", "Synthetic deadline", "2099-01-01"),
+    )
+    conn.commit()
+    conn.close()
+    return path.read_bytes()
+
+
+def test_provisional_profile_blocks_store_access():
+    guard = getattr(get("ufcg").profile, "require_store_access", None)
+    assert callable(guard)
+    with pytest.raises(UnsupportedFeatureError, match="provisional"):
+        guard()
+    assert get("ufpb").profile.require_store_access() is None
+
+
+def test_provisional_direct_sync_rejects_db_override_before_connect(
+    clean_credentials, monkeypatch, tmp_path
+):
+    db_path = tmp_path / "ufpb-test.db"
+    original = _populate_store(db_path)
+    monkeypatch.setenv("SIGAA_DB", str(db_path))
+
+    calls = []
+
+    def unexpected_connect(path):
+        calls.append(path)
+        raise UnsupportedFeatureError("unexpected database access")
+
+    monkeypatch.setattr(sync_module, "connect", unexpected_connect)
+    with pytest.raises(UnsupportedFeatureError, match="provisional"):
+        sync_module.sync(Settings(institution="ufcg"))
+
+    assert calls == []
+    assert db_path.read_bytes() == original
+
+
+@pytest.mark.parametrize("argv", [
+    ["classes"],
+    ["deadlines"],
+    ["sync"],
+    ["whatsnew"],
+    ["watch", "--once", "--baseline"],
+])
+def test_provisional_cli_store_commands_reject_db_override_before_access(
+    argv, clean_credentials, monkeypatch, tmp_path, capsys
+):
+    db_path = tmp_path / "ufpb-test.db"
+    original = _populate_store(db_path)
+    monkeypatch.setenv("SIGAA_INSTITUTION", "ufcg")
+    monkeypatch.setenv("SIGAA_DB", str(db_path))
+
+    calls = []
+
+    def unexpected(label):
+        def fail(*args, **kwargs):
+            calls.append(label)
+            raise UnsupportedFeatureError(f"unexpected {label}")
+        return fail
+
+    monkeypatch.setattr(cli, "connect", unexpected("connect"))
+    monkeypatch.setattr(sync_module, "connect", unexpected("sync connect"))
+    monkeypatch.setattr(cli.watch, "connect", unexpected("watch connect"))
+    monkeypatch.setattr(cli, "sync", unexpected("sync dispatch"))
+    monkeypatch.setattr(cli.watch, "run_once", unexpected("watch dispatch"))
+    monkeypatch.setattr(httpx.Client, "request", unexpected("network"))
+
+    assert cli.main(argv) == 1
+    assert "provisional" in capsys.readouterr().err
+    assert calls == []
+    assert db_path.read_bytes() == original
+
+
+def test_ufpb_cli_store_commands_remain_available(
+    clean_credentials, fake_sigaa, monkeypatch, tmp_path
+):
+    db_path = tmp_path / "ufpb-test.db"
+    _populate_store(db_path)
+    monkeypatch.setenv("SIGAA_INSTITUTION", "ufpb")
+    monkeypatch.setenv("SIGAA_DB", str(db_path))
+    monkeypatch.setenv("SIGAA_USER", "synthetic-user")
+    monkeypatch.setenv("SIGAA_PASS", secrets.token_urlsafe())
+
+    for argv in (
+        ["classes"],
+        ["deadlines"],
+        ["sync"],
+        ["whatsnew"],
+        ["watch", "--once", "--baseline"],
+    ):
+        assert cli.main(argv) == 0

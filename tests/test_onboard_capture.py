@@ -70,6 +70,46 @@ def test_private_writes_refuse_symlinks_and_overwrites(tmp_path):
     assert target.read_bytes() == b"original"
 
 
+def test_capture_rejects_trackable_output_before_credentials_or_creation():
+    from pathlib import Path
+
+    repository = Path(__file__).resolve().parents[1]
+    output = repository / "tests" / "fixtures"
+    institution_dir = output / "onboard-guard-test"
+
+    class CredentialsMustNotBeRead:
+        institution = "onboard-guard-test"
+
+        def require_credentials(self):
+            pytest.fail("capture requested credentials before validating output")
+
+    assert not institution_dir.exists()
+    with pytest.raises(ValueError, match="capture output"):
+        module.capture(CredentialsMustNotBeRead(), output=output)
+    assert not institution_dir.exists()
+
+
+def test_capture_rejects_symlinked_captures_root_before_credentials_or_files(
+    monkeypatch, tmp_path
+):
+    repository = tmp_path / "repository"
+    (repository / "sigaa" / "onboard").mkdir(parents=True)
+    target = repository / "tests" / "fixtures"
+    target.mkdir(parents=True)
+    (repository / "captures").symlink_to(target, target_is_directory=True)
+    monkeypatch.setattr(module, "__file__", str(repository / "sigaa" / "onboard" / "capture.py"))
+
+    class CredentialsMustNotBeRead:
+        institution = "test"
+
+        def require_credentials(self):
+            pytest.fail("capture requested credentials before rejecting the symlink")
+
+    with pytest.raises(ValueError, match="capture output"):
+        module.capture(CredentialsMustNotBeRead(), output=repository / "captures" / "session")
+    assert not list(target.iterdir())
+
+
 def test_capture_preserves_http_bytes_metadata_and_two_class_contexts(monkeypatch, tmp_path):
     from pathlib import Path
     portal = (Path(__file__).parent / "fixtures/portal.html").read_bytes()
@@ -116,6 +156,46 @@ def test_capture_preserves_http_bytes_metadata_and_two_class_contexts(monkeypatc
     for path in directory.iterdir():
         assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert json.loads((directory / "identity.json").read_text())["username"] == "test-student"
+
+
+def test_capture_reports_class_navigation_failure_without_losing_portal_body(
+    monkeypatch, tmp_path
+):
+    from sigaa.errors import UnrecognizedPageError
+
+    body = b"<html><body>portal</body></html>"
+
+    def factory(username, password, **kwargs):
+        client = SigaaClient(username, password, **kwargs)
+        client._session.close()
+        client._session = _session(httpx.Client(transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, content=body)
+        )))
+        client._session._authenticated = True
+        client._session.login = lambda: client._session._client.get(
+            UFPB.profile.portal_entry_url
+        ).text
+
+        def list_turmas():
+            raise UnrecognizedPageError("turmas", {})
+
+        client.list_turmas = list_turmas
+        return client
+
+    monkeypatch.setattr(module, "SigaaClient", factory)
+    monkeypatch.setattr(module, "FEATURES", (
+        Feature("portal_body", Capability.PORTAL, lambda client, _: client._portal(), lambda *_: []),
+        Feature("class", Capability.PORTAL, lambda *_: "", lambda *_: [], needs_turma=True),
+    ))
+    monkeypatch.setenv("SIGAA_PASS", secrets.token_urlsafe())
+    settings = Settings(username="test-student", db_path=tmp_path / "db")
+
+    _, manifest = module.capture(settings, output=tmp_path / "captures")
+
+    entries = {entry["feature"]: entry for entry in manifest["entries"]}
+    assert entries["class"]["status"] == "nav_failed"
+    assert entries["class"]["error_type"] == "UnrecognizedPageError"
+    assert entries["portal_body"]["status"] == "captured"
 
 
 def test_recorder_keeps_only_the_last_non_redirect_response():
