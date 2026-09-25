@@ -257,7 +257,7 @@ class CoursePlan:
 class Deadline:
     """An upcoming assessment/task surfaced on the portal turma cards."""
 
-    id: str  # SIGAA's stable event id (dedup key)
+    id: str  # Source event id or stable local key (dedup key)
     id_turma: str
     kind: str  # avaliacao / tarefa / atividade / ...
     title: str

@@ -41,6 +41,27 @@ def test_probe_and_report_do_not_expose_student_values(tmp_path):
         assert private not in output
 
 
+def test_report_preserves_ufcg_status_and_writes_separate_compatibility_file(tmp_path):
+    directory = _capture(tmp_path, filename="ufcg/portal_student_turmas.html")
+    manifest_path = directory / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["institution"] = "ufcg"
+    manifest_path.write_text(json.dumps(manifest))
+    status = tmp_path / "docs/institutions/ufcg.md"
+    status.parent.mkdir(parents=True)
+    status.write_bytes(b"Human-reviewed UFCG status\n")
+
+    path, body = report(directory, tmp_path)
+
+    assert status.read_bytes() == b"Human-reviewed UFCG status\n"
+    assert path == tmp_path / "docs/institutions/ufcg-compatibility.md"
+    assert path.is_file()
+    assert "docs/institutions/ufcg-compatibility.md" in body
+    public_output = path.read_text() + body
+    assert "ALUNO TESTE" not in public_output
+    assert "UFCG-TESTE" not in public_output
+
+
 def test_probe_detects_tampering_and_never_reads_outside_capture(tmp_path):
     directory = _capture(tmp_path)
     (directory / "page.body").write_text("changed")
@@ -56,6 +77,19 @@ def test_probe_reports_known_empty_and_changed_page(tmp_path):
     row = next(row for row in probe(directory)["features"] if row["feature"] == "professors")
     assert row["status"] == "empty_confirmed"
     assert row["count"] == 0
+
+
+def test_probe_confirms_ufcg_activity_window_empty(tmp_path):
+    directory = _capture(tmp_path, "deadlines", "ufcg/portal_deadlines_empty.html")
+    manifest_path = directory / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["institution"] = "ufcg"
+    manifest_path.write_text(json.dumps(manifest))
+
+    row = next(row for row in probe(directory)["features"] if row["feature"] == "deadlines")
+    assert (row["status"], row["count"], row["variant"]) == (
+        "empty_confirmed", 0, "ufcg-deadlines-empty"
+    )
 
 
 def _repo(tmp_path):
@@ -78,7 +112,9 @@ def test_privacy_gate_scans_staged_blob_even_when_working_copy_is_clean(tmp_path
 def test_privacy_gate_scans_untracked_and_reversed_viewstate_attributes(tmp_path):
     root = _repo(tmp_path)
     token = secrets.token_urlsafe()
-    (root / "fixture.html").write_text(f'<input value="{token}" name="javax.faces.ViewState">')
+    (root / "fixture.html").write_text(
+        f'<input value="{token}" name="javax.faces.' + 'ViewState">'
+    )
     assert any(f["category"] == "form_secret" for f in privacy_findings(root, {}))
 
 
@@ -87,6 +123,20 @@ def test_check_refuses_incomplete_identity_before_tests(tmp_path):
     directory = _capture(tmp_path)
     (directory / "identity.json").write_text('{}')
     assert check(root, directory)["ok"] is False
+
+
+def test_check_requires_email_in_identity(tmp_path):
+    root = tmp_path / "repo"
+    root.mkdir()
+    _repo(root)
+    directory = _capture(tmp_path)
+    identity = {key: secrets.token_hex() for key in ("username", "name", "matricula")}
+    (directory / "identity.json").write_text(json.dumps(identity))
+
+    result = check(root, directory)
+
+    assert result["ok"] is False
+    assert "error" in result
 
 
 def test_scaffold_rejects_invalid_host_key_and_existing_provider(tmp_path):
@@ -153,7 +203,7 @@ def test_check_reports_test_and_lint_failures_without_hiding_them(tmp_path):
     root.mkdir()
     _repo(root)
     directory = _capture(tmp_path)
-    identity = {key: secrets.token_hex() for key in ("name", "username", "matricula")}
+    identity = {key: secrets.token_hex() for key in ("name", "username", "matricula", "email")}
     (directory / "identity.json").write_text(json.dumps(identity))
     (root / "test_subject.py").write_text("import os\n\ndef test_failure():\n    assert False\n")
     result = check(root, directory)

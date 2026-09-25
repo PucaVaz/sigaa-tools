@@ -44,10 +44,12 @@ chat or commit a capture. Only the student can complete live acceptance.
    category and file index. Cut the fixture down until the colliding text is no
    longer needed; if public class data itself collides, stop and ask rather than
    weakening the gate or editing `identity.json`.
-8. Run `sigaa onboard report --from captures/your_key/<date>`. Review and stage
-   the generated compatibility document, rerun check, then open one PR for the
-   institution with actual command results and the tested commit. Do not publish
-   private capture directories or their identity files.
+8. Run `sigaa onboard report --from captures/your_key/<date>`. It writes
+   `docs/institutions/<your_key>-compatibility.md` without replacing the
+   hand-written institution status document. Review and stage the generated
+   compatibility document, rerun check, then open one PR for the institution
+   with actual command results and the tested commit. Do not publish private
+   capture directories or their identity files.
 
 Capture directories use mode 0700 and files use 0600. Treat them as private even
 though Git ignores them. Never use `git add -f` for a capture. The transport guard

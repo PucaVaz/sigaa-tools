@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
+from datetime import datetime
+from urllib.parse import urlsplit
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, NavigableString
 
+from ..errors import UnrecognizedPageError
 from ..models import Deadline, Student, Turma
-from ._common import fold
+from ._common import clean, fold, page_fingerprint
 from ._common import jsf_params as _jsf_params
 from ._common import normalized as _normalized_label
 from ._variants import page_parser
@@ -23,6 +28,7 @@ _SEMESTER_RE = re.compile(r"Semestre atual:\s*([\d.]+)")
 _COURSE_RE = re.compile(r"\n\s*([A-ZÀ-Ú][^\n]*-\s*GRADUA[ÇC][ÃA]O)")
 _NAME_RE = re.compile(r"Ol[áa],\s*\n?\s*([A-ZÀ-Ú][A-ZÀ-Ú .]+?)\s*\n")
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w.-]+\.\w+")
+_UFCG_MATRICULA_LABEL_RE = re.compile(r"Matr[ií]cula\s*:?", re.I)
 
 
 def _text(soup: BeautifulSoup) -> str:
@@ -98,6 +104,20 @@ def _shows_student(soup):
     return bool(_NAME_RE.search(text) and _MATRICULA_RE.search(text))
 
 
+def _ufcg_matricula(soup):
+    for row in soup.select("tr"):
+        cells = row.find_all("td", recursive=False)
+        if len(cells) == 2 and _UFCG_MATRICULA_LABEL_RE.fullmatch(
+            cells[0].get_text(" ", strip=True)
+        ):
+            return cells[1].get_text(" ", strip=True)
+    return ""
+
+
+def _shows_ufcg_student(soup):
+    return bool(soup.select_one(".usuario span") and _ufcg_matricula(soup))
+
+
 @page_parser(
     "student",
     _shows_student,
@@ -123,6 +143,26 @@ def parse_student(soup: BeautifulSoup) -> Student:
     )
 
 
+@page_parser(
+    "student",
+    _shows_ufcg_student,
+    validate=lambda result, soup: bool(result.name and result.matricula),
+    name="ufcg-student",
+)
+def _parse_ufcg_student(soup: BeautifulSoup) -> Student:
+    name = soup.select_one(".usuario span")
+    matricula = _ufcg_matricula(soup)
+    semester = soup.select_one(".periodo-atual strong")
+    return Student(
+        matricula=matricula,
+        name=name.get_text(" ", strip=True) if name else "",
+        semester=semester.get_text(" ", strip=True) if semester else None,
+    )
+
+
+parse_student.variants = (*parse_student.variants, *_parse_ufcg_student.variants)
+
+
 def _turma_anchors(soup):
     return [
         anchor for anchor in soup.select("a[onclick*='idTurma']")
@@ -137,9 +177,24 @@ def _valid_turmas(result, soup):
     )
 
 
+def _shows_beta_turmas(soup):
+    if soup.find("form", id=_PORTAL_FORM_RE) is None:
+        return False
+    if soup.select_one(".usuario, .periodo-atual"):
+        return False
+    if "nao ha turmas" in fold(_text(soup)):
+        return True
+    return any(
+        (row := anchor.find_parent("tr")) is not None
+        and len(row.find_all("td", recursive=False)) >= 5
+        and _TURMA_PARAM_RE.search(anchor.get("onclick", ""))
+        for anchor in soup.select("a[onclick*='idTurma']")
+    )
+
+
 @page_parser(
     "turmas",
-    lambda soup: soup.find("form", id=_PORTAL_FORM_RE) is not None,
+    _shows_beta_turmas,
     empty=lambda soup: "nao ha turmas" in fold(_text(soup)),
     validate=_valid_turmas,
     name="beta-turmas",
@@ -171,6 +226,126 @@ def parse_turmas(soup: BeautifulSoup) -> list[Turma]:
             )
         )
     return turmas
+
+
+def _ufcg_header_roles(table):
+    header = table.find("tr")
+    if header is None:
+        return {}
+    roles = {}
+    for index, cell in enumerate(header.find_all(["td", "th"], recursive=False)):
+        label = fold(cell.get_text(" ", strip=True))
+        if re.search(r"turma|disciplina|componente", label):
+            roles.setdefault("class", index)
+        elif re.search(r"sala|local|ambiente", label):
+            roles.setdefault("room", index)
+        elif re.search(r"hor[aá]rio|dia|turno", label):
+            roles.setdefault("schedule", index)
+        elif re.search(r"c[oó]digo|code", label):
+            roles.setdefault("code", index)
+    return roles
+
+
+def _ufcg_class_control(row):
+    return bool(row.select_one("td.descricao a[onclick]")) or any(
+        key.casefold().endswith("openturma") and value == key
+        for anchor in row.select("a[onclick]")
+        for key, value in _jsf_params(anchor.get("onclick", "")).items()
+    )
+
+
+def _ufcg_turma_table(soup):
+    for panel in soup.select(".simple-panel"):
+        for table in panel.select("table"):
+            roles = _ufcg_header_roles(table)
+            header = table.find("tr")
+            rows = [
+                row for row in table.select("tr")
+                if row is not header
+                and not (
+                    len(cells := row.find_all("td", recursive=False)) == 1
+                    and cells[0].has_attr("colspan")
+                    and not _ufcg_class_control(row)
+                )
+            ]
+            if {"class", "room", "schedule"} <= roles.keys() and rows:
+                return table, roles, rows
+    return None
+
+
+def _ufcg_turma_params(anchor):
+    params = _jsf_params(anchor.get("onclick", ""))
+    id_key = next(
+        (key for key in params if re.sub(r"\W", "", key).casefold().endswith("idturma")),
+        None,
+    )
+    field = next(
+        (key for key, value in params.items() if key != id_key and value == key),
+        None,
+    )
+    return params.get(id_key, "") if id_key else "", field
+
+
+def _shows_ufcg_turmas(soup):
+    layout = _ufcg_turma_table(soup)
+    if not layout:
+        return False
+    table, _, rows = layout
+    header_width = len(table.find("tr").find_all(["td", "th"], recursive=False))
+    return all(
+        len(row.find_all("td", recursive=False)) == header_width
+        and row.select_one("td.descricao a[onclick]")
+        for row in rows
+    )
+
+
+def _valid_ufcg_turmas(result, soup):
+    layout = _ufcg_turma_table(soup)
+    if not layout:
+        return False
+    _, _, rows = layout
+    return len(result) == len(rows) and all(
+        turma.id_turma and turma.name and turma.field and turma.form_id for turma in result
+    )
+
+
+@page_parser(
+    "turmas",
+    _shows_ufcg_turmas,
+    validate=_valid_ufcg_turmas,
+    name="ufcg-turmas",
+)
+def _parse_ufcg_turmas(soup: BeautifulSoup) -> list[Turma]:
+    layout = _ufcg_turma_table(soup)
+    if not layout:
+        return []
+    _, roles, rows = layout
+    semester_node = soup.select_one(".periodo-atual strong")
+    semester = semester_node.get_text(" ", strip=True) if semester_node else None
+    turmas = []
+    for row in rows:
+        cells = row.find_all("td", recursive=False)
+        description = row.find("td", class_="descricao", recursive=False)
+        anchor = description.select_one("a[onclick]") if description else None
+        form = anchor.find_parent("form") if anchor else None
+        id_turma, field = _ufcg_turma_params(anchor) if anchor else ("", None)
+        code = _cell(cells, roles["code"]) if "code" in roles else None
+        turmas.append(
+            Turma(
+                id_turma=id_turma,
+                name=anchor.get_text(" ", strip=True) if anchor else "",
+                code=code,
+                room=_cell(cells, roles["room"]),
+                schedule_raw=_cell(cells, roles["schedule"]),
+                semester=semester,
+                field=field,
+                form_id=(form.get("id") or form.get("name")) if form else None,
+            )
+        )
+    return turmas
+
+
+parse_turmas.variants = (*parse_turmas.variants, *_parse_ufcg_turmas.variants)
 
 
 def _deadline_menus(soup):
@@ -234,6 +409,115 @@ def parse_deadlines(soup: BeautifulSoup) -> list[Deadline]:
                 )
             )
     return deadlines
+
+
+def _ufcg_deadlines_panel(soup):
+    form = soup.select_one("form#formAtividades")
+    return form.select_one("#avaliacao-portal") if form else None
+
+
+def _ufcg_deadlines_empty(soup):
+    panel = _ufcg_deadlines_panel(soup)
+    marker = panel.select_one("p.vazio") if panel else None
+    children = panel.find_all(recursive=False) if panel else []
+    return bool(
+        marker
+        and fold(marker.get_text(" ", strip=True))
+        == "nao ha atividades cadastradas para os proximos 15 dias ou decorridos 7 dias."
+        and [child.name for child in children] == ["h4", "p"]
+        and fold(children[0].get_text(" ", strip=True)) == "minhas atividades"
+        and children[1] is marker
+        and all(not child.find(True) for child in children)
+        and not any(
+            not getattr(child, "name", None) and str(child).strip()
+            for child in panel.children
+        )
+    )
+
+
+@page_parser(
+    "deadlines",
+    _ufcg_deadlines_empty,
+    empty=_ufcg_deadlines_empty,
+    name="ufcg-deadlines-empty",
+)
+def _parse_ufcg_deadlines(soup):
+    return []
+
+
+parse_deadlines.variants = (*parse_deadlines.variants, *_parse_ufcg_deadlines.variants)
+
+
+@page_parser(
+    "deadlines",
+    lambda soup: bool((panel := _ufcg_deadlines_panel(soup)) and panel.select_one("table")),
+    name="ufcg-deadlines-populated",
+)
+def _parse_ufcg_populated_deadlines(soup):
+    panel = _ufcg_deadlines_panel(soup)
+    tables = panel.find_all("table", recursive=False)
+    heading = panel.find("h4", recursive=False)
+    children = panel.find_all(recursive=False)
+    more = children[2] if len(children) == 3 else None
+    if (len(tables) != 1 or not heading or panel.select_one("p.vazio")
+            or children[:2] != [heading, tables[0]]
+            or more is None or more.name != "a" or more.get("class") != ["mais"]
+            or more.has_attr("onclick")
+            or "avaliacao" not in fold(urlsplit(more.get("href", "")).path)
+            or fold(heading.get_text(" ", strip=True)) != "minhas atividades"):
+        return []
+    table = tables[0]
+    header = table.select_one("thead > tr")
+    rows = table.select("tbody > tr")
+    if (not header or len(header.find_all("th", recursive=False)) != 3
+            or not rows or len(table.select("tr")) != len(rows) + 1
+            or table.select_one("a, button, input, select")):
+        return []
+    info_cells = rows[0].find_all("td", recursive=False)
+    if len(info_cells) != 1 or info_cells[0].get("colspan") != "5":
+        return []
+    turmas = parse_turmas(soup)
+    deadlines = []
+    for row in rows[1:]:
+        cells = row.find_all("td", recursive=False)
+        if len(cells) != 3:
+            return []
+        date = clean(cells[1].get_text(" ", strip=True))
+        date_match = re.search(r"\b\d{2}/\d{2}/\d{4}\b", date)
+        small = cells[2].find("small", recursive=False)
+        br = small.find("br", recursive=False) if small else None
+        strong = small.find("strong", recursive=False) if small else None
+        if not date_match or not br or not strong:
+            return []
+        try:
+            datetime.strptime(date_match.group(), "%d/%m/%Y")
+        except ValueError:
+            return []
+        course = clean(" ".join(str(node) for node in br.previous_siblings
+                                if isinstance(node, NavigableString)))
+        title = clean(" ".join(str(node) if isinstance(node, NavigableString)
+                               else node.get_text(" ", strip=True)
+                               for node in strong.next_siblings))
+        if not title or fold(strong.get_text(" ", strip=True)) != "avaliacao:":
+            return []
+        matches = [turma for turma in turmas if re.search(
+            rf"(?<!\w){re.escape(fold(turma.name))}(?!\w)", fold(course)
+        )]
+        if len(matches) != 1:
+            return []
+        turma = matches[0]
+        payload = json.dumps(
+            ["ufcg", "portal", "v1", turma.id_turma, "avaliacao", fold(date), fold(title)],
+            ensure_ascii=False, separators=(",", ":"),
+        )
+        event_id = "ufcg:portal:v1:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        deadlines.append(Deadline(event_id, turma.id_turma, "avaliacao", title, date))
+    if len({item.id for item in deadlines}) != len(deadlines):
+        raise UnrecognizedPageError("deadlines", page_fingerprint(soup))
+    return deadlines
+
+
+parse_deadlines.variants = (*parse_deadlines.variants, *_parse_ufcg_populated_deadlines.variants)
 
 
 def _menu_kind(classes: list[str]) -> str | None:

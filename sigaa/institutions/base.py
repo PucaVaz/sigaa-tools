@@ -70,6 +70,13 @@ class InstitutionProfile:
         if capability not in self.capabilities:
             raise UnsupportedFeatureError(f"{self.key}: unsupported feature {capability.value}")
 
+    def require_store_access(self) -> None:
+        from ..errors import UnsupportedFeatureError
+        if self.provisional:
+            raise UnsupportedFeatureError(
+                f"{self.key}: persisted-data access is disabled while the profile is provisional"
+            )
+
     def validate_url(self, url: str) -> None:
         from ..errors import UnsafeUrlError
         target, origin = urlsplit(str(url)), urlsplit(self.host)
