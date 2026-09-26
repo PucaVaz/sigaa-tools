@@ -103,18 +103,23 @@ class Settings:
             self.username = default_username(self.institution)
 
     def resolve_password(self) -> str | None:
-        """keyring first (Keychain), then SIGAA_PASS env var."""
+        """keyring first (Keychain), then the environment fallback.
+
+        For a ``session`` institution the secret is a browser session's Cookie
+        header and the fallback is SIGAA_SESSION, so a password is never sent
+        as a cookie.
+        """
+        profile = get(self.institution).profile
         if self.username:
             try:
                 import keyring
 
-                service = get(self.institution).profile.keyring_service
-                secret = keyring.get_password(service, self.username)
+                secret = keyring.get_password(profile.keyring_service, self.username)
                 if secret:
                     return secret
             except Exception:
                 pass
-        return os.environ.get("SIGAA_PASS")
+        return os.environ.get(_secret_env(profile))
 
     def require_credentials(self) -> tuple[str, str]:
         """Return ``(username, password)`` or raise ``MissingCredentialsError``.
@@ -130,9 +135,12 @@ class Settings:
             )
         password = self.resolve_password()
         if not password:
+            profile = get(self.institution).profile
+            secret = "session" if profile.auth_mode == "session" else "password"
             raise MissingCredentialsError(
-                f"missing credentials: no password for account {self.username!r} "
-                "in the keyring (run `sigaa login`; SIGAA_PASS is an optional fallback)"
+                f"missing credentials: no {secret} for account {self.username!r} "
+                f"in the keyring (run `sigaa login`; {_secret_env(profile)} is an "
+                "optional fallback)"
             )
         return self.username, password
 
@@ -145,3 +153,7 @@ class Settings:
         except MissingCredentialsError as exc:
             return str(exc)
         return None
+
+
+def _secret_env(profile) -> str:
+    return "SIGAA_SESSION" if profile.auth_mode == "session" else "SIGAA_PASS"

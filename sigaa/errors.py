@@ -82,3 +82,15 @@ class UnrecognizedPageError(ParseError):
 
 class NavigationError(ParseError, ValueError):
     """A required navigation target is absent from the current render."""
+
+
+class SsoRedirectError(LoginRejectedError):
+    """SIGAA bounced the request to its single sign-on host: the session is gone.
+
+    The redirect is never followed, so no request reaches the SSO. Staged as
+    ``auth`` (a ``LoginRejectedError``): the fix is a new login, not a retry.
+    """
+
+    def __init__(self, host: str | None):
+        self.host = host
+        super().__init__(f"session expired: SIGAA redirected to single sign-on at {host}")

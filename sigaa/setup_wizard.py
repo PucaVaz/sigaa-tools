@@ -90,8 +90,9 @@ def verify_and_store_login(
         )
     except Exception:
         password_stored = False
+        secret_env = "SIGAA_SESSION" if get(institution).profile.auth_mode == "session" else "SIGAA_PASS"
         storage_message = (
-            "keyring unavailable; set SIGAA_USER and SIGAA_PASS in your shell"
+            f"keyring unavailable; set SIGAA_USER and {secret_env} in your shell"
         )
 
     return LoginResult(
@@ -106,7 +107,15 @@ def verify_and_store_login(
 def prompt_login(settings: Settings, input_func: Callable[[str], str] = input) -> LoginResult:
     if not settings.username:
         settings.username = input_func("SIGAA username: ").strip()
-    password = getpass.getpass("SIGAA password: ")
+    if get(settings.institution).profile.auth_mode == "session":
+        # SSO with reCAPTCHA: the student logs in with a browser; we store the
+        # SIGAA session's Cookie header in place of a password.
+        print("Log in to SIGAA in your browser, then copy the request's whole Cookie value")
+        print("(DevTools > Network > any SIGAA page > Request Headers > Cookie). Keep every")
+        print("cookie in it: the Application tab can miss ones SIGAA needs.")
+        password = getpass.getpass("SIGAA Cookie header: ").strip()
+    else:
+        password = getpass.getpass("SIGAA password: ")
     result = verify_and_store_login(settings.username, password, institution=settings.institution)
     print(f"login ok: {result.name} ({result.matricula}) - {result.storage_message}")
     return result

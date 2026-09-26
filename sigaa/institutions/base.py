@@ -64,6 +64,14 @@ class InstitutionProfile:
     # Registered but not yet onboarded from live captures: selectable only with
     # --institution or SIGAA_INSTITUTION, never offered by the setup wizard.
     provisional: bool = False
+    # "password" posts the username and password to SIGAA. "session" is for a
+    # login behind single sign-on the tool cannot pass (e.g. reCAPTCHA): the
+    # student logs in with a browser and the stored secret is that session's
+    # Cookie header, never a password.
+    auth_mode: str = "password"
+    # Single sign-on hosts SIGAA bounces an expired session to. A redirect there
+    # is never followed; it means the session is gone (stage ``auth``).
+    sso_hosts: frozenset[str] = frozenset()
 
     def require(self, capability: Capability) -> None:
         from ..errors import UnsupportedFeatureError
@@ -71,8 +79,10 @@ class InstitutionProfile:
             raise UnsupportedFeatureError(f"{self.key}: unsupported feature {capability.value}")
 
     def validate_url(self, url: str) -> None:
-        from ..errors import UnsafeUrlError
+        from ..errors import SsoRedirectError, UnsafeUrlError
         target, origin = urlsplit(str(url)), urlsplit(self.host)
+        if target.hostname in self.sso_hosts:
+            raise SsoRedirectError(target.hostname)
         if target.scheme != "https":
             reason = "is not HTTPS"
         elif target.hostname != origin.hostname:
