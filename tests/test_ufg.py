@@ -42,10 +42,10 @@ def test_ufg_is_a_provisional_session_profile_with_probed_features_only():
     assert PROFILE.sso_hosts == frozenset({"sso.ufg.br"})
     assert PROFILE.provisional
     assert PROFILE.capabilities == {
-        Capability.PORTAL, Capability.NEWS, Capability.MATERIALS,
+        Capability.PORTAL, Capability.NEWS, Capability.MATERIALS, Capability.GRADES,
         Capability.ATTENDANCE, Capability.PLAN, Capability.PARTICIPANTS,
     }
-    for missing in (Capability.GRADES, Capability.TASKS, Capability.CALENDAR,
+    for missing in (Capability.TASKS, Capability.CALENDAR,
                     Capability.MATRICULA, Capability.DOCUMENTS):
         with pytest.raises(UnsupportedFeatureError):
             PROFILE.require(missing)
@@ -197,8 +197,34 @@ def test_ufg_menu_labels_match_the_turma_virtual():
     from sigaa.institutions import MenuLabel
 
     assert PROFILE.menu_labels == {
+        MenuLabel.GRADES: "Minhas Notas",
         MenuLabel.TURMA_GRADES: "Ver Notas",
         MenuLabel.ATTENDANCE: "Frequência",
         MenuLabel.PLAN: "Plano de Curso",
         MenuLabel.PARTICIPANTS: "Participantes",
     }
+
+
+def test_ufg_portal_menu_posts_the_jscook_form():
+    from urllib.parse import parse_qs
+
+    menu = (Path(__file__).parent / "fixtures/ufg/portal_menu.html").read_text()
+    posts = []
+
+    def handler(request):
+        if request.method == "POST":
+            posts.append((str(request.url), parse_qs(request.content.decode(),
+                                                     keep_blank_values=True)))
+            return httpx.Response(200, text="<html>notas</html>")
+        return httpx.Response(200, text=PORTAL)
+
+    with _session(handler, f"JSESSIONID={secrets.token_hex(16)}") as session:
+        session.login()
+        assert NAVIGATOR.portal_menu_post(session, menu, "Minhas Notas") == "<html>notas</html>"
+        with pytest.raises(NavigationError):
+            NAVIGATOR.portal_menu_post(session, menu, "Consultar Histórico")
+    url, fields = posts[0]
+    assert url == PROFILE.portal_action_url and len(posts) == 1
+    assert fields["jscook_action"] == [
+        "menu_form_menu_discente_j_id_jsp_1051041857_97_menu:A]#{ relatorioNotasAluno.gerarRelatorio }"]
+    assert set(fields) == {"menu:form_menu_discente", "id", "jscook_action", "javax.faces.ViewState"}
