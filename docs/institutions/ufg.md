@@ -78,6 +78,19 @@ verbatim; the student's name, matrícula, course, unit and e-mail are replaced,
 academic indices, the chat link's user id and the per-file download keys are
 removed or replaced.
 
+## End-to-end sync, 2026-09-26
+
+`sigaa sync --json` then `sigaa watch --once --json --fail-on-error`, with the
+student's imported session and a throwaway database:
+
+| Check | Result |
+| --- | --- |
+| `sync` | exit 0, `ok: true`, 4 classes, no class errors |
+| New items | 7 news, 31 materials, 1 deadline |
+| `unsupported` | `grades`, `plan`, `attendance`, `participants` |
+| `watch --once` | exit 0, status `changes`, events `news`, `material`, `deadline` |
+| Same run with an invalid cookie | both exit 1, stage `auth`, "imported SIGAA session expired" |
+
 ## Open questions before live acceptance
 
 - **How long a session lasts**, idle and with a `watch` every 15 minutes. This
@@ -90,6 +103,8 @@ removed or replaced.
   questionário) fail as unrecognized until captured.
 - **Class menu.** Grades, attendance, plan and participants need the Turma
   Virtual menu labels and `turma_menu_post`.
+- **No component code.** The UFG portal shows no code per class, so
+  `Turma.code` is empty and `--class` must be given the `idTurma`.
 - **Material downloads.** Listing is verified; downloading with the replayed
   `key` has not been run live.
 
