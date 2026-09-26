@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 from ..errors import NavigationError
 from ..parsers.authentication import has_login_form
 from . import auth_session
-from .base import InstitutionProfile
+from .base import Capability, InstitutionProfile
 
 HOST = "https://sigaa.sistemas.ufg.br"
 BASE = HOST + "/sigaa"
@@ -39,7 +39,8 @@ PROFILE = InstitutionProfile(
     slot_times={shift: {slot: "" for slot in slots} for shift, slots in SLOT_GRID.items()},
     slot_minutes=50,
     menu_labels={},
-    capabilities=frozenset(),
+    # Only what passed `sigaa onboard probe` on live UFG captures (2026-09-26).
+    capabilities=frozenset({Capability.PORTAL, Capability.NEWS, Capability.MATERIALS}),
     provisional=True,
     auth_mode="session",
     sso_hosts=frozenset({SSO_HOST}),
@@ -62,7 +63,19 @@ class UfgNavigator:
         raise NavigationError("UFG portal navigation requires live onboarding captures")
 
     def enter_turma(self, session, portal, turma):
-        raise NavigationError("UFG class navigation requires live onboarding captures")
+        # Replays the class row's own form_acessarTurmaVirtual* postback: the form
+        # marker, the link's field, the hidden idTurma and the portal ViewState.
+        if not (turma.form_id and turma.field):
+            raise NavigationError(f"class {turma.id_turma!r} has no portal form to replay")
+        from ..http import extract_viewstate
+
+        fields = {
+            turma.form_id: turma.form_id,
+            turma.field: turma.field,
+            "idTurma": turma.id_turma,
+            "javax.faces.ViewState": extract_viewstate(portal),
+        }
+        return session.post(PROFILE.portal_action_url, fields)
 
     def turma_menu_post(self, session, principal, label):
         raise NavigationError("UFG class menu requires live onboarding captures")

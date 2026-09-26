@@ -35,14 +35,16 @@ def _session(handler, secret):
     return Session("test-student", secret, profile=PROFILE, navigator=NAVIGATOR, client=client)
 
 
-def test_ufg_is_a_provisional_session_profile_without_features():
+def test_ufg_is_a_provisional_session_profile_with_probed_features_only():
     assert PROFILE.host == "https://sigaa.sistemas.ufg.br"
     assert PROFILE.auth_mode == "session"
     assert PROFILE.sso_hosts == frozenset({"sso.ufg.br"})
     assert PROFILE.provisional
-    assert PROFILE.capabilities == frozenset()
-    with pytest.raises(UnsupportedFeatureError):
-        PROFILE.require(Capability.PORTAL)
+    assert PROFILE.capabilities == {Capability.PORTAL, Capability.NEWS, Capability.MATERIALS}
+    for missing in (Capability.GRADES, Capability.ATTENDANCE, Capability.PLAN,
+                    Capability.PARTICIPANTS, Capability.CALENDAR, Capability.MATRICULA):
+        with pytest.raises(UnsupportedFeatureError):
+            PROFILE.require(missing)
 
 
 def test_setup_wizard_does_not_offer_ufg():
@@ -133,3 +135,30 @@ def test_ufg_login_prompts_for_a_cookie_not_a_password(monkeypatch):
     setup_wizard.prompt_login(settings)
     assert prompts == ["SIGAA Cookie header: "]
     assert stored == {"username": "test-student", "secret": header, "institution": "ufg"}
+
+
+def test_ufg_enter_turma_replays_the_portal_class_form():
+    from urllib.parse import parse_qs
+
+    from sigaa.parsers import portal as portal_parser
+
+    page = (Path(__file__).parent / "fixtures/ufg/portal.html").read_text()
+    turma = portal_parser.parse_turmas(page)[1]
+    posts = []
+
+    def handler(request):
+        if request.method == "POST":
+            posts.append((str(request.url), parse_qs(request.content.decode())))
+            return httpx.Response(200, text="<html>principal</html>")
+        return httpx.Response(200, text=PORTAL)
+
+    with _session(handler, f"JSESSIONID={secrets.token_hex(16)}") as session:
+        session.login()
+        assert NAVIGATOR.enter_turma(session, page, turma) == "<html>principal</html>"
+    assert posts == [(PROFILE.portal_action_url, {
+        "form_acessarTurmaVirtualj_id_3": ["form_acessarTurmaVirtualj_id_3"],
+        "form_acessarTurmaVirtualj_id_3:turmaVirtualj_id_3":
+            ["form_acessarTurmaVirtualj_id_3:turmaVirtualj_id_3"],
+        "idTurma": ["1050315"],
+        "javax.faces.ViewState": ["j_id4"],
+    })]
