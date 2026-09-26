@@ -38,17 +38,18 @@ PROFILE = InstitutionProfile(
     keyring_service="sigaa-ufg",
     slot_times={shift: {slot: "" for slot in slots} for shift, slots in SLOT_GRID.items()},
     slot_minutes=50,
-    # Turma Virtual formMenu items (same labels as UFPB's).
+    # GRADES is the portal's JSCook sidebar item; the rest are Turma Virtual
+    # formMenu items (same labels as UFPB's).
     menu_labels={
+        MenuLabel.GRADES: "Minhas Notas",
         MenuLabel.TURMA_GRADES: "Ver Notas",
         MenuLabel.ATTENDANCE: "Frequência",
         MenuLabel.PLAN: "Plano de Curso",
         MenuLabel.PARTICIPANTS: "Participantes",
     },
     # Only what passed `sigaa onboard probe` on live UFG captures (2026-09-26).
-    # GRADES also needs the portal's "Minhas Notas" (a JSCook menu), not mapped yet.
     capabilities=frozenset({
-        Capability.PORTAL, Capability.NEWS, Capability.MATERIALS,
+        Capability.PORTAL, Capability.NEWS, Capability.MATERIALS, Capability.GRADES,
         Capability.ATTENDANCE, Capability.PLAN, Capability.PARTICIPANTS,
     }),
     provisional=True,
@@ -70,7 +71,12 @@ class UfgNavigator:
         return has_login_form(text)
 
     def portal_menu_post(self, session, portal, label):
-        raise NavigationError("UFG portal navigation requires live onboarding captures")
+        from ..parsers.portal import jscook_menu_postback
+
+        fields = jscook_menu_postback(portal, label)
+        if fields is None:
+            raise NavigationError(f"portal menu item not found: {label!r}")
+        return session.post(PROFILE.portal_action_url, fields)
 
     def enter_turma(self, session, portal, turma):
         # Replays the class row's own form_acessarTurmaVirtual* postback: the form

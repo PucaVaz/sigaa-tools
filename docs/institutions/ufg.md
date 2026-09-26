@@ -12,7 +12,7 @@ capabilities whose parsers passed `sigaa onboard probe` on live captures:
 | `attendance` | declared | live capture 2026-09-26 (3rd), existing `frequency-map` variant (12, 13 records) |
 | `plan` | declared | live capture 2026-09-26 (3rd), existing `course-plan-tables`; new `course-plan-not-registered` for SIGAA's "Esta turma ainda não possui um plano cadastrado." |
 | `participants` | declared | live capture 2026-09-26 (3rd), existing `participants-role-count` variant |
-| grades | not declared | per-class "Ver Notas" parses (`class-grade-headers`, no grade posted yet), but the capability also covers the portal's "Minhas Notas", a JSCook menu not mapped yet |
+| `grades` | declared | live capture 2026-09-26 (4th): the portal's "Minhas Notas" (a JSCook sidebar item) parses with the existing `grade-headers` variant (49 rows); per-class "Ver Notas" with `class-grade-headers` (empty_confirmed: no grade posted yet) |
 | tasks, calendar, curriculum, matrícula, documents, extensão, SIPAC | not declared | not captured |
 
 `sigaa sync` reads only declared capabilities and lists the rest under
@@ -115,6 +115,15 @@ The same run after declaring attendance, plan and participants:
 | `unsupported` | `grades` |
 | `watch --once` | exit 0, status `changes`, events `news`, `material`, `deadline`, `attendance` |
 
+## Grade report capture, 2026-09-26
+
+The portal sidebar is a JSCook menu: a click sets `jscook_action` on
+`menu:form_menu_discente` to the item's action
+(`#{ relatorioNotasAluno.gerarRelatorio }` for "Minhas Notas") and posts every
+hidden input of that form, including the student's SIGAA `id`. A fourth private
+capture followed it; probe: every captured feature ok or empty_confirmed, none
+unrecognized or nav_failed.
+
 ## Open questions before live acceptance
 
 - **How long a session lasts**, idle and with a `watch` every 15 minutes. This
@@ -125,9 +134,8 @@ The same run after declaring attendance, plan and participants:
   captured and a variant added.
 - **Activity kinds.** Only `Tarefa:` has been seen. Other labels (avaliação,
   questionário) fail as unrecognized until captured.
-- **Grades.** Map the portal's "Minhas Notas" JSCook item (`jscook_action`
-  on `menu:form_menu_discente`) and capture that report before declaring
-  `grades`.
+- **Posted per-class grades.** "Ver Notas" has only been seen before any grade
+  was posted; the first posted grade should be checked against the probe.
 - **No component code.** The UFG portal shows no code per class, so
   `Turma.code` is empty and `--class` must be given the `idTurma`.
 - **Material downloads.** Listing is verified; downloading with the replayed

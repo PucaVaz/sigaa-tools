@@ -178,3 +178,31 @@ def test_other_warnings_on_the_plan_page_stay_unrecognized():
                             "Ocorreu um erro inesperado.")
     with pytest.raises(UnrecognizedPageError):
         plano.parse_course_plan(other, "1051061")
+
+
+PORTAL_MENU = (Path(__file__).parent / "fixtures/ufg/portal_menu.html").read_text()
+
+
+def test_jscook_menu_postback_sets_the_item_action_on_the_whole_form():
+    assert portal.jscook_menu_postback(PORTAL_MENU, "Minhas Notas") == {
+        "menu:form_menu_discente": "menu:form_menu_discente",
+        "id": "0",
+        "jscook_action":
+            "menu_form_menu_discente_j_id_jsp_1051041857_97_menu:A]"
+            "#{ relatorioNotasAluno.gerarRelatorio }",
+        "javax.faces.ViewState": "j_id27",
+    }
+
+
+def test_jscook_menu_labels_are_matched_after_decoding_entities():
+    fields = portal.jscook_menu_postback(PORTAL_MENU, "Declaração de Vínculo")
+    assert fields["jscook_action"].endswith("#{ declaracaoVinculo.emitirDeclaracao}")
+
+
+def test_jscook_menu_postback_is_none_for_missing_duplicate_or_branch_items():
+    assert portal.jscook_menu_postback(PORTAL_MENU, "Consultar Histórico") is None
+    assert portal.jscook_menu_postback(PORTAL_MENU, "Ensino") is None  # a branch, no action
+    doubled = PORTAL_MENU.replace("]]];", ", [null, 'Minhas Notas', 'x:A]#{ y }', "
+                                         "'menu:form_menu_discente', null]]]];")
+    assert portal.jscook_menu_postback(doubled, "Minhas Notas") is None
+    assert portal.jscook_menu_postback("<html></html>", "Minhas Notas") is None

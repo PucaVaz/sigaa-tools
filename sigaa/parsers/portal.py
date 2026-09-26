@@ -464,3 +464,37 @@ def class_menu_postback(html: str, label: str) -> dict[str, str] | None:
     }
     fields[field] = field
     return fields
+
+
+# One JSCook leaf: [icon, 'label', 'action', 'form id', null]. Branches carry a
+# null action and are never matched.
+_JSCOOK_ITEM_RE = re.compile(r"'([^']*)',\s*'([^']+)',\s*'([^']+)',\s*null\s*\]")
+
+
+def jscook_menu_postback(html: str, label: str) -> dict[str, str] | None:
+    """Fields a browser posts when clicking one item of a classic portal's
+    JSCook sidebar (UFG): every hidden input of the item's form, with
+    ``jscook_action`` set to the item's action. None unless exactly one leaf in
+    that form carries the label."""
+    import html as html_lib
+
+    soup = BeautifulSoup(html, "lxml")
+    target = _normalized_label(label)
+    matches = []
+    for form in soup.select("form[id]"):
+        if form.find("input", attrs={"name": "jscook_action"}) is None:
+            continue
+        for script in form.find_all("script"):
+            for item_label, action, form_id in _JSCOOK_ITEM_RE.findall(script.string or ""):
+                if (form_id == form["id"]
+                        and _normalized_label(html_lib.unescape(item_label)) == target):
+                    matches.append((form, action))
+    if len(matches) != 1:
+        return None
+    form, action = matches[0]
+    fields = {
+        node["name"]: node.get("value", "")
+        for node in form.select("input[type=hidden][name]")
+    }
+    fields["jscook_action"] = action
+    return fields
