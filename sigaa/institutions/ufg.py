@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 from ..errors import NavigationError
 from ..parsers.authentication import has_login_form
 from . import auth_session
-from .base import Capability, InstitutionProfile
+from .base import Capability, InstitutionProfile, MenuLabel
 
 HOST = "https://sigaa.sistemas.ufg.br"
 BASE = HOST + "/sigaa"
@@ -38,9 +38,19 @@ PROFILE = InstitutionProfile(
     keyring_service="sigaa-ufg",
     slot_times={shift: {slot: "" for slot in slots} for shift, slots in SLOT_GRID.items()},
     slot_minutes=50,
-    menu_labels={},
+    # Turma Virtual formMenu items (same labels as UFPB's).
+    menu_labels={
+        MenuLabel.TURMA_GRADES: "Ver Notas",
+        MenuLabel.ATTENDANCE: "Frequência",
+        MenuLabel.PLAN: "Plano de Curso",
+        MenuLabel.PARTICIPANTS: "Participantes",
+    },
     # Only what passed `sigaa onboard probe` on live UFG captures (2026-09-26).
-    capabilities=frozenset({Capability.PORTAL, Capability.NEWS, Capability.MATERIALS}),
+    # GRADES also needs the portal's "Minhas Notas" (a JSCook menu), not mapped yet.
+    capabilities=frozenset({
+        Capability.PORTAL, Capability.NEWS, Capability.MATERIALS,
+        Capability.ATTENDANCE, Capability.PLAN, Capability.PARTICIPANTS,
+    }),
     provisional=True,
     auth_mode="session",
     sso_hosts=frozenset({SSO_HOST}),
@@ -78,7 +88,12 @@ class UfgNavigator:
         return session.post(PROFILE.portal_action_url, fields)
 
     def turma_menu_post(self, session, principal, label):
-        raise NavigationError("UFG class menu requires live onboarding captures")
+        from ..parsers.portal import class_menu_postback
+
+        fields = class_menu_postback(principal, label)
+        if fields is None:
+            raise NavigationError(f"turma menu item not found: {label!r}")
+        return session.post(PROFILE.ava_url, fields)
 
     def open_event(self, session, portal, event_id):
         raise NavigationError("UFG event navigation requires live onboarding captures")

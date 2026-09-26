@@ -134,6 +134,32 @@ def test_ufg_material_download_replays_the_key():
     }
 
 
+MENU = (Path(__file__).parent / "fixtures/ufg/turma_menu.html").read_text()
+
+
+@pytest.mark.parametrize("label, field", [
+    ("Ver Notas", "formMenu:j_id_jsp_2083335174_70"),
+    ("Frequência", "formMenu:j_id_jsp_2083335174_68"),
+    ("Plano de Curso", "formMenu:j_id_jsp_2083335174_48"),
+    ("Participantes", "formMenu:j_id_jsp_2083335174_52"),
+])
+def test_class_menu_postback_replays_the_whole_form(label, field):
+    assert portal.class_menu_postback(MENU, label) == {
+        "formMenu": "formMenu",
+        "formMenu:j_id_jsp_2083335174_44": "formMenu:j_id_jsp_2083335174_45",
+        field: field,
+        "javax.faces.ViewState": "j_id8",
+    }
+
+
+def test_class_menu_postback_is_none_for_a_missing_or_ambiguous_item():
+    assert portal.class_menu_postback(MENU, "Situação dos Discentes") is None
+    doubled = MENU.replace("</form>", '<a href="#" onclick="jsfcljs(document.getElementById('
+                           "'formMenu'),{'formMenu:x':'formMenu:x'},'');\">Ver Notas</a></form>")
+    assert portal.class_menu_postback(doubled, "Ver Notas") is None
+    assert portal.class_menu_postback("<html></html>", "Ver Notas") is None
+
+
 NO_PLAN = (Path(__file__).parent / "fixtures/ufg/plan_not_registered.html").read_text()
 
 
