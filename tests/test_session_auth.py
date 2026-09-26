@@ -28,7 +28,7 @@ class Navigator:
         return auth_session.perform_login(session, PROFILE)
 
     def looks_logged_out(self, text, url=""):
-        return False
+        return url.endswith("/expired.jsp")
 
 
 def _cookie():
@@ -140,3 +140,15 @@ def test_session_institution_falls_back_to_sigaa_session_not_sigaa_pass(monkeypa
 def test_password_institutions_are_unchanged():
     assert get("ufpb").profile.auth_mode == "password"
     assert get("ufpb").profile.sso_hosts == frozenset()
+
+
+def test_navigator_expired_page_without_login_form_is_an_expired_session():
+    # Some forks bounce a dead session to an empty page of their own, not a form.
+    def handler(request):
+        if request.url.path.endswith("/expired.jsp"):
+            return httpx.Response(200, text="<html><body></body></html>")
+        return httpx.Response(302, headers={"Location": PROFILE.host + "/sigaa/expired.jsp"})
+
+    with _session(handler, _cookie()) as session:
+        with pytest.raises(LoginRejectedError, match="expired"):
+            session.login()

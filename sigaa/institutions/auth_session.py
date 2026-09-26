@@ -38,6 +38,10 @@ def perform_login(session, profile):
     response.raise_for_status()
     if authenticated_portal(response.text, response.url, profile):
         return response.text
-    if has_login_form(response.text):
+    # The navigator knows its fork's own "session expired" pages, which need not
+    # carry a login form (UFG's is an empty expirada.jsp).
+    if has_login_form(response.text) or session.navigator.looks_logged_out(
+        response.text, str(response.url)
+    ):
         raise LoginRejectedError("imported SIGAA session expired; run `sigaa login` again")
     raise LoginRejectedError("imported session did not reach the authenticated student portal")
