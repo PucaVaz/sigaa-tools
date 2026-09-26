@@ -132,3 +132,23 @@ def test_ufg_material_download_replays_the_key():
         "key": "00000000000000000000000000000002",
         "javax.faces.ViewState": "j_id2",
     }
+
+
+NO_PLAN = (Path(__file__).parent / "fixtures/ufg/plan_not_registered.html").read_text()
+
+
+def test_class_without_a_registered_plan_is_no_plan_not_a_parse_failure():
+    from sigaa.parsers import plano
+
+    assert plano.parse_course_plan(NO_PLAN, "1051061") is None
+    assert resolve_variant("plan", NO_PLAN, plano.parse_course_plan.variants).name \
+        == "course-plan-not-registered"
+
+
+def test_other_warnings_on_the_plan_page_stay_unrecognized():
+    from sigaa.parsers import plano
+
+    other = NO_PLAN.replace("Esta turma ainda não possui um plano cadastrado.",
+                            "Ocorreu um erro inesperado.")
+    with pytest.raises(UnrecognizedPageError):
+        plano.parse_course_plan(other, "1051061")
