@@ -124,6 +124,15 @@ hidden input of that form, including the student's SIGAA `id`. A fourth private
 capture followed it; probe: every captured feature ok or empty_confirmed, none
 unrecognized or nav_failed.
 
+## End-to-end sync with grades, 2026-09-26
+
+| Check | Result |
+| --- | --- |
+| `sync` | exit 0, `ok: true`, 4 classes, no class errors |
+| New items | 7 news, 31 materials, 3 deadlines |
+| `unsupported` | none |
+| `watch --once` | exit 0, status `changes`, events `news`, `material`, `deadline`, `attendance`, `grade` |
+
 ## Open questions before live acceptance
 
 - **How long a session lasts**, idle and with a `watch` every 15 minutes. This
