@@ -12,6 +12,11 @@ from urllib.parse import urlsplit
 from ..errors import LoginRejectedError, MissingCredentialsError
 from ..parsers.authentication import authenticated_portal, has_login_form
 
+_NOT_A_COOKIE = (
+    "stored SIGAA session is not a Cookie header; paste the whole Cookie value "
+    "from the browser (e.g. `JSESSIONID=...; other=...`), not a bare value"
+)
+
 
 def parse_cookie_header(header):
     """``name=value; other=value`` -> dict. Rejects anything but a Cookie header."""
@@ -19,12 +24,12 @@ def parse_cookie_header(header):
     if header.casefold().startswith("cookie:"):
         header = header.split(":", 1)[1].strip()
     if not header or "\n" in header or "\r" in header:
-        raise MissingCredentialsError("stored SIGAA session is not a Cookie header")
+        raise MissingCredentialsError(_NOT_A_COOKIE)
     jar = SimpleCookie()
     jar.load(header)
     cookies = {name: morsel.value for name, morsel in jar.items()}
     if not cookies:
-        raise MissingCredentialsError("stored SIGAA session is not a Cookie header")
+        raise MissingCredentialsError(_NOT_A_COOKIE)
     return cookies
 
 

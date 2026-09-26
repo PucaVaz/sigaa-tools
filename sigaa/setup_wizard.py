@@ -110,8 +110,9 @@ def prompt_login(settings: Settings, input_func: Callable[[str], str] = input) -
     if get(settings.institution).profile.auth_mode == "session":
         # SSO with reCAPTCHA: the student logs in with a browser; we store the
         # SIGAA session's Cookie header in place of a password.
-        print("Log in to SIGAA in your browser, then copy the request's Cookie header")
-        print("(DevTools > Network > any SIGAA page > Request Headers > Cookie).")
+        print("Log in to SIGAA in your browser, then copy the request's whole Cookie value")
+        print("(DevTools > Network > any SIGAA page > Request Headers > Cookie). Keep every")
+        print("cookie in it: the Application tab can miss ones SIGAA needs.")
         password = getpass.getpass("SIGAA Cookie header: ").strip()
     else:
         password = getpass.getpass("SIGAA password: ")
