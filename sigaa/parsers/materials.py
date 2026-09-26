@@ -14,12 +14,30 @@ import re
 from bs4 import BeautifulSoup
 
 from ..models import Material
+from ._common import jsf_params
 from ._variants import page_parser
 from .news import news_panel
 
 # jsfcljs(formAva,{'<field>':'<field>','id':'<material_id>'},'_blank')
 _DOWNLOAD_RE = re.compile(r"jsfcljs\([^,]+,\{'([^']+)':'[^']+','id':'(\d+)'\}")
 _FILE_MARKER = "idInserirMaterialArquivo"
+# UFG (SIGAA 4.2.651) appends a per-file 'key' after the id; the download
+# postback must replay it. No other extra parameter has been observed.
+_FILE_EXTRAS = {"key"}
+
+
+def _file_postback(onclick: str) -> tuple[str, str, dict[str, str]] | None:
+    """``(field, material_id, extra params)`` of a file anchor's jsfcljs call."""
+    match = _DOWNLOAD_RE.search(onclick)
+    if match:
+        return match.group(1), match.group(2), {}
+    params = jsf_params(onclick)
+    field = next((k for k, v in params.items() if k == v and _FILE_MARKER in k), None)
+    material_id = params.get("id", "")
+    extras = {k: v for k, v in params.items() if k not in {field, "id"}}
+    if field and material_id.isdigit() and extras and set(extras) <= _FILE_EXTRAS:
+        return field, material_id, extras
+    return None
 
 # Map the download response's content-type to a file extension.
 _EXT_BY_TYPE = {
@@ -80,11 +98,11 @@ def parse_materials(soup: BeautifulSoup, id_turma: str) -> list[Material]:
             onclick = anchor.get("onclick") or ""
             href = anchor.get("href") or ""
             if _FILE_MARKER in onclick:
-                match = _DOWNLOAD_RE.search(onclick)
-                if match:
+                postback = _file_postback(onclick)
+                if postback:
                     materials.append(
                         Material(
-                            id=match.group(2),
+                            id=postback[1],
                             id_turma=id_turma,
                             topic=topic_name,
                             title=title,
@@ -109,13 +127,14 @@ def build_download_postback(turma_html: str, material_id: str, viewstate: str) -
     """Build the formAva POST fields that stream one uploaded material's bytes."""
     soup = BeautifulSoup(turma_html, "lxml")
     for anchor in soup.select(f"a[onclick*='{_FILE_MARKER}']"):
-        match = _DOWNLOAD_RE.search(anchor.get("onclick", ""))
-        if match and match.group(2) == material_id:
-            field = match.group(1)
+        postback = _file_postback(anchor.get("onclick", ""))
+        if postback and postback[1] == material_id:
+            field, _, extras = postback
             return {
                 "formAva": "formAva",
                 field: field,
                 "id": material_id,
+                **extras,
                 "javax.faces.ViewState": viewstate,
             }
     return None

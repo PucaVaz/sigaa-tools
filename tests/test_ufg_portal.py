@@ -103,3 +103,32 @@ def test_student_without_matricula_fails_loudly():
     html = _edit("#perfil-docente > #agenda-docente tr", lambda row: row.decompose())
     with pytest.raises(UnrecognizedPageError):
         portal.parse_student(html)
+
+
+TOPICS = (Path(__file__).parent / "fixtures/ufg/turma_topics.html").read_text()
+
+
+def test_ufg_materials_carry_the_per_file_key():
+    from sigaa.models import Material
+    from sigaa.parsers import materials
+
+    assert materials.parse_materials(TOPICS, "1051061") == [
+        Material(id="3588770", id_turma="1051061", kind="file",
+                 topic="Apresentação geral (10/08/2026 - 10/08/2026)", title="Plano de Ensino"),
+        Material(id="3588771", id_turma="1051061", kind="file",
+                 topic="Apresentação geral (10/08/2026 - 10/08/2026)",
+                 title="A verdadeira história da Inteligência Artificial"),
+    ]
+
+
+def test_ufg_material_download_replays_the_key():
+    from sigaa.parsers import materials
+
+    field = "formAva:j_id_jsp_2083335174_266:0:listaMateriais:1:idInserirMaterialArquivo"
+    assert materials.build_download_postback(TOPICS, "3588771", "j_id2") == {
+        "formAva": "formAva",
+        field: field,
+        "id": "3588771",
+        "key": "00000000000000000000000000000002",
+        "javax.faces.ViewState": "j_id2",
+    }
