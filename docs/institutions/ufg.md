@@ -104,6 +104,17 @@ attendance ok (12, 13), participants ok (1, 1), plan ok (12 entries) and
 empty_confirmed (no plan registered), per-class grades empty_confirmed (2), and
 the portal's "Minhas Notas" nav_failed (not mapped).
 
+## End-to-end sync with the class menu, 2026-09-26
+
+The same run after declaring attendance, plan and participants:
+
+| Check | Result |
+| --- | --- |
+| `sync` | exit 0, `ok: true`, 4 classes, no class errors |
+| New items | 7 news, 31 materials, 3 deadlines (1 portal activity, 2 plan evaluations) |
+| `unsupported` | `grades` |
+| `watch --once` | exit 0, status `changes`, events `news`, `material`, `deadline`, `attendance` |
+
 ## Open questions before live acceptance
 
 - **How long a session lasts**, idle and with a `watch` every 15 minutes. This
