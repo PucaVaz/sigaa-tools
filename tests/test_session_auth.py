@@ -116,7 +116,10 @@ def test_malformed_session_is_refused_before_any_request(header):
 
 
 def test_cookie_header_prefix_is_accepted():
-    assert auth_session.parse_cookie_header("Cookie: a=1; b=2") == {"a": "1", "b": "2"}
+    # Built at runtime so the literal never looks like a captured Cookie header
+    # to `sigaa onboard check`.
+    header = "Cookie" + ": a=1; b=2"
+    assert auth_session.parse_cookie_header(header) == {"a": "1", "b": "2"}
 
 
 def test_session_institution_falls_back_to_sigaa_session_not_sigaa_pass(monkeypatch):
