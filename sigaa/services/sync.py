@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from ..client import SigaaClient
 from ..config import Settings
 from ..errors import NavigationError, error_stage
+from ..institutions import Capability, get
 from ..models import (
     Attendance,
     Deadline,
@@ -70,12 +71,17 @@ class SyncResult:
     # auth / network / parse / sync; set whenever ok is False.
     error_stage: str | None = None
     classes: list[ClassSummary] = field(default_factory=list)
+    # Features the institution declares it does not support, never fetched. Named
+    # so that "not supported here" is never read as "nothing new".
+    unsupported: list[str] = field(default_factory=list)
 
 
 def sync(settings: Settings, fetch_bodies: bool = False) -> SyncResult:
     conn = connect(settings.db_path)
     repo = Repository(conn)
     result = SyncResult()
+    supported = get(settings.institution).profile.capabilities
+    result.unsupported = [c.value for c in _SYNCED if c not in supported]
     try:
         username, password = settings.require_credentials()
         with SigaaClient(username, password, institution=settings.institution) as client:
@@ -85,7 +91,9 @@ def sync(settings: Settings, fetch_bodies: bool = False) -> SyncResult:
             turmas = client.list_turmas()
             result.turma_count = len(turmas)
             for turma in turmas:
-                result.classes.append(_sync_turma(client, repo, turma, fetch_bodies, result))
+                result.classes.append(
+                    _sync_turma(client, repo, turma, fetch_bodies, result, supported)
+                )
             summaries = {summary.id_turma: summary for summary in result.classes}
 
             for deadline in client.list_deadlines():
@@ -94,10 +102,11 @@ def sync(settings: Settings, fetch_bodies: bool = False) -> SyncResult:
                     if deadline.id_turma in summaries:
                         summaries[deadline.id_turma].deadlines_new += 1
 
-            grades = client.get_grades()
-            for grade in grades:
-                repo.upsert_grade(grade)
-            result.grade_count = len(grades)
+            if Capability.GRADES in supported:
+                grades = client.get_grades()
+                for grade in grades:
+                    repo.upsert_grade(grade)
+                result.grade_count = len(grades)
 
         _fail_on_class_errors(result)
     except Exception as exc:  # noqa: BLE001 - every failure is recorded and staged
@@ -109,23 +118,36 @@ def sync(settings: Settings, fetch_bodies: bool = False) -> SyncResult:
 
 
 def _sync_turma(
-    client: SigaaClient, repo: Repository, turma: Turma, fetch_bodies: bool, result: SyncResult
+    client: SigaaClient,
+    repo: Repository,
+    turma: Turma,
+    fetch_bodies: bool,
+    result: SyncResult,
+    supported: frozenset[Capability] = frozenset(Capability),
 ) -> ClassSummary:
     summary = ClassSummary(id_turma=turma.id_turma, code=turma.code)
     repo.upsert_turma(turma)
     turma_html = client.enter_turma(turma)  # one fetch feeds all parsers
-    try:
-        found, fresh_news = _sync_turma_news(client, repo, turma, fetch_bodies, turma_html)
-        summary.news_found = len(found)
-    except Exception as exc:
-        fresh_news = []
-        summary.errors.append(SyncIssue(stage=error_stage(exc), message=str(exc)))
+    fresh_news = []
+    if Capability.NEWS in supported:
+        try:
+            found, fresh_news = _sync_turma_news(client, repo, turma, fetch_bodies, turma_html)
+            summary.news_found = len(found)
+        except Exception as exc:
+            summary.errors.append(SyncIssue(stage=error_stage(exc), message=str(exc)))
     context = (client, repo, turma, turma_html)
-    fresh_materials = _class_fetch(summary, "materials", _sync_turma_materials, *context)
-    grade_updates = _class_fetch(summary, "grades", _sync_turma_grades, *context)
-    plan_deadlines = _class_fetch(summary, "plan", _sync_turma_plan, *context)
-    attendance_updates = _class_fetch(summary, "attendance", _sync_turma_attendance, *context)
-    _class_fetch(summary, "professors", _sync_turma_professors, *context)
+
+    def fetch(capability, feature, reader):
+        # Undeclared features are listed in SyncResult.unsupported, not fetched.
+        if capability not in supported:
+            return []
+        return _class_fetch(summary, feature, reader, *context)
+
+    fresh_materials = fetch(Capability.MATERIALS, "materials", _sync_turma_materials)
+    grade_updates = fetch(Capability.GRADES, "grades", _sync_turma_grades)
+    plan_deadlines = fetch(Capability.PLAN, "plan", _sync_turma_plan)
+    attendance_updates = fetch(Capability.ATTENDANCE, "attendance", _sync_turma_attendance)
+    fetch(Capability.PARTICIPANTS, "professors", _sync_turma_professors)
 
     summary.news_new = len(fresh_news)
     summary.materials_new = len(fresh_materials)
@@ -270,3 +292,14 @@ def _class_fetch(summary: ClassSummary, feature: str, fetch, *args):
     except Exception as exc:
         summary.errors.append(SyncIssue(stage=error_stage(exc), message=f"{feature}: {exc}"))
         return []
+
+
+# What sync reads beyond the portal, in the order it reads them.
+_SYNCED = (
+    Capability.NEWS,
+    Capability.MATERIALS,
+    Capability.GRADES,
+    Capability.PLAN,
+    Capability.ATTENDANCE,
+    Capability.PARTICIPANTS,
+)
