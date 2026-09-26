@@ -21,6 +21,7 @@ def mcp_subprocess_env():
         environment.pop("SIGAA_USER", None)
         environment.pop("SIGAA_PASS", None)
         environment.pop("SIGAA_MODE", None)
+        environment.pop("SIGAA_INSTITUTION", None)
         environment["PYTHON_KEYRING_BACKEND"] = "keyring.backends.null.Keyring"
         environment["SIGAA_DOWNLOAD_DIR"] = str(download_dir)
         environment.update(extra)
@@ -125,6 +126,7 @@ def clean_credentials(monkeypatch):
 
     monkeypatch.delenv("SIGAA_USER", raising=False)
     monkeypatch.delenv("SIGAA_PASS", raising=False)
+    monkeypatch.delenv("SIGAA_INSTITUTION", raising=False)
     store: dict[tuple[str, str], str] = {}
     monkeypatch.setattr(keyring, "get_password", lambda service, name: store.get((service, name)))
     return store

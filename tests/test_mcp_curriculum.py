@@ -28,6 +28,7 @@ def _curriculum():
 
 def _configured_settings():
     return SimpleNamespace(
+        institution="ufpb",
         username="configured-user",
         resolve_password=lambda: "test-password",
     )
@@ -41,7 +42,7 @@ def test_mcp_registers_curriculum_and_cra_tools():
 
 def test_mcp_curriculum_uses_shared_contract_and_filters(monkeypatch):
     class FakeClient:
-        def __init__(self, username, password):
+        def __init__(self, username, password, **kwargs):
             assert (username, password) == ("configured-user", "test-password")
 
         def __enter__(self):
@@ -72,7 +73,7 @@ def test_mcp_curriculum_uses_shared_contract_and_filters(monkeypatch):
 
 def test_mcp_cra_treats_missing_value_as_valid_state(monkeypatch):
     class FakeClient:
-        def __init__(self, username, password):
+        def __init__(self, username, password, **kwargs):
             pass
 
         def __enter__(self):
@@ -95,7 +96,7 @@ def test_mcp_cra_treats_missing_value_as_valid_state(monkeypatch):
 
 def test_mcp_curriculum_errors_are_sanitized(monkeypatch):
     class FakeClient:
-        def __init__(self, username, password):
+        def __init__(self, username, password, **kwargs):
             pass
 
         def __enter__(self):
@@ -117,7 +118,7 @@ def test_mcp_curriculum_errors_are_sanitized(monkeypatch):
 
 
 def test_mcp_curriculum_requires_credentials(monkeypatch):
-    settings = SimpleNamespace(username=None, resolve_password=lambda: None)
+    settings = SimpleNamespace(institution="ufpb", username=None, resolve_password=lambda: None)
     monkeypatch.setattr(mcp_server, "Settings", lambda: settings)
 
     with pytest.raises(ToolError, match="no credentials"):

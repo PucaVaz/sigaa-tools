@@ -18,7 +18,7 @@ from pathlib import Path
 
 from bs4 import BeautifulSoup
 
-from .config import HOST
+from .institutions import InstitutionProfile, MenuLabel
 
 HISTORICO = "historico"
 DECLARACAO_VINCULO = "declaracao-vinculo"
@@ -31,7 +31,7 @@ class AcademicDocumentError(RuntimeError):
 
 @dataclass(frozen=True)
 class AcademicDocumentSpec:
-    menu_label: str
+    menu_label: MenuLabel
     media_type: str
 
 
@@ -45,15 +45,15 @@ class AcademicDocument:
 
 DOCUMENT_SPECS = {
     HISTORICO: AcademicDocumentSpec(
-        menu_label="Histórico acadêmico",
+        menu_label=MenuLabel.HISTORICO,
         media_type="application/pdf",
     ),
     DECLARACAO_VINCULO: AcademicDocumentSpec(
-        menu_label="Declaração de vínculo",
+        menu_label=MenuLabel.DECLARACAO_VINCULO,
         media_type="application/pdf",
     ),
     ATESTADO_MATRICULA: AcademicDocumentSpec(
-        menu_label="Atestado de matrícula",
+        menu_label=MenuLabel.ATESTADO,
         media_type="text/html",
     ),
 }
@@ -81,6 +81,8 @@ def validate_academic_document(
     kind: str,
     content: bytes,
     content_type: str | None,
+    *,
+    profile: InstitutionProfile,
 ) -> AcademicDocument:
     """Validate a SIGAA response and return its media metadata."""
     spec = document_spec(kind)
@@ -95,7 +97,7 @@ def validate_academic_document(
         _validate_atestado_html(content, charset)
 
     if kind == ATESTADO_MATRICULA:
-        content = _with_sigaa_base_url(content)
+        content = _with_sigaa_base_url(content, profile.host)
 
     return AcademicDocument(
         kind=kind,
@@ -210,11 +212,11 @@ def _validate_atestado_html(content: bytes, charset: str | None) -> None:
 _HEAD_RE = re.compile(br"(<head(?:\s[^>]*)?>)", re.IGNORECASE)
 
 
-def _with_sigaa_base_url(content: bytes) -> bytes:
+def _with_sigaa_base_url(content: bytes, host: str) -> bytes:
     """Make the saved report's root-relative official assets work under file://."""
     if re.search(br"<base\s", content, re.IGNORECASE):
         return content
-    base = f'<base href="{HOST}/">'.encode("ascii")
+    base = f'<base href="{host}/">'.encode("ascii")
     portable, replacements = _HEAD_RE.subn(rb"\1\n" + base, content, count=1)
     if replacements != 1:
         raise AcademicDocumentError("SIGAA returned an enrollment certificate without a head")

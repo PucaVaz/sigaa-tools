@@ -6,14 +6,15 @@ import pytest
 
 from conftest import TEST_PASSWORD, TEST_USERNAME
 from sigaa import cli, config
+from sigaa.institutions import ufpb
 from sigaa.config import Settings
 from sigaa.errors import STAGE_AUTH, LoginRejectedError, MissingCredentialsError
 
 
 def _save_login(keyring_store: dict, username: str, password: str) -> None:
     """What `sigaa login` leaves in the keyring."""
-    keyring_store[(config.KEYRING_SERVICE, config.KEYRING_ACTIVE_USERNAME)] = username
-    keyring_store[(config.KEYRING_SERVICE, username)] = password
+    keyring_store[(ufpb.KEYRING_SERVICE, config.KEYRING_ACTIVE_USERNAME)] = username
+    keyring_store[(ufpb.KEYRING_SERVICE, username)] = password
 
 
 def test_keyring_only_login_resolves_both_username_and_password(clean_credentials, tmp_path):
@@ -59,7 +60,7 @@ def test_keyring_password_wins_over_environment_password(
 def test_environment_username_with_keyring_password_needs_no_sigaa_pass(
     clean_credentials, monkeypatch, tmp_path
 ):
-    clean_credentials[(config.KEYRING_SERVICE, TEST_USERNAME)] = TEST_PASSWORD
+    clean_credentials[(ufpb.KEYRING_SERVICE, TEST_USERNAME)] = TEST_PASSWORD
     monkeypatch.setenv("SIGAA_USER", TEST_USERNAME)
 
     assert Settings(db_path=tmp_path / "t.db").require_credentials() == (
@@ -139,7 +140,7 @@ def test_no_secret_is_printed_when_the_password_is_missing(
     clean_credentials, monkeypatch, tmp_path, capsys
 ):
     monkeypatch.setenv("SIGAA_USER", TEST_USERNAME)
-    clean_credentials[(config.KEYRING_SERVICE, "unrelated")] = TEST_PASSWORD
+    clean_credentials[(ufpb.KEYRING_SERVICE, "unrelated")] = TEST_PASSWORD
 
     cli.main(["--db", str(tmp_path / "t.db"), "watch", "--once", "--json"])
 
