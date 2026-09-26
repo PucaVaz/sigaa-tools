@@ -264,3 +264,174 @@ def _cell(cells, index: int) -> str | None:
 def _first(pattern: re.Pattern, text: str) -> str | None:
     match = pattern.search(text)
     return match.group(1) if match else None
+
+
+# UFG classic discente portal (SIGAA 4.2.651, live capture 2026-09-26). Every
+# selector below is anchored to that page; anything else fails as unrecognized.
+
+_UFG_ID_RE = re.compile(r"\d+")
+
+
+def _ufg_profile_table(soup):
+    """The "Dados Institucionais" table. SIGAA renders two id="agenda-docente"
+    elements; only the one directly under #perfil-docente holds it."""
+    for panel in soup.select("div#perfil-docente > div#agenda-docente"):
+        heading = panel.find("h4", recursive=False)
+        tables = panel.find_all("table", recursive=False)
+        if heading and fold(heading.get_text(" ", strip=True)) == "dados institucionais" \
+                and len(tables) == 1:
+            return tables[0]
+    return None
+
+
+def _ufg_label(soup, label):
+    """Value cell of a two-cell ``<td>Label:</td><td>value</td>`` profile row."""
+    table = _ufg_profile_table(soup)
+    for row in table.select("tr") if table else []:
+        cells = row.find_all("td", recursive=False)
+        if len(cells) == 2 and fold(cells[0].get_text(" ", strip=True)) == label:
+            return cells[1].get_text(" ", strip=True) or None
+    return None
+
+
+def _ufg_semester(soup):
+    node = soup.select_one("#info-usuario .periodo-atual strong")
+    return node.get_text(" ", strip=True) if node else None
+
+
+@page_parser(
+    "student",
+    lambda soup: bool(
+        soup.select_one("#info-usuario .usuario span") and _ufg_label(soup, "matricula:")
+    ),
+    validate=lambda result, soup: bool(result.name and result.matricula),
+    name="ufg-student",
+)
+def _parse_ufg_student(soup: BeautifulSoup) -> Student:
+    return Student(
+        matricula=_ufg_label(soup, "matricula:") or "",
+        name=soup.select_one("#info-usuario .usuario span").get_text(" ", strip=True),
+        course=_ufg_label(soup, "curso:"),
+        email=_ufg_label(soup, "e-mail:"),
+        semester=_ufg_semester(soup),
+    )
+
+
+parse_student.variants = (*parse_student.variants, *_parse_ufg_student.variants)
+
+
+def _ufg_turma_table(soup):
+    """The one class table in #turmas-portal (not the updates rotator above it)."""
+    panel = soup.select_one("div#turmas-portal.simple-panel")
+    tables = [
+        table for table in (panel.find_all("table", recursive=False) if panel else [])
+        if [fold(th.get_text(" ", strip=True)) for th in table.select("thead > tr > th")][:3]
+        == ["componente curricular", "local", "horario"]
+    ]
+    return tables[0] if len(tables) == 1 else None
+
+
+def _ufg_turma(row, semester):
+    """A class row, or None when the row has any other shape."""
+    cells = row.find_all("td", recursive=False)
+    if len(cells) != 6 or "descricao" not in cells[0].get("class", []):
+        return None
+    form = cells[0].find("form", recursive=False)
+    id_input = form.select_one("input[name=idTurma]") if form else None
+    anchors = form.select("a[onclick]") if form else []
+    if not (form and form.get("id", "").startswith("form_acessarTurmaVirtual")
+            and id_input and _UFG_ID_RE.fullmatch(id_input.get("value", ""))
+            and len(anchors) == 1):
+        return None
+    params = _jsf_params(anchors[0].get("onclick", ""))
+    field = next((key for key, value in params.items() if key == value), None)
+    if len(params) != 1 or not field or not field.startswith(form["id"] + ":"):
+        return None
+    return Turma(
+        id_turma=id_input["value"],
+        name=anchors[0].get_text(" ", strip=True),
+        room=_cell(cells, 1),
+        schedule_raw=_cell(cells, 2),
+        semester=semester,
+        field=field,
+        form_id=form["id"],
+    )
+
+
+def _ufg_hidden_row(row):
+    cells = row.find_all("td", recursive=False)
+    return (len(cells) == 1 and cells[0].has_attr("colspan")
+            and cells[0].get("id", "").startswith("linha_")
+            and not cells[0].get_text(strip=True) and not cells[0].find(True))
+
+
+@page_parser(
+    "turmas",
+    lambda soup: _ufg_turma_table(soup) is not None,
+    validate=lambda result, soup: bool(result) and all(t.name for t in result),
+    name="ufg-turmas",
+)
+def _parse_ufg_turmas(soup: BeautifulSoup) -> list[Turma]:
+    semester = _ufg_semester(soup)
+    turmas = []
+    for row in _ufg_turma_table(soup).select("tbody > tr"):
+        if _ufg_hidden_row(row):
+            continue
+        turma = _ufg_turma(row, semester)
+        if turma is None:
+            return []  # one unreadable row makes the whole page unrecognized
+        turmas.append(turma)
+    return turmas
+
+
+parse_turmas.variants = (*parse_turmas.variants, *_parse_ufg_turmas.variants)
+
+
+def _ufg_activity_table(soup):
+    form = soup.select_one("form#formAtividades")
+    panel = form.select_one("div#avaliacao-portal.simple-panel") if form else None
+    heading = panel.find("h4", recursive=False) if panel else None
+    tables = panel.find_all("table", recursive=False) if panel else []
+    if not (heading and fold(heading.get_text(" ", strip=True)) == "minhas atividades"
+            and len(tables) == 1):
+        return None
+    labels = [fold(th.get_text(" ", strip=True)) for th in tables[0].select("thead > tr > th")]
+    return tables[0] if labels == ["", "data", "atividade"] else None
+
+
+def _ufg_deadline(row):
+    cells = row.find_all("td", recursive=False)
+    if len(cells) != 3:
+        return None
+    anchors = cells[2].select("a[onclick]")
+    labels = cells[2].find_all("strong")
+    if len(anchors) != 1 or len(labels) != 1:
+        return None
+    params = _jsf_params(anchors[0].get("onclick", ""))
+    kind = fold(labels[0].get_text(" ", strip=True)).rstrip(":").strip()
+    event_id, id_turma = params.get("id", ""), params.get("idTurma", "")
+    title = anchors[0].get_text(" ", strip=True)
+    date = cells[1].get_text(" ", strip=True)
+    if not (kind in _DEADLINE_KINDS and _UFG_ID_RE.fullmatch(event_id)
+            and _UFG_ID_RE.fullmatch(id_turma) and title and date):
+        return None
+    return Deadline(id=event_id, id_turma=id_turma, kind=kind, title=title, date=date)
+
+
+@page_parser(
+    "deadlines",
+    lambda soup: _ufg_activity_table(soup) is not None,
+    validate=lambda result, soup: bool(result),
+    name="ufg-deadlines",
+)
+def _parse_ufg_deadlines(soup: BeautifulSoup) -> list[Deadline]:
+    deadlines = []
+    for row in _ufg_activity_table(soup).select("tbody > tr"):
+        deadline = _ufg_deadline(row)
+        if deadline is None:
+            return []  # one unreadable row makes the whole page unrecognized
+        deadlines.append(deadline)
+    return deadlines
+
+
+parse_deadlines.variants = (*parse_deadlines.variants, *_parse_ufg_deadlines.variants)
