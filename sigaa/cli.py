@@ -32,6 +32,7 @@ from .exporters.ics import build_calendar
 from .extensao import participations_to_dict
 from .http import AuthError
 from .institutions import Capability, get
+from .onboard.cli import register as register_onboard
 from .parsers.curriculum import CurriculumDataError
 from .parsers.schedule import day_name, decode_schedule
 from .parsers.sipac import SipacParseError
@@ -317,6 +318,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="mark everything currently stored as already reported, without emitting it",
     )
     p_watch.set_defaults(func=_cmd_watch)
+    register_onboard(sub)
     return parser
 
 
