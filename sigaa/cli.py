@@ -1161,6 +1161,7 @@ def _sync_json(result) -> dict:
         "attendance_updates": [_attendance_json(a) for a in result.attendance_updates],
         "error_stage": result.error_stage,
         "class_summaries": watch.class_summaries(result),
+        "unsupported": result.unsupported,
     }
 
 
