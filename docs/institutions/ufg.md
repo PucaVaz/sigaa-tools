@@ -9,7 +9,10 @@ capabilities whose parsers passed `sigaa onboard probe` on live captures:
 | `portal` (student, classes, activities) | declared | live capture 2026-09-26, variants `ufg-student`, `ufg-turmas`, `ufg-deadlines` |
 | `news` (list and body) | declared | live capture 2026-09-26, existing `news-builtin` variants; one class with news, one with the confirmed "no news" state |
 | `materials` | declared | live capture 2026-09-26, existing `class-topic-items` variant with UFG's per-file `key` (12 and 2 items) |
-| grades, attendance, plan, participants | not declared | the class menu labels are not mapped yet |
+| `attendance` | declared | live capture 2026-09-26 (3rd), existing `frequency-map` variant (12, 13 records) |
+| `plan` | declared | live capture 2026-09-26 (3rd), existing `course-plan-tables`; new `course-plan-not-registered` for SIGAA's "Esta turma ainda não possui um plano cadastrado." |
+| `participants` | declared | live capture 2026-09-26 (3rd), existing `participants-role-count` variant |
+| grades | not declared | per-class "Ver Notas" parses (`class-grade-headers`, no grade posted yet), but the capability also covers the portal's "Minhas Notas", a JSCook menu not mapped yet |
 | tasks, calendar, curriculum, matrícula, documents, extensão, SIPAC | not declared | not captured |
 
 `sigaa sync` reads only declared capabilities and lists the rest under
@@ -91,6 +94,27 @@ student's imported session and a throwaway database:
 | `watch --once` | exit 0, status `changes`, events `news`, `material`, `deadline` |
 | Same run with an invalid cookie | both exit 1, stage `auth`, "imported SIGAA session expired" |
 
+## Class menu capture, 2026-09-26
+
+A third private capture entered two classes and followed the Turma Virtual
+`formMenu` (same labels as UFPB: Ver Notas, Frequência, Plano de Curso,
+Participantes). UFG's form carries one hidden field more than the clicked
+item's, so the navigator replays every hidden input, as a browser does. Probe:
+attendance ok (12, 13), participants ok (1, 1), plan ok (12 entries) and
+empty_confirmed (no plan registered), per-class grades empty_confirmed (2), and
+the portal's "Minhas Notas" nav_failed (not mapped).
+
+## End-to-end sync with the class menu, 2026-09-26
+
+The same run after declaring attendance, plan and participants:
+
+| Check | Result |
+| --- | --- |
+| `sync` | exit 0, `ok: true`, 4 classes, no class errors |
+| New items | 7 news, 31 materials, 3 deadlines (1 portal activity, 2 plan evaluations) |
+| `unsupported` | `grades` |
+| `watch --once` | exit 0, status `changes`, events `news`, `material`, `deadline`, `attendance` |
+
 ## Open questions before live acceptance
 
 - **How long a session lasts**, idle and with a `watch` every 15 minutes. This
@@ -101,8 +125,9 @@ student's imported session and a throwaway database:
   captured and a variant added.
 - **Activity kinds.** Only `Tarefa:` has been seen. Other labels (avaliação,
   questionário) fail as unrecognized until captured.
-- **Class menu.** Grades, attendance, plan and participants need the Turma
-  Virtual menu labels and `turma_menu_post`.
+- **Grades.** Map the portal's "Minhas Notas" JSCook item (`jscook_action`
+  on `menu:form_menu_discente`) and capture that report before declaring
+  `grades`.
 - **No component code.** The UFG portal shows no code per class, so
   `Turma.code` is empty and `--class` must be given the `idTurma`.
 - **Material downloads.** Listing is verified; downloading with the replayed

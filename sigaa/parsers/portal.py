@@ -435,3 +435,32 @@ def _parse_ufg_deadlines(soup: BeautifulSoup) -> list[Deadline]:
 
 
 parse_deadlines.variants = (*parse_deadlines.variants, *_parse_ufg_deadlines.variants)
+
+
+def class_menu_postback(html: str, label: str) -> dict[str, str] | None:
+    """Fields a browser posts when clicking one Turma Virtual ``formMenu`` item.
+
+    Every hidden input of the form (SIGAA renders one more than the item's own
+    field) plus the clicked item's field. None unless exactly one item in the
+    form carries that label with a single self-named jsfcljs field.
+    """
+    form = BeautifulSoup(html, "lxml").select_one("form#formMenu")
+    if form is None:
+        return None
+    target = _normalized_label(label)
+    anchors = [
+        anchor for anchor in form.select("a[onclick*='jsfcljs']")
+        if _normalized_label(anchor.get_text(" ", strip=True)) == target
+    ]
+    if len(anchors) != 1:
+        return None
+    params = _jsf_params(anchors[0].get("onclick", ""))
+    field = next(iter(params), None)
+    if len(params) != 1 or params[field] != field:
+        return None
+    fields = {
+        node["name"]: node.get("value", "")
+        for node in form.select("input[type=hidden][name]")
+    }
+    fields[field] = field
+    return fields

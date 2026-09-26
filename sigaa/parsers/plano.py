@@ -73,3 +73,27 @@ def _rows(table, width: int) -> list[list[str]]:
         if len(cells) >= width and cells[0]:
             out.append(cells[:width])
     return out
+
+
+# SIGAA's own declaration that the teacher registered no plan (observed on UFG's
+# 4.2.651, 2026-09-26): the class page comes back with this warning instead of
+# the plan tables. Only this exact message is trusted as "no plan".
+_NO_PLAN = "esta turma ainda nao possui um plano cadastrado."
+
+
+def _declares_no_plan(soup):
+    warnings = [
+        fold(item.get_text(" ", strip=True))
+        for item in soup.select("#painel-erros ul.warning > li")
+    ]
+    return warnings == [_NO_PLAN] and not _recognized_plan(soup)
+
+
+@page_parser(
+    "plan", _declares_no_plan, empty=_declares_no_plan, name="course-plan-not-registered"
+)
+def _parse_no_plan(soup: BeautifulSoup, id_turma: str) -> None:
+    return None
+
+
+parse_course_plan.variants = (*parse_course_plan.variants, *_parse_no_plan.variants)

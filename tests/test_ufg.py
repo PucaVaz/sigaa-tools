@@ -9,6 +9,7 @@ from sigaa.config import Settings
 from sigaa.errors import (
     STAGE_AUTH,
     LoginRejectedError,
+    NavigationError,
     SsoRedirectError,
     UnsupportedFeatureError,
     error_stage,
@@ -40,9 +41,12 @@ def test_ufg_is_a_provisional_session_profile_with_probed_features_only():
     assert PROFILE.auth_mode == "session"
     assert PROFILE.sso_hosts == frozenset({"sso.ufg.br"})
     assert PROFILE.provisional
-    assert PROFILE.capabilities == {Capability.PORTAL, Capability.NEWS, Capability.MATERIALS}
-    for missing in (Capability.GRADES, Capability.ATTENDANCE, Capability.PLAN,
-                    Capability.PARTICIPANTS, Capability.CALENDAR, Capability.MATRICULA):
+    assert PROFILE.capabilities == {
+        Capability.PORTAL, Capability.NEWS, Capability.MATERIALS,
+        Capability.ATTENDANCE, Capability.PLAN, Capability.PARTICIPANTS,
+    }
+    for missing in (Capability.GRADES, Capability.TASKS, Capability.CALENDAR,
+                    Capability.MATRICULA, Capability.DOCUMENTS):
         with pytest.raises(UnsupportedFeatureError):
             PROFILE.require(missing)
 
@@ -162,3 +166,39 @@ def test_ufg_enter_turma_replays_the_portal_class_form():
         "idTurma": ["1050315"],
         "javax.faces.ViewState": ["j_id4"],
     })]
+
+
+def test_ufg_class_menu_posts_the_form_to_the_turma_virtual():
+    from urllib.parse import parse_qs
+
+    menu = (Path(__file__).parent / "fixtures/ufg/turma_menu.html").read_text()
+    posts = []
+
+    def handler(request):
+        if request.method == "POST":
+            posts.append((str(request.url), parse_qs(request.content.decode())))
+            return httpx.Response(200, text="<html>notas</html>")
+        return httpx.Response(200, text=PORTAL)
+
+    with _session(handler, f"JSESSIONID={secrets.token_hex(16)}") as session:
+        session.login()
+        assert NAVIGATOR.turma_menu_post(session, menu, "Ver Notas") == "<html>notas</html>"
+        with pytest.raises(NavigationError):
+            NAVIGATOR.turma_menu_post(session, menu, "Situação dos Discentes")
+    assert posts == [(PROFILE.ava_url, {
+        "formMenu": ["formMenu"],
+        "formMenu:j_id_jsp_2083335174_44": ["formMenu:j_id_jsp_2083335174_45"],
+        "formMenu:j_id_jsp_2083335174_70": ["formMenu:j_id_jsp_2083335174_70"],
+        "javax.faces.ViewState": ["j_id8"],
+    })]
+
+
+def test_ufg_menu_labels_match_the_turma_virtual():
+    from sigaa.institutions import MenuLabel
+
+    assert PROFILE.menu_labels == {
+        MenuLabel.TURMA_GRADES: "Ver Notas",
+        MenuLabel.ATTENDANCE: "Frequência",
+        MenuLabel.PLAN: "Plano de Curso",
+        MenuLabel.PARTICIPANTS: "Participantes",
+    }
