@@ -191,12 +191,22 @@ class Grade:
 
 
 @dataclass
+class Assessment:
+    """A graded sub-assessment inside a unit (e.g. T1 of Unid. 1)."""
+
+    unit: str  # "Unid. 1"
+    label: str  # "T1"
+    grade: str
+
+
+@dataclass
 class TurmaGrade:
     """The student's own grade row from a turma's Ver Notas report.
 
     Per-class and linked to ``id_turma`` (unlike the all-semester Relatório,
     which is keyed by discipline code). Columns mirror the report: Unid. 1..N,
-    Exame Final, Resultado, Faltas, Situação.
+    Exame Final, Resultado, Faltas, Situação. When a teacher splits a unit into
+    sub-assessments, the posted ones land in ``assessments``.
     """
 
     id_turma: str
@@ -205,6 +215,7 @@ class TurmaGrade:
     result: str | None = None
     absences: str | None = None
     status: str | None = None
+    assessments: list[Assessment] = field(default_factory=list)
 
 
 @dataclass

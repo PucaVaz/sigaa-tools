@@ -172,6 +172,12 @@ def _candidates(repo: Repository) -> list[_Candidate]:
     for grade in repo.get_turma_grades():
         values = {"units": grade.units, "exam": grade.exam, "result": grade.result,
                   "absences": grade.absences, "grade_status": grade.status}
+        if grade.assessments:
+            # Only when present, so grades without sub-assessments keep the
+            # fingerprint they had before this key existed.
+            values["assessments"] = [
+                {"unit": a.unit, "label": a.label, "grade": a.grade} for a in grade.assessments
+            ]
         candidates.append(_candidate(
             EVENT_GRADE, grade.id_turma, values,
             _item_event(EVENT_GRADE, codes, grade.id_turma, grade.id_turma, "grade", **values),

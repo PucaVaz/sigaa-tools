@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from dataclasses import asdict
 
 from ..models import (
+    Assessment,
     Attendance,
     AttendanceRecord,
     Deadline,
@@ -203,21 +205,25 @@ class Repository:
         """Insert or refresh a class's grades. Returns True if a real grade was
         posted or changed (empty/MATRICULADO refreshes are not notable)."""
         prev = self._conn.execute(
-            "SELECT units, exam, result, status FROM turma_grade WHERE id_turma = ?",
+            "SELECT units, exam, result, status, assessments FROM turma_grade"
+            " WHERE id_turma = ?",
             (item.id_turma,),
         ).fetchone()
         notable = _grade_changed(prev, item)
         self._conn.execute(
             """INSERT INTO turma_grade
-                 (id_turma, units, exam, result, absences, status, is_new, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                 (id_turma, units, exam, result, absences, status, assessments, is_new,
+                  updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
                ON CONFLICT(id_turma) DO UPDATE SET
                  units=excluded.units, exam=excluded.exam, result=excluded.result,
                  absences=excluded.absences, status=excluded.status,
+                 assessments=excluded.assessments,
                  is_new=CASE WHEN excluded.is_new = 1 THEN 1 ELSE turma_grade.is_new END,
                  updated_at=datetime('now')""",
             (item.id_turma, json.dumps(item.units), item.exam, item.result,
-             item.absences, item.status, 1 if notable else 0),
+             item.absences, item.status, _assessments_json(item.assessments),
+             1 if notable else 0),
         )
         self._conn.commit()
         return notable
@@ -433,8 +439,9 @@ def _grade_changed(prev: sqlite3.Row | None, item: TurmaGrade) -> bool:
     a terminal status) and differs from what was stored. Empty MATRICULADO rows —
     e.g. every class at the start of term — are never notable, so they don't flood
     the what's-new feed on the first sync."""
-    has_content = bool(item.units) or bool(item.exam) or bool(item.result) or (
-        item.status not in (None, "", "MATRICULADO")
+    has_content = (
+        bool(item.units) or bool(item.assessments) or bool(item.exam) or bool(item.result)
+        or item.status not in (None, "", "MATRICULADO")
     )
     if not has_content:
         return False
@@ -443,6 +450,7 @@ def _grade_changed(prev: sqlite3.Row | None, item: TurmaGrade) -> bool:
     prev_units = json.loads(prev["units"]) if prev["units"] else []
     return (
         prev_units != item.units
+        or (prev["assessments"] or None) != _assessments_json(item.assessments)
         or (prev["exam"] or None) != (item.exam or None)
         or (prev["result"] or None) != (item.result or None)
         or (prev["status"] or None) != (item.status or None)
@@ -454,7 +462,15 @@ def _turma_grade(row: sqlite3.Row) -> TurmaGrade:
         id_turma=row["id_turma"],
         units=json.loads(row["units"]) if row["units"] else [],
         exam=row["exam"], result=row["result"], absences=row["absences"], status=row["status"],
+        assessments=[Assessment(**a) for a in json.loads(row["assessments"] or "[]")],
     )
+
+
+def _assessments_json(assessments: list[Assessment]) -> str | None:
+    """NULL when there are none, like the rows stored before the column existed."""
+    if not assessments:
+        return None
+    return json.dumps([asdict(a) for a in assessments], ensure_ascii=False)
 
 
 def _attendance(row: sqlite3.Row) -> Attendance:

@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS turma_grade (
     result     TEXT,
     absences   TEXT,
     status     TEXT,
+    assessments TEXT,
     is_new     INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -140,6 +141,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
     """Additive migrations for stores created before a column existed."""
     if not _has_column(conn, "turma_grade", "is_new"):
         conn.execute("ALTER TABLE turma_grade ADD COLUMN is_new INTEGER NOT NULL DEFAULT 0")
+        conn.commit()
+    if not _has_column(conn, "turma_grade", "assessments"):
+        conn.execute("ALTER TABLE turma_grade ADD COLUMN assessments TEXT")
         conn.commit()
     if not _has_column(conn, "deadline", "body"):
         conn.execute("ALTER TABLE deadline ADD COLUMN body TEXT")

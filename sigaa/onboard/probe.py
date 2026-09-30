@@ -38,7 +38,8 @@ def summarize(value):
         elif hasattr(value, "schedule") and hasattr(value, "evaluations"):
             count = len(value.schedule) + len(value.evaluations)
         elif hasattr(value, "units"):
-            count = len(value.units) + int(bool(value.result))
+            count = (len(value.units) + len(getattr(value, "assessments", []))
+                     + int(bool(value.result)))
         else:
             count = 1
         return count, present

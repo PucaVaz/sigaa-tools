@@ -12,6 +12,7 @@ import re
 import sys
 import time
 import unicodedata
+from dataclasses import asdict
 from pathlib import Path
 
 import httpx
@@ -353,7 +354,7 @@ def _cmd_sync(args, settings: Settings) -> int:
     for mat in result.new_materials:
         print(f"  material + ({mat.kind}) {mat.title}")
     for g in result.grade_updates:
-        print(f"  grade + {g.id_turma}: {' '.join(g.units) or '—'} → {g.result or g.status or '—'}")
+        print(f"  grade + {g.id_turma}: {_grade_marks(g)} → {g.result or g.status or '—'}")
     for a in result.attendance_updates:
         print(f"  falta + {a.id_turma}: {a.total_absences}/{a.max_absences}")
     for dl in result.new_deadlines:
@@ -599,6 +600,8 @@ def _cmd_turma_grades(args, repo: Repository) -> int:
         units = " ".join(g.units) if g.units else "—"
         print(f"{name}")
         print(f"  units: {units}   exame: {g.exam or '—'}   resultado: {g.result or '—'}")
+        if g.assessments:
+            print(f"  avaliações: {_assessment_marks(g)}")
         print(f"  faltas: {g.absences or '—'}   situação: {g.status or '—'}")
     return 0
 
@@ -881,7 +884,7 @@ def _cmd_whatsnew(args, settings: Settings) -> int:
         for g in feed.grades:
             t = repo.get_turma(g.id_turma)
             name = t.name if t else g.id_turma
-            print(f"  grade     {name}: {' '.join(g.units) or '—'} → {g.result or g.status or '—'}")
+            print(f"  grade     {name}: {_grade_marks(g)} → {g.result or g.status or '—'}")
         for a in feed.attendance:
             t = repo.get_turma(a.id_turma)
             name = t.name if t else a.id_turma
@@ -1154,7 +1157,8 @@ def _sync_json(result) -> dict:
         "new_materials": [_material_json(m) for m in result.new_materials],
         "grade_updates": [
             {"class_id": g.id_turma, "units": g.units, "exam": g.exam,
-             "result": g.result, "status": g.status}
+             "result": g.result, "status": g.status,
+             "assessments": [asdict(a) for a in g.assessments]}
             for g in result.grade_updates
         ],
         "new_deadlines": [_deadline_json(d) for d in result.new_deadlines],
@@ -1224,7 +1228,17 @@ def _turma_grade_json(repo, g) -> dict:
         "class_id": g.id_turma, "code": t.code if t else None, "name": t.name if t else None,
         "units": g.units, "exam": g.exam, "result": g.result,
         "absences": g.absences, "status": g.status,
+        "assessments": [asdict(a) for a in g.assessments],
     }
+
+
+def _assessment_marks(g) -> str:
+    return " ".join(f"{a.unit} {a.label}={a.grade}" for a in g.assessments)
+
+
+def _grade_marks(g) -> str:
+    """Posted unit grades, then any sub-assessment grades, for one-line summaries."""
+    return " ".join(filter(None, [" ".join(g.units), _assessment_marks(g)])) or "—"
 
 
 def _deadline_json(d) -> dict:

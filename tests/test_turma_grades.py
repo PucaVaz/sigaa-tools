@@ -4,7 +4,7 @@ import pytest
 from bs4 import BeautifulSoup
 
 from sigaa.errors import ParseError, UnrecognizedPageError
-from sigaa.models import Turma, TurmaGrade
+from sigaa.models import Assessment, Turma, TurmaGrade
 from sigaa.parsers.grades import parse_turma_grades
 from sigaa.store.db import connect
 from sigaa.store.repository import Repository
@@ -89,6 +89,72 @@ def test_notice_text_outside_the_error_panel_is_not_trusted():
     edit(soup)
     with pytest.raises(UnrecognizedPageError):
         parse_turma_grades(str(soup), ID_TURMA)
+
+
+SUB_ASSESSMENTS = (FIXTURES / "vernotas_sub_assessments.html").read_text(encoding="utf-8")
+
+
+def test_unit_split_into_sub_assessments_keeps_the_posted_one():
+    g = parse_turma_grades(SUB_ASSESSMENTS, ID_TURMA)
+    assert g == TurmaGrade(
+        id_turma=ID_TURMA,
+        units=[],  # the Unid. 1 Nota column is still blank
+        absences="0",
+        status="MATRICULADO",
+        assessments=[Assessment(unit="Unid. 1", label="T1", grade="7,5")],
+    )
+
+
+def _sub_report(edit):
+    soup = BeautifulSoup(SUB_ASSESSMENTS, "lxml")
+    edit(soup, soup.select("table.tabelaRelatorio tbody td"))
+    return str(soup)
+
+
+def test_sub_assessment_report_reads_unit_grades_and_the_columns_after_them():
+    def edit(soup, cells):
+        # Mat, Nome, T1..T4, Nota 1, Nota 2, Nota 3, Exame, Resultado, Faltas, Sit.
+        for i, value in {3: "8,0", 6: "7,8", 7: "6,0", 10: "6,9"}.items():
+            cells[i].string = value
+        cells[12].string = "APROVADO"
+
+    g = parse_turma_grades(_sub_report(edit), ID_TURMA)
+    assert g.units == ["7,8", "6,0"]
+    assert [(a.label, a.grade) for a in g.assessments] == [("T1", "7,5"), ("T2", "8,0")]
+    assert (g.exam, g.result, g.absences, g.status) == (None, "6,9", "0", "APROVADO")
+
+
+def test_sub_header_that_does_not_cover_the_spans_still_fails():
+    def edit(soup, cells):
+        soup.select_one("#trAval th#aval_48410395").decompose()
+
+    with pytest.raises(UnrecognizedPageError):
+        parse_turma_grades(_sub_report(edit), ID_TURMA)
+
+
+def test_posted_sub_assessment_is_notable_and_stored(tmp_path):
+    repo = _repo(tmp_path)
+    repo.upsert_turma_grade(TurmaGrade(id_turma=ID_TURMA, status="MATRICULADO"))
+    posted = TurmaGrade(id_turma=ID_TURMA, status="MATRICULADO",
+                        assessments=[Assessment(unit="Unid. 1", label="T1", grade="7,5")])
+    assert repo.upsert_turma_grade(posted) is True
+    assert repo.get_turma_grades(unread_only=True) == [posted]
+    assert repo.upsert_turma_grade(posted) is False
+
+
+def test_store_created_before_assessments_gains_the_column(tmp_path):
+    import sqlite3
+
+    db = tmp_path / "t.db"
+    repo = _repo(tmp_path)
+    repo.upsert_turma_grade(TurmaGrade(id_turma=ID_TURMA, units=["8.0"]))
+    legacy = sqlite3.connect(db)
+    legacy.execute("ALTER TABLE turma_grade DROP COLUMN assessments")
+    legacy.commit()
+    legacy.close()
+
+    [stored] = Repository(connect(db)).get_turma_grades(id_turma=ID_TURMA)
+    assert stored.units == ["8.0"] and stored.assessments == []
 
 
 def test_turma_grade_store_roundtrip(tmp_path):

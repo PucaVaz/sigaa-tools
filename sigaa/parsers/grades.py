@@ -4,7 +4,8 @@ The Relatório de Notas has one ``tabelaRelatorio`` per semester (16 columns:
 Código, Disciplina, Unidade 1..10, Exame Final, Resultado, Faltas, Situação).
 A turma's Ver Notas report is a single ``tabelaRelatorio`` whose header drives a
 variable column set (Matrícula, Nome, Unid. 1..N, Exame Final, Resultado, Faltas,
-Sit.) with one data row — the student's own grades.
+Sit.) with one data row — the student's own grades. A unit may span several
+columns, one per sub-assessment, named by a second header row.
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from __future__ import annotations
 from bs4 import BeautifulSoup
 
 from ..errors import UnrecognizedPageError
-from ..models import Grade, TurmaGrade
+from ..models import Assessment, Grade, TurmaGrade
 from ._common import fold, page_fingerprint
 from ._variants import Variant, page_parser, parse_with_variants
 
@@ -87,13 +88,24 @@ def parse_turma_grades(soup: BeautifulSoup, id_turma: str) -> TurmaGrade | None:
     if not rows:
         return None
 
-    headers = [c.get_text(" ", strip=True) for c in rows[0].find_all(["th", "td"])]
-    data = _first_data_row(rows[1:], len(headers))
+    columns, data_rows = _turma_grade_columns(rows)
+    if columns is None:
+        return None
+    data = _first_data_row(data_rows, len(columns))
     if data is None:
         return None
 
-    by_label = dict(zip(map(fold, headers), data))
-    units = [v for label, v in by_label.items() if label.lower().startswith("unid") and v]
+    units: list[str] = []
+    assessments: list[Assessment] = []
+    by_label: dict[str, str] = {}
+    for (group, sub), value in zip(columns, data):
+        if not fold(group).startswith("unid"):
+            by_label[fold(group)] = value
+        elif not sub or fold(sub) == "nota":
+            if value:
+                units.append(value)
+        elif _clean(value):
+            assessments.append(Assessment(unit=group, label=sub, grade=value))
     return TurmaGrade(
         id_turma=id_turma,
         units=units,
@@ -101,7 +113,38 @@ def parse_turma_grades(soup: BeautifulSoup, id_turma: str) -> TurmaGrade | None:
         result=_clean(by_label.get("resultado", "")),
         absences=_clean(by_label.get("faltas", "")),
         status=_clean(by_label.get("sit.", "")) or _clean(by_label.get("situacao", "")),
+        assessments=assessments,
     )
+
+
+def _turma_grade_columns(rows):
+    """Label each data column as ``(group, sub)`` and return the rows after the header.
+
+    A unit split into sub-assessments spans several columns of the first header
+    row, and a second header row (``#trAval``, seen live v26.9.3) names each of
+    them: T1, T2, ... and ``Nota`` for the unit grade. Without that row every
+    column is its own group. A second row that does not cover the spans is not
+    guessed at: the columns are ``None``.
+    """
+    groups = [
+        cell.get_text(" ", strip=True)
+        for cell in rows[0].find_all(["th", "td"])
+        for _ in range(_colspan(cell))
+    ]
+    second = rows[1] if len(rows) > 1 else None
+    if second is None or second.find("td") or not second.find("th"):
+        return [(group, "") for group in groups], rows[1:]
+    subs = [cell.get_text(" ", strip=True) for cell in second.find_all("th")]
+    if len(subs) != len(groups):
+        return None, rows[2:]
+    return list(zip(groups, subs)), rows[2:]
+
+
+def _colspan(cell) -> int:
+    try:
+        return max(1, int(cell.get("colspan") or 1))
+    except ValueError:
+        return 1
 
 
 _GRADES_NOT_POSTED_NOTICE = "ainda nao foram lancadas notas"

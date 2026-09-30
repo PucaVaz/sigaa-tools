@@ -11,7 +11,7 @@ import hashlib
 import json
 import re
 import secrets
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Literal
 
@@ -468,6 +468,7 @@ def sigaa_get_turma_grades(class_code: str | None = None) -> list[dict]:
                 "result": g.result,
                 "absences": g.absences,
                 "status": g.status,
+                "assessments": [asdict(a) for a in g.assessments],
             }
         )
     return out
@@ -662,6 +663,7 @@ def _grade_update(repo: Repository, g) -> dict:
         "code": turma.code if turma else None,
         "name": turma.name if turma else None,
         "units": g.units, "exam": g.exam, "result": g.result, "status": g.status,
+        "assessments": [asdict(a) for a in g.assessments],
     }
 
 
