@@ -100,7 +100,8 @@ def test_synthetic_empty_contract(feature):
     ("student", "portal.html"), ("turmas", "portal.html"), ("deadlines", "portal.html"),
     ("grades", "grades.html"), ("turma_grades", "vernotas.html"),
     ("attendance", "frequencia.html"), ("plan", "plano.html"),
-    ("professors", "participantes.html"), ("materials", "materials.html"),
+    ("professors", "participantes.html"), ("classmates", "participantes.html"),
+    ("materials", "materials.html"),
     ("task", "tarefa.html"), ("activity_topics", "turma_topicos.html"),
     ("task_list", "tarefas.html"),
 ])

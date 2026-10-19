@@ -44,14 +44,26 @@ class Turma:
 class Professor:
     """A teacher of one turma, from the Turma Virtual 'Participantes' page.
 
-    Only the teaching staff is modelled; the enrolled students listed on the
-    same page are never parsed or stored.
+    The enrolled students listed on the same page are modelled separately as
+    :class:`Classmate` and never stored.
     """
 
     id_turma: str
     name: str
     department: str | None = None
     email: str | None = None
+
+
+@dataclass
+class Classmate:
+    """A student enrolled in one turma, from the same 'Participantes' page.
+
+    Only the name is kept, for live lookups; the personal e-mail SIGAA lists
+    next to it is never parsed, and classmates are never written to the store.
+    """
+
+    id_turma: str
+    name: str
 
 
 @dataclass
