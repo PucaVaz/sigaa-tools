@@ -98,6 +98,10 @@ FEATURES = (
         "professors", C.PARTICIPANTS, _menu(M.PARTICIPANTS, True), participantes.parse_professors,
         needs_turma=True,
     ),
+    Feature(
+        "classmates", C.CLASSMATES, _menu(M.PARTICIPANTS, True), participantes.parse_classmates,
+        needs_turma=True,
+    ),
     Feature("materials", C.MATERIALS, _principal, materials.parse_materials, needs_turma=True),
     Feature("news", C.NEWS, _principal, news.parse_news_list, needs_turma=True),
     Feature(

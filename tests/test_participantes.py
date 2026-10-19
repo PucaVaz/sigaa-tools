@@ -44,6 +44,33 @@ def test_parse_professors_without_the_fieldset_returns_empty():
         participantes_parser.parse_professors("<html></html>", ID_TURMA)
 
 
+def test_parse_classmates_reads_the_student_roster_names():
+    classmates = participantes_parser.parse_classmates(PARTICIPANTES, ID_TURMA)
+
+    # SIGAA lays the roster out two students per row; an odd roster ends on a
+    # row with a single student.
+    assert [c.name for c in classmates] == [
+        "ALUNO UM DE EXEMPLO",
+        "ALUNO DOIS DE EXEMPLO",
+        "ALUNA TRÊS DE EXEMPLO",
+    ]
+    assert all(c.id_turma == ID_TURMA for c in classmates)
+
+
+def test_parse_classmates_never_reads_teachers_or_emails():
+    classmates = participantes_parser.parse_classmates(PARTICIPANTES, ID_TURMA)
+
+    assert "CLARA DANTAS DE EXEMPLO" not in {c.name for c in classmates}
+    assert "example.com" not in repr(classmates)
+
+
+def test_parse_classmates_rejects_a_roster_shorter_than_its_count():
+    with pytest.raises(ParseError):
+        participantes_parser.parse_classmates(
+            PARTICIPANTES.replace("Alunos (3)", "Alunos (4)"), ID_TURMA
+        )
+
+
 def test_replace_professors_is_idempotent_and_drops_removed_staff(tmp_path):
     conn = connect(tmp_path / "sigaa.db")
     repo = Repository(conn)
