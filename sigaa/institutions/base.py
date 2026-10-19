@@ -34,6 +34,9 @@ class Capability(StrEnum):
     ATTENDANCE = "attendance"
     PLAN = "plan"
     PARTICIPANTS = "participants"
+    # The student roster on the same Participantes page; its layout is probed
+    # separately from the teachers' table, so it is declared on its own.
+    CLASSMATES = "classmates"
     TASKS = "tasks"
     # Assignments posted as Tópicos de Aula on the class Principal page.
     ACTIVITY_TOPICS = "activity_topics"

@@ -46,7 +46,7 @@ def test_ufg_is_a_provisional_session_profile_with_probed_features_only():
         Capability.ATTENDANCE, Capability.PLAN, Capability.PARTICIPANTS,
     }
     for missing in (Capability.TASKS, Capability.CALENDAR,
-                    Capability.MATRICULA, Capability.DOCUMENTS):
+                    Capability.MATRICULA, Capability.DOCUMENTS, Capability.CLASSMATES):
         with pytest.raises(UnsupportedFeatureError):
             PROFILE.require(missing)
 

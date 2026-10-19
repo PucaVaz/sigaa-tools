@@ -12,6 +12,7 @@ capabilities whose parsers passed `sigaa onboard probe` on live captures:
 | `attendance` | declared | live capture 2026-09-26 (3rd), existing `frequency-map` variant (12, 13 records) |
 | `plan` | declared | live capture 2026-09-26 (3rd), existing `course-plan-tables`; new `course-plan-not-registered` for SIGAA's "Esta turma ainda não possui um plano cadastrado." |
 | `participants` | declared | live capture 2026-09-26 (3rd), existing `participants-role-count` variant |
+| `classmates` | not declared | the 2026-09-26 probe covered only the teachers' table on Participantes; the student roster needs its own capture and probe |
 | `grades` | declared | live capture 2026-09-26 (4th): the portal's "Minhas Notas" (a JSCook sidebar item) parses with the existing `grade-headers` variant (49 rows); per-class "Ver Notas" with `class-grade-headers` (empty_confirmed: no grade posted yet) |
 | tasks, calendar, curriculum, matrícula, documents, extensão, SIPAC | not declared | not captured |
 
