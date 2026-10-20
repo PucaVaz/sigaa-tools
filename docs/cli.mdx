@@ -21,7 +21,7 @@ sigaa [--user seu_usuario] [--db caminho_do_banco] comando [opções]
 
 <Note>
 `login`, `sync`, `watch`, `curriculum`, `cra`, `extensao`, `sipac process`, `sipac search`, `historico`,
-`declaracao-vinculo`, `atestado-matricula`, `attendance`, `plan` e o download
+`declaracao-vinculo`, `atestado-matricula`, `attendance`, `plan`, `classmates` e o download
 de materiais acessam a **rede**. Os demais comandos leem do **banco local**.
 Quase todo comando de leitura aceita `--json`.
 </Note>
@@ -297,3 +297,28 @@ Plano de Curso: cronograma de aulas + datas de avaliação. Busca ao vivo no SIG
 |---|---|
 | `--class CODIGO` | **obrigatório** |
 | `--json` | saída em JSON |
+
+## Colegas de turma, ao vivo (networked)
+
+### `classmates`
+
+Procura um colega pelo nome na lista de alunos (Participantes) de cada turma
+atual e mostra o nome completo e as turmas em comum. Busca ao vivo no SIGAA: a
+lista não é guardada, e os e-mails dos colegas nunca são lidos.
+
+```bash
+sigaa classmates maria
+sigaa classmates "maria sil" --json
+```
+
+Cada palavra da busca precisa iniciar uma palavra do nome, sem diferenciar
+maiúsculas nem acentos: `jose` encontra `JOSÉ`, e `ana` não encontra `MARIANA`.
+
+| Argumento / flag | Descrição |
+|---|---|
+| `NOME` | **obrigatório**: o nome, ou o início das palavras do nome |
+| `--json` | saída em JSON, no mesmo contrato da tool MCP `sigaa_find_classmate` |
+
+Se a lista de alguma turma não puder ser lida, o comando avisa no stderr, a
+saída JSON traz `complete: false` e a turma em `errors`, e o código de saída é
+1: o colega que não apareceu pode estar justamente nessa turma.
