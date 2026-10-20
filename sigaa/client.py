@@ -24,6 +24,7 @@ from .institutions import Capability, MenuLabel, get
 from .models import (
     Attendance,
     ClassActivity,
+    Classmate,
     CoursePlan,
     CurriculumStatus,
     Deadline,
@@ -315,6 +316,13 @@ class SigaaClient:
         label = self.profile.menu_labels[MenuLabel.PARTICIPANTS]
         html = self._turma_menu_post(turma, label, turma_html)
         return participantes_parser.parse_professors(html, turma.id_turma)
+
+    def list_classmates(self, turma: Turma, turma_html: str | None = None) -> list[Classmate]:
+        """Names of the students enrolled in a turma (Participantes), read live."""
+        self.profile.require(Capability.CLASSMATES)
+        label = self.profile.menu_labels[MenuLabel.PARTICIPANTS]
+        html = self._turma_menu_post(turma, label, turma_html)
+        return participantes_parser.parse_classmates(html, turma.id_turma)
 
     def list_news(self, turma: Turma, turma_html: str | None = None) -> list[NewsItem]:
         self.profile.require(Capability.NEWS)

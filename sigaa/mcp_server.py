@@ -48,7 +48,7 @@ from .parsers.curriculum import CurriculumDataError
 from .parsers.schedule import day_name, decode_schedule
 from .parsers.sipac import SipacParseError
 from .parsers.transcript import CraUnavailableError, TranscriptParseError
-from .services import whatsnew
+from .services import classmates, whatsnew
 from .services.sync import sync as run_sync
 from .sipac import (
     SipacClient,
@@ -546,6 +546,30 @@ def _live_turma(class_code: str):
         client.close()
         return None, None, f"class {class_code!r} not found"
     return client, turma, None
+
+
+@mcp.tool()
+def sigaa_find_classmate(name: str) -> dict:
+    """Find classmates by name and the classes the student shares with them. Networked.
+
+    Reads the student roster (Participantes) of every current class live and
+    returns only the matching full names. Every word of ``name`` must start a
+    word of the full name, ignoring case and accents, so a first name is
+    enough. Rosters and e-mails are never stored or returned. When
+    ``complete`` is false some rosters could not be read (see ``errors``), and
+    a missing match proves nothing.
+    """
+    _require(Capability.CLASSMATES)
+    settings = Settings()
+    password = settings.resolve_password()
+    if not settings.username or not password:
+        raise ToolError("no credentials available")
+    try:
+        with SigaaClient(settings.username, password, institution=settings.institution) as client:
+            search = classmates.find_classmates(client, name)
+    except _LIVE_ERRORS as exc:
+        raise ToolError(f"classmate lookup failed: {exc}") from None
+    return classmates.search_to_dict(search)
 
 
 @mcp.tool()
