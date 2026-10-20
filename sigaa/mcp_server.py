@@ -647,6 +647,49 @@ def sigaa_download_tarefa_anexo(deadline_id: str, filename: str | None = None) -
 
 
 @mcp.tool()
+def sigaa_submit_tarefa(
+    deadline_id: str, file_path: str, confirm: bool = False
+) -> dict:
+    """Upload a solution to an open SIGAA task.
+
+    This is deliberately confirmation-gated: with ``confirm=False`` it only
+    validates the selected task and local file; no SIGAA request is made.
+    Call again with ``confirm=True`` only after the user explicitly authorizes
+    the irreversible submission.
+    """
+    _require(Capability.TASKS)
+    task = next((d for d in _repo().get_deadlines() if d.id == deadline_id), None)
+    if task is None:
+        return {"error": f"deadline id {deadline_id} not found in store; run sigaa_sync first"}
+    if task.kind not in _TASK_KINDS:
+        return {"error": f"deadline id {deadline_id} is not a task"}
+    path = Path(file_path).expanduser().resolve()
+    if not path.is_file() or path.is_symlink():
+        return {"error": "file_path must name a regular local file"}
+    size = path.stat().st_size
+    if size == 0:
+        return {"error": "refusing to submit an empty file"}
+    preview = {
+        "deadline_id": task.id,
+        "title": task.title,
+        "file_name": path.name,
+        "bytes": size,
+    }
+    if not confirm:
+        return {"status": "confirmation_required", **preview}
+    settings = Settings()
+    password = settings.resolve_password()
+    if not settings.username or not password:
+        return {"error": "no credentials available", **preview}
+    try:
+        with SigaaClient(settings.username, password, institution=settings.institution) as client:
+            result = client.submit_tarefa(deadline_id, path)
+    except _LIVE_ERRORS as exc:
+        return {"error": f"task submission failed: {exc}", **preview}
+    return {**preview, **result}
+
+
+@mcp.tool()
 def sigaa_export_ics() -> str:
     """Return an iCalendar (.ics) feed of classes + deadlines from the store."""
     _require(Capability.CALENDAR)

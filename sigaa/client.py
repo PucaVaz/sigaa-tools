@@ -370,6 +370,25 @@ class SigaaClient:
         filename = materials_parser.filename_for(title, content_type, disposition)
         return content, filename
 
+    def submit_tarefa(self, event_id: str, file_path) -> dict[str, str]:
+        """Upload one local file to an already-open SIGAA task form.
+
+        The method sends exactly one multipart request. It never retries a POST,
+        because retrying after a connection failure could create a duplicate or
+        ambiguous submission.
+        """
+        html = self._open_event(event_id)
+        submission = tarefa_parser.build_submission_form(html)
+        action = submission.action
+        if not action.startswith("http"):
+            action = self.profile.host + action
+        response = self._session.post_multipart(
+            action, submission.fields, submission.file_field, file_path
+        )
+        if not re.search(r"\b(enviada|submetida)\b.*\bsucesso\b", response, re.I | re.S):
+            raise NavigationError("SIGAA did not explicitly confirm the task submission")
+        return {"status": "submitted"}
+
     def list_activity_topics(
         self, turma: Turma, turma_html: str | None = None
     ) -> list[ClassActivity]:

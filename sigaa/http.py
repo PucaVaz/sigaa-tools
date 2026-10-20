@@ -74,6 +74,23 @@ class Session:
         tuples inside the mapping break h11)."""
         return self._request("POST", url, data=data)
 
+    def post_multipart(self, url: str, data: dict[str, str], file_field: str, file_path) -> str:
+        """Submit one file-upload form without retrying a potentially final action."""
+        if not self._authenticated:
+            self.login()
+        with open(file_path, "rb") as upload:
+            response = self._client.request(
+                "POST",
+                url,
+                data=data,
+                files={file_field: (getattr(file_path, "name", "submission"), upload)},
+            )
+        response.raise_for_status()
+        if self._looks_logged_out(response):
+            self._authenticated = False
+            raise AuthError("session expired before task submission")
+        return response.text
+
     def post_bytes(self, url: str, data: dict[str, str]) -> bytes:
         """POST expecting a binary download (e.g. a PDF). Re-logins if bounced."""
         content, _, _ = self.post_download(url, data)

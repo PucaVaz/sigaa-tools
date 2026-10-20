@@ -9,10 +9,12 @@ posts), then read the ``label`` / ``div.campo`` rows it lays the details out in.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 
 from bs4 import BeautifulSoup
 
 from ._variants import page_parser
+from ..errors import ParseError
 from .links import inline_link_targets
 
 # jsfcljs(getElementById('<form>'),{'<field>':'<field>','id':'<event>','idTurma':'<turma>'},'')
@@ -23,6 +25,15 @@ _ONCLICK_RE = re.compile(
 _NOTICE_RE = re.compile(r"Esta tarefa só estará dispon", re.I)
 # The "Arquivo do Professor" row links to the teacher's attached file.
 _ATTACHMENT_RE = re.compile(r"Baixar arquivo enviado", re.I)
+
+
+@dataclass(frozen=True)
+class TaskSubmissionForm:
+    """The minimum fields needed to submit one already-opened task form."""
+
+    action: str
+    fields: dict[str, str]
+    file_field: str
 
 
 def build_event_postback(portal_html: str, event_id: str, viewstate: str) -> dict | None:
@@ -85,7 +96,40 @@ def find_professor_attachment(html: str) -> str | None:
     return href or None
 
 
-def _event_form(soup: BeautifulSoup):
+def build_submission_form(html: str) -> TaskSubmissionForm:
+    """Extract a task upload form without performing its state-changing POST.
+
+    A task is submitted only when the caller subsequently sends these fields as
+    multipart form data. Reject pages without a clearly labeled submit control
+    rather than guessing a JSF field name.
+    """
+    soup = BeautifulSoup(html, "lxml")
+    form = _event_form(soup)
+    if form is None or not form.get("action"):
+        raise ParseError("task submission form not found")
+    file_input = form.select_one("input[type='file'][name]")
+    if file_input is None:
+        raise ParseError("task submission file field not found")
+    submit = next(
+        (
+            control for control in form.select("input[type='submit'][name], button[type='submit'][name]")
+            if re.search(r"enviar|submeter", control.get("value") or control.get_text(" ", strip=True), re.I)
+        ),
+        None,
+    )
+    if submit is None:
+        raise ParseError("task submission submit control not found")
+    fields = {
+        str(control["name"]): str(control.get("value", ""))
+        for control in form.select("input[type='hidden'][name]")
+    }
+    fields[str(submit["name"])] = str(submit.get("value") or submit.get_text(" ", strip=True))
+    return TaskSubmissionForm(
+        action=str(form["action"]), fields=fields, file_field=str(file_input["name"])
+    )
+
+
+def _event_form(soup):
     """The form holding the detail rows, found via its legend or its layout."""
     for legend in soup.find_all("legend"):
         text = legend.get_text(strip=True).casefold()
