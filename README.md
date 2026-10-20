@@ -237,6 +237,14 @@ committed and shared with your team. `sigaa init` writes it for you. The server
 reads the active account from your keyring; add
 `"env": { "SIGAA_USER": "your_user" }` only if keyring is unavailable.
 
+On Linux, keyring access requires the desktop session's D-Bus service. If the
+launcher omits `DBUS_SESSION_BUS_ADDRESS`, the program looks for a user-owned
+socket at `$XDG_RUNTIME_DIR/bus`, then `/run/user/<current UID>/bus`, before
+initializing keyring. An explicitly configured address is never replaced.
+This does not unlock a locked keyring or bypass sandbox permissions. Keyring
+access errors are reported on stderr with the exception type, without secret
+values; restart an already running MCP server after updating the code.
+
 ### Manual scheduled polling
 
 **macOS (launchd)** - sync every 30 min. Save as
