@@ -87,7 +87,7 @@ server without manual absolute-path editing.
 Tools: `sigaa_list_classes`, `sigaa_list_news`, `sigaa_get_news_body`,
 `sigaa_get_schedule`, `sigaa_list_grades`, `sigaa_list_deadlines`,
 `sigaa_get_curriculum`, `sigaa_get_cra`, `sigaa_list_extension_participations`,
-`sigaa_export_ics`,
+`sigaa_find_classmate`, `sigaa_export_ics`,
 `sipac_get_public_process`, `sipac_search_public_processes`,
 `sigaa_download_historico`,
 `sigaa_download_declaracao_vinculo`, `sigaa_download_atestado_matricula`,

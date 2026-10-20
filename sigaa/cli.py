@@ -38,7 +38,7 @@ from .parsers.curriculum import CurriculumDataError
 from .parsers.schedule import day_name, decode_schedule
 from .parsers.sipac import SipacParseError
 from .parsers.transcript import CraUnavailableError, TranscriptParseError
-from .services import watch, whatsnew
+from .services import classmates, watch, whatsnew
 from .services.sync import sync
 from .sipac import (
     SipacClient,
@@ -288,6 +288,15 @@ def _build_parser() -> argparse.ArgumentParser:
     p_plan.add_argument("--class", dest="klass", required=True, help="class code")
     p_plan.add_argument("--json", action="store_true")
     p_plan.set_defaults(func=_cmd_plan, capability=Capability.PLAN)
+
+    p_classmates = sub.add_parser(
+        "classmates", help="which of your classes a classmate takes, by name (networked)"
+    )
+    p_classmates.add_argument(
+        "name", help="the classmate's name or the start of its words; case and accents are ignored"
+    )
+    p_classmates.add_argument("--json", action="store_true")
+    p_classmates.set_defaults(func=_cmd_classmates, capability=Capability.CLASSMATES)
 
     p_whatsnew = sub.add_parser("whatsnew", help="everything unseen: news, materials, deadlines, grades")
     p_whatsnew.add_argument("--mark-seen", action="store_true", help="clear items after showing them")
@@ -858,6 +867,25 @@ def _cmd_plan(args, settings: Settings) -> int:
     return 0
 
 
+def _cmd_classmates(args, settings: Settings) -> int:
+    password = settings.resolve_password()
+    if not settings.username or not password:
+        print(settings.credentials_problem(), file=sys.stderr)
+        return 1
+    try:
+        with SigaaClient(settings.username, password, institution=settings.institution) as client:
+            search = classmates.find_classmates(client, args.name)
+    except _LIVE_ERRORS as exc:
+        print(f"classmate lookup failed: {exc}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps(classmates.search_to_dict(search), ensure_ascii=False, indent=2))
+    else:
+        _print_classmates(search)
+    # An unread roster may hold the classmate, so a partial search is a failure.
+    return 0 if search.complete else 1
+
+
 def _cmd_whatsnew(args, settings: Settings) -> int:
     repo = Repository(connect(settings.db_path))
     feed = whatsnew.collect(repo)
@@ -1137,6 +1165,19 @@ def _print_sipac_search(data: dict) -> None:
             print(f"  Interested: {', '.join(result['interested_parties'])}")
         print(f"  Origin: {result['origin_unit']}")
         print(f"  Public URL: {result['public_url']}")
+
+
+def _print_classmates(search: classmates.ClassmateSearch) -> None:
+    for failure in search.failures:
+        label = failure.turma.code or failure.turma.id_turma
+        print(f"warning: roster of {label} not read: {failure.error}", file=sys.stderr)
+    if not search.matches:
+        print(f"no classmate matching {search.query!r} in {len(search.searched)} classes")
+        return
+    for match in search.matches:
+        print(match.name)
+        for t in match.turmas:
+            print(f"  {t.code or '?':12} {t.name}")
 
 
 def _fmt_schedule(raw: str) -> str:
