@@ -73,6 +73,7 @@ def verify_and_store_login(
 
     password_stored = True
     storage_message = "password stored in keyring"
+    config.ensure_session_bus()
     try:
         import keyring
 
