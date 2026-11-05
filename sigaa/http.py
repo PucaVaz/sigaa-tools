@@ -9,12 +9,13 @@ again, and retries the call once.
 from __future__ import annotations
 
 import re
+from urllib.parse import urlsplit
 
 import httpx
 
 from . import config
 from .errors import STAGE_AUTH, SigaaError
-from .institutions import InstitutionProfile, Navigator
+from .institutions import InstitutionProfile, Navigator, auth_session
 
 _VIEWSTATE_RE = re.compile(
     r'name="javax\.faces\.ViewState"[^>]*value="([^"]+)"'
@@ -24,6 +25,11 @@ _VIEWSTATE_RE = re.compile(
 def extract_viewstate(html: str, default: str = "j_id1") -> str:
     match = _VIEWSTATE_RE.search(html)
     return match.group(1) if match else default
+
+
+def _cookie_matches_host(cookie_domain: str, host: str) -> bool:
+    domain = cookie_domain.lstrip(".")
+    return host == domain or host.endswith("." + domain)
 
 
 class AuthError(SigaaError):
@@ -42,11 +48,13 @@ class Session:
         timeout: float | httpx.Timeout = 30.0,
         profile: InstitutionProfile,
         navigator: Navigator,
+        cookie_only: bool = False,
     ):
         self.profile = profile
         self.navigator = navigator
         self._username = username
         self._password = password
+        self._cookie_only = cookie_only
         self._client = client or httpx.Client(
             headers={"User-Agent": config.USER_AGENT},
             follow_redirects=True,
@@ -61,10 +69,27 @@ class Session:
         self.profile.validate_url(str(request.url))
 
     def login(self) -> str:
-        """Authenticate and return the rendered portal HTML."""
-        portal_html = self.navigator.login(self)
+        """Authenticate and return the rendered portal HTML.
+
+        A ``cookie_only`` session holds a SIGAA Cookie header in place of the
+        password and only ever replays it, whatever the institution's own login
+        is, so a dead session raises instead of falling back to a password.
+        """
+        if self._cookie_only:
+            portal_html = auth_session.perform_login(self, self.profile)
+        else:
+            portal_html = self.navigator.login(self)
         self._authenticated = True
         return portal_html
+
+    def cookie_header(self) -> str:
+        """The SIGAA cookies this session holds, as a Cookie header value."""
+        host = urlsplit(self.profile.host).hostname or ""
+        return "; ".join(
+            f"{cookie.name}={cookie.value}"
+            for cookie in self._client.cookies.jar
+            if _cookie_matches_host(cookie.domain, host)
+        )
 
     def get(self, url: str) -> str:
         return self._request("GET", url)
