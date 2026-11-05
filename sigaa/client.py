@@ -60,6 +60,7 @@ class SigaaClient:
         *,
         timeout: float | httpx.Timeout = 30.0,
         institution: str | None = None,
+        cookie_only: bool = False,
     ):
         provider = get(institution)
         self.profile = provider.profile
@@ -70,9 +71,37 @@ class SigaaClient:
             timeout=timeout,
             profile=self.profile,
             navigator=self.navigator,
+            cookie_only=cookie_only,
         )
         self._portal_html: str | None = None
         self._spent_principals: set[str] = set()
+
+    @classmethod
+    def from_session_cookie(
+        cls,
+        username: str,
+        cookie_header: str,
+        *,
+        timeout: float | httpx.Timeout = 30.0,
+        institution: str | None = None,
+    ) -> "SigaaClient":
+        """A client that authenticates only by replaying an exported SIGAA session.
+
+        It never holds a password: once SIGAA expires the session, every read
+        raises ``LoginRejectedError`` and the student has to sign in again.
+        """
+        return cls(
+            username, cookie_header, timeout=timeout, institution=institution, cookie_only=True
+        )
+
+    def export_session_cookie(self) -> str:
+        """Log in if needed and return the session's Cookie header.
+
+        The result is a live credential for ``from_session_cookie``: store it
+        encrypted and never log it.
+        """
+        self._portal()
+        return self._session.cookie_header()
 
     def _portal(self) -> str:
         if self._portal_html is None:
