@@ -10,7 +10,7 @@ from http.cookies import SimpleCookie
 from urllib.parse import urlsplit
 
 from ..errors import LoginRejectedError, MissingCredentialsError
-from ..parsers.authentication import authenticated_portal, has_login_form
+from ..parsers.authentication import has_login_form
 
 _NOT_A_COOKIE = (
     "stored SIGAA session is not a Cookie header; paste the whole Cookie value "
@@ -41,7 +41,7 @@ def perform_login(session, profile):
         client.cookies.set(name, value, domain=domain, path="/")
     response = client.get(profile.portal_entry_url, follow_redirects=True)
     response.raise_for_status()
-    if authenticated_portal(response.text, response.url, profile):
+    if session.navigator.portal_reached(response.text, str(response.url)):
         return response.text
     # The navigator knows its fork's own "session expired" pages, which need not
     # carry a login form (UFG's is an empty expirada.jsp).

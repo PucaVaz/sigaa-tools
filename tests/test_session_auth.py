@@ -14,13 +14,18 @@ from sigaa.errors import (
     error_stage,
 )
 from sigaa.http import Session
+from sigaa.institutions import all as all_institutions
 from sigaa.institutions import auth_session, get
+from sigaa.institutions.ufpb import UfpbNavigator
+from sigaa.parsers.authentication import authenticated_portal
 
 FIXTURES = Path(__file__).parent / "fixtures/ufcg"
+UFPB_FIXTURES = Path(__file__).parent / "fixtures"
 SSO = "sso.example.edu.br"
 PROFILE = replace(
     get("ufcg").profile, auth_mode="session", sso_hosts=frozenset({SSO})
 )
+UFPB = get("ufpb").profile
 
 
 class Navigator:
@@ -29,6 +34,16 @@ class Navigator:
 
     def looks_logged_out(self, text, url=""):
         return url.endswith("/expired.jsp")
+
+    def portal_reached(self, text, url=""):
+        return authenticated_portal(text, url, PROFILE)
+
+
+class UfpbSessionNavigator(UfpbNavigator):
+    """UFPB's own navigator, logging in by replaying a session instead of a password."""
+
+    def login(self, session):
+        return auth_session.perform_login(session, UFPB)
 
 
 def _cookie():
@@ -155,3 +170,55 @@ def test_navigator_expired_page_without_login_form_is_an_expired_session():
     with _session(handler, _cookie()) as session:
         with pytest.raises(LoginRejectedError, match="expired"):
             session.login()
+
+
+def _ufpb_session(handler, secret):
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    return Session(
+        "test-student", secret, profile=UFPB, navigator=UfpbSessionNavigator(), client=client
+    )
+
+
+def test_every_navigator_judges_the_portal():
+    for institution in all_institutions():
+        assert callable(institution.navigator.portal_reached), institution.profile.key
+
+
+def test_ufpb_session_is_accepted_on_the_beta_portal_it_redirects_to():
+    # The entry URL 302s to the beta portal, which links sign-out as /sigaa/logoff/
+    # rather than dispatch=logOff; the shared check used to reject it.
+    header = _cookie()
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        if str(request.url) == UFPB.portal_entry_url:
+            return httpx.Response(302, headers={"Location": UFPB.portal_action_url})
+        return httpx.Response(200, text=(UFPB_FIXTURES / "portal.html").read_text())
+
+    with _ufpb_session(handler, header) as session:
+        assert UFPB.auth_marker in session.login()
+        assert session._authenticated
+    assert [str(r.url) for r in requests] == [UFPB.portal_entry_url, UFPB.portal_action_url]
+    assert all(r.method == "GET" and r.headers["cookie"] == header for r in requests)
+
+
+def test_ufpb_expired_session_lands_on_the_login_form_and_is_rejected():
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, text=(UFPB_FIXTURES / "auth_redirect.html").read_text())
+
+    with _ufpb_session(handler, _cookie()) as session:
+        with pytest.raises(LoginRejectedError, match="expired"):
+            session.login()
+    assert all(r.method == "GET" for r in requests)
+
+
+def test_ufpb_password_login_and_session_replay_share_the_portal_check():
+    portal = (UFPB_FIXTURES / "portal.html").read_text()
+    assert UfpbNavigator().portal_reached(portal, UFPB.portal_action_url)
+    assert not UfpbNavigator().portal_reached(
+        (UFPB_FIXTURES / "auth_redirect.html").read_text(), UFPB.logon_url
+    )

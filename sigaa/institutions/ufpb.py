@@ -87,6 +87,9 @@ class UfpbNavigator:
             and self.profile.login_redirect_marker in text
         )
 
+    def portal_reached(self, text, url=""):
+        return _portal_reached(text, self.profile)
+
     def portal_menu_post(self, session, portal, label):
         from ..parsers.portal import build_menu_postback
         fields = build_menu_postback(portal, label)
@@ -164,9 +167,15 @@ def perform_login(client, username: str, password: str, *, profile: InstitutionP
     # portal. A plain GET of the beta URL returns only a loading shell.
     portal = client.get(profile.portal_entry_url)
     portal.raise_for_status()
-    if profile.auth_marker not in portal.text:
+    if not _portal_reached(portal.text, profile):
         raise LoginRejectedError("login failed: SIGAA rejected the credentials or showed a CAPTCHA")
     return portal.text
+
+
+def _portal_reached(text: str, profile: InstitutionProfile) -> bool:
+    # The entry URL 302s to the beta portal, which links sign-out as /sigaa/logoff/
+    # with no dispatch=logOff, so the shared authenticated_portal check rejects it.
+    return profile.auth_marker in text
 
 
 NAVIGATOR = UfpbNavigator()
