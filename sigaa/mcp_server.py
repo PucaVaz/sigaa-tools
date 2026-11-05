@@ -58,6 +58,7 @@ from .sipac import (
 )
 from .store.db import connect
 from .store.repository import Repository
+from .tenancy import Tenant, current_tenant
 
 mcp = FastMCP(f"sigaa-{default_institution()}")
 
@@ -95,13 +96,50 @@ _LIVE_ERRORS = (AuthError, ParseError, ValueError, httpx.HTTPError)
 _TASK_KINDS = {"tarefa", "atividade"}
 
 
+def _institution() -> str:
+    tenant = current_tenant()
+    return tenant.institution if tenant else default_institution()
+
+
+def _settings() -> Settings:
+    """Store and account of the student this call acts for."""
+    tenant = current_tenant()
+    if tenant is None:
+        return Settings()
+    return Settings(
+        db_path=tenant.db_path, username=tenant.username, institution=tenant.institution
+    )
+
+
+def _tenant_client(tenant: Tenant) -> SigaaClient:
+    return SigaaClient.from_session_cookie(
+        tenant.username, tenant.session_cookie, institution=tenant.institution
+    )
+
+
+def _open_client() -> SigaaClient | None:
+    """A live SIGAA client for this call's student, or None when no credentials resolve.
+
+    A hosted tenant gets a session-cookie client and never touches the server's
+    keyring or environment; a local install logs in with its stored password.
+    """
+    tenant = current_tenant()
+    if tenant is not None:
+        return _tenant_client(tenant)
+    settings = Settings()
+    password = settings.resolve_password()
+    if not settings.username or not password:
+        return None
+    return SigaaClient(settings.username, password, institution=settings.institution)
+
+
 def _repo() -> Repository:
-    return Repository(connect(Settings().db_path))
+    return Repository(connect(_settings().db_path))
 
 
 def _require(capability: Capability) -> None:
     """Refuse a feature the active institution lacks before reading anything."""
-    get(default_institution()).profile.require(capability)
+    get(_institution()).profile.require(capability)
 
 
 @mcp.tool()
@@ -167,12 +205,11 @@ def sigaa_get_news_body(news_id: str) -> str:
     if item.body:
         return item.body
 
-    settings = Settings()
-    password = settings.resolve_password()
-    if not settings.username or not password:
+    client = _open_client()
+    if client is None:
         return "body not cached and no credentials available to fetch it"
     try:
-        with SigaaClient(settings.username, password, institution=settings.institution) as client:
+        with client:
             turma = next((t for t in client.list_turmas() if t.id_turma == item.id_turma), None)
             if turma is None:
                 return "could not locate the class to fetch this news body"
@@ -250,12 +287,11 @@ def sigaa_download_material(material_id: str, filename: str | None = None) -> st
     if material.kind != "file":
         return f"material {material_id} is an external link: {material.url}"
 
-    settings = Settings()
-    password = settings.resolve_password()
-    if not settings.username or not password:
+    client = _open_client()
+    if client is None:
         return "no credentials available"
     try:
-        with SigaaClient(settings.username, password, institution=settings.institution) as client:
+        with client:
             turma = next((t for t in client.list_turmas() if t.id_turma == material.id_turma), None)
             if turma is None:
                 return "could not locate the class for this material"
@@ -315,12 +351,11 @@ def sigaa_list_grades(semester: str | None = None) -> list[dict]:
 def sigaa_get_cra() -> dict:
     """Get the official CRA recorded in the academic transcript. Networked."""
     _require(Capability.DOCUMENTS)
-    settings = Settings()
-    password = settings.resolve_password()
-    if not settings.username or not password:
+    client = _open_client()
+    if client is None:
         raise ToolError("no credentials available")
     try:
-        with SigaaClient(settings.username, password, institution=settings.institution) as client:
+        with client:
             cra = client.get_cra()
     except CraUnavailableError:
         return {"value": None, "source": "unavailable"}
@@ -352,12 +387,11 @@ def sigaa_get_curriculum(
     required. CRA comes from the official transcript. This tool is networked.
     """
     _require(Capability.CURRICULUM_JSON)
-    settings = Settings()
-    password = settings.resolve_password()
-    if not settings.username or not password:
+    client = _open_client()
+    if client is None:
         raise ToolError("no credentials available")
     try:
-        with SigaaClient(settings.username, password, institution=settings.institution) as client:
+        with client:
             curriculum = client.get_curriculum_status(include_cra=include_cra)
         return curriculum_to_dict(
             curriculum,
@@ -392,12 +426,11 @@ def sigaa_list_extension_participations() -> dict:
     active. This tool never issues or downloads a document.
     """
     _require(Capability.EXTENSAO)
-    settings = Settings()
-    password = settings.resolve_password()
-    if not settings.username or not password:
+    client = _open_client()
+    if client is None:
         raise ToolError("no credentials available")
     try:
-        with SigaaClient(settings.username, password, institution=settings.institution) as client:
+        with client:
             participations = client.list_extension_participations()
     except (AuthError, ParseError, ValueError, httpx.HTTPError) as exc:
         raise ToolError(f"extension lookup failed: {exc}") from None
@@ -528,14 +561,11 @@ def sigaa_get_course_plan(class_code: str) -> dict:
 
 def _live_turma(class_code: str):
     """Resolve a class code to (authenticated client, live Turma, error)."""
-    settings = Settings()
-    password = settings.resolve_password()
-    if not settings.username or not password:
-        return None, None, "no credentials available"
-    repo = _repo()
-    stored = repo.get_turma(class_code)
+    stored = _repo().get_turma(class_code)
     id_turma = stored.id_turma if stored else class_code
-    client = SigaaClient(settings.username, password, institution=settings.institution)
+    client = _open_client()
+    if client is None:
+        return None, None, "no credentials available"
     try:
         turma = next((t for t in client.list_turmas()
                       if t.id_turma == id_turma or t.code == class_code), None)
@@ -560,12 +590,11 @@ def sigaa_find_classmate(name: str) -> dict:
     a missing match proves nothing.
     """
     _require(Capability.CLASSMATES)
-    settings = Settings()
-    password = settings.resolve_password()
-    if not settings.username or not password:
+    client = _open_client()
+    if client is None:
         raise ToolError("no credentials available")
     try:
-        with SigaaClient(settings.username, password, institution=settings.institution) as client:
+        with client:
             search = classmates.find_classmates(client, name)
     except _LIVE_ERRORS as exc:
         raise ToolError(f"classmate lookup failed: {exc}") from None
@@ -600,12 +629,11 @@ def sigaa_get_tarefa_body(deadline_id: str) -> dict:
     if item.body:
         return {"id": item.id, "title": item.title, "fields": json.loads(item.body)}
 
-    settings = Settings()
-    password = settings.resolve_password()
-    if not settings.username or not password:
+    client = _open_client()
+    if client is None:
         return {"error": "body not cached and no credentials available to fetch it"}
     try:
-        with SigaaClient(settings.username, password, institution=settings.institution) as client:
+        with client:
             fields = client.get_tarefa_body(deadline_id)
     except UnrecognizedPageError as exc:
         if item.kind not in _TASK_KINDS:
@@ -630,12 +658,11 @@ def sigaa_download_tarefa_anexo(deadline_id: str, filename: str | None = None) -
     if item is None:
         return f"deadline id {deadline_id} not found in store; run sigaa_sync first"
 
-    settings = Settings()
-    password = settings.resolve_password()
-    if not settings.username or not password:
+    client = _open_client()
+    if client is None:
         return "no credentials available"
     try:
-        with SigaaClient(settings.username, password, institution=settings.institution) as client:
+        with client:
             result = client.download_tarefa_attachment(deadline_id)
     except _LIVE_ERRORS as exc:
         return f"download failed: {exc}"
@@ -650,7 +677,7 @@ def sigaa_download_tarefa_anexo(deadline_id: str, filename: str | None = None) -
 def sigaa_export_ics() -> str:
     """Return an iCalendar (.ics) feed of classes + deadlines from the store."""
     _require(Capability.CALENDAR)
-    settings = Settings()
+    settings = _settings()
     repo = Repository(connect(settings.db_path))
     return build_calendar(
         repo.get_turmas(), repo.get_deadlines(), institution=settings.institution
@@ -744,12 +771,11 @@ def _download_academic_document(kind: str, filename: str) -> CallToolResult:
     if target.exists() or target.is_symlink():
         raise ToolError(f"download already exists: {filename}")
 
-    settings = Settings()
-    password = settings.resolve_password()
-    if not settings.username or not password:
+    client = _open_client()
+    if client is None:
         raise ToolError("no credentials available")
     try:
-        with SigaaClient(settings.username, password, institution=settings.institution) as client:
+        with client:
             document = client.download_academic_document(kind)
     except (AcademicDocumentError, *_LIVE_ERRORS) as exc:
         raise ToolError(f"download failed: {exc}") from None
@@ -780,7 +806,7 @@ def _download_academic_document(kind: str, filename: str) -> CallToolResult:
         "resource_uri": resource_uri,
         "resource_mime_type": resource_media_type,
     }
-    title = get(settings.institution).profile.menu_labels[document_spec(document.kind).menu_label]
+    title = get(_institution()).profile.menu_labels[document_spec(document.kind).menu_label]
     return CallToolResult(
         content=[
             TextContent(
@@ -895,12 +921,11 @@ def sigaa_matricula_open_turmas() -> list[dict]:
     so an agent cannot submit an enrollment request on its own.
     """
     _require(Capability.MATRICULA)
-    settings = Settings()
-    password = settings.resolve_password()
-    if not settings.username or not password:
+    client = _open_client()
+    if client is None:
         return [{"error": "no credentials available"}]
     try:
-        with SigaaClient(settings.username, password, institution=settings.institution) as client:
+        with client:
             return [vars(t) for t in client.list_open_turmas()]
     except _LIVE_ERRORS as exc:
         return [{"error": f"matrícula lookup failed: {exc}"}]
@@ -910,7 +935,12 @@ def sigaa_matricula_open_turmas() -> list[dict]:
 def sigaa_sync(fetch_bodies: bool = False) -> dict:
     """Refresh the local store from SIGAA."""
     _require(Capability.PORTAL)
-    result = run_sync(Settings(), fetch_bodies=fetch_bodies)
+    tenant = current_tenant()
+    result = run_sync(
+        _settings(),
+        fetch_bodies=fetch_bodies,
+        client=_tenant_client(tenant) if tenant else None,
+    )
     return {
         "ok": result.ok,
         "error": result.error,

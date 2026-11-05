@@ -83,15 +83,24 @@ class SyncResult:
     unsupported: list[str] = field(default_factory=list)
 
 
-def sync(settings: Settings, fetch_bodies: bool = False) -> SyncResult:
+def sync(
+    settings: Settings, fetch_bodies: bool = False, client: SigaaClient | None = None
+) -> SyncResult:
+    """Refresh the store at ``settings.db_path`` from SIGAA.
+
+    ``client`` overrides the password login from ``settings`` (a hosted tenant
+    passes its session-cookie client). The sync closes it when done.
+    """
     conn = connect(settings.db_path)
     repo = Repository(conn)
     result = SyncResult()
     supported = get(settings.institution).profile.capabilities
     result.unsupported = [c.value for c in _SYNCED if c not in supported]
     try:
-        username, password = settings.require_credentials()
-        with SigaaClient(username, password, institution=settings.institution) as client:
+        if client is None:
+            username, password = settings.require_credentials()
+            client = SigaaClient(username, password, institution=settings.institution)
+        with client:
             result.student = client.get_student()
             repo.upsert_student(result.student)
 
