@@ -410,6 +410,53 @@ class SipacProcessSearchPage:
 
 
 @dataclass
+class ExtensionOpportunity:
+    """One row of the extension opportunity search ('Oportunidades encontradas').
+
+    ``opportunity_id`` is SIGAA's ``idOportunidade``, the value the selection
+    flow posts. ``can_apply`` mirrors the row's 'Participar da Seleção' icon.
+    """
+
+    opportunity_id: str
+    title: str
+    paid_slots: int | None = None
+    coordinator: str | None = None
+    unit: str | None = None
+    unit_code: str | None = None
+    can_apply: bool = False
+
+
+@dataclass
+class ExtensionSelectionForm:
+    """The extension action shown on the selection confirmation page.
+
+    Only the action's public details are represented. The student's e-mail and
+    phone, shown on the same page, are deliberately never read.
+    """
+
+    opportunity_id: str
+    title: str
+    action_code: str | None = None
+    coordinator: str | None = None
+    kind: str | None = None
+    unit: str | None = None
+    funding: str | None = None
+
+
+@dataclass
+class ExtensionRegistration:
+    """SIGAA's answer to 'Registrar-se como Interessado'.
+
+    ``status`` is ``registered`` only when SIGAA itself reports success,
+    ``rejected`` when it answers with an error or warning, and ``unconfirmed``
+    when the answer carries neither, so a silent page never passes for success.
+    """
+
+    status: str
+    messages: list[str] = field(default_factory=list)
+
+
+@dataclass
 class OpenTurma:
     """An open section offered for enrollment on the matrícula pages."""
 
