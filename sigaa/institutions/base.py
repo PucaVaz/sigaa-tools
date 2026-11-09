@@ -23,6 +23,7 @@ class MenuLabel(StrEnum):
     ATESTADO = "atestado"
     EXTENSION_DOCS = "extension_docs"
     TASK_LIST = "task_list"
+    OPPORTUNITIES = "opportunities"
 
 
 class Capability(StrEnum):
@@ -45,6 +46,8 @@ class Capability(StrEnum):
     CURRICULUM_JSON = "curriculum_json"
     MATRICULA = "matricula"
     EXTENSAO = "extensao"
+    # Search extension opportunities and register interest in a selection.
+    EXTENSION_SELECTION = "extension_selection"
     DOCUMENTS = "documents"
     SIPAC = "sipac"
 
@@ -80,6 +83,9 @@ class InstitutionProfile:
     # Single sign-on hosts SIGAA bounces an expired session to. A redirect there
     # is never followed; it means the session is gone (stage ``auth``).
     sso_hosts: frozenset[str] = frozenset()
+    # Charset the institution decodes form posts in. Only free text needs it:
+    # ids, labels copied from a page and ViewState are ASCII in any charset.
+    form_charset: str = "utf-8"
 
     def require(self, capability: Capability) -> None:
         from ..errors import UnsupportedFeatureError
