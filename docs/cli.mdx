@@ -20,7 +20,7 @@ sigaa [--user seu_usuario] [--db caminho_do_banco] comando [opções]
 | `--db` | sobrescreve o caminho do SQLite (senão usa `SIGAA_DB` ou o padrão) |
 
 <Note>
-`login`, `sync`, `watch`, `curriculum`, `cra`, `extensao`, `sipac process`, `sipac search`, `historico`,
+`login`, `sync`, `watch`, `curriculum`, `cra`, `extensao`, `selecao-extensao`, `sipac process`, `sipac search`, `historico`,
 `declaracao-vinculo`, `atestado-matricula`, `attendance`, `plan`, `classmates` e o download
 de materiais acessam a **rede**. Os demais comandos leem do **banco local**.
 Quase todo comando de leitura aceita `--json`.
@@ -204,6 +204,33 @@ sigaa extensao --json
 | `--json` | usa o contrato JSON normalizado, também exposto pelo MCP |
 
 Campos e regras de liberação em [Participações em extensão](/extensao).
+
+### `selecao-extensao`
+
+Busca as ações de extensão com seleção de discentes e registra o seu interesse
+em uma delas (Portal do Discente → Inscrever-se em Seleção de Projeto de Ensino
+→ Extensão). A busca é lenta: o SIGAA devolve todas as ações do ano de uma vez.
+**Networked.**
+
+```bash
+sigaa selecao-extensao --search "trilha ufpb"
+sigaa selecao-extensao --apply 16743
+sigaa selecao-extensao --apply 16743 --qualifications "Experiência em programação e monitoria..." --confirm
+```
+
+| Flag | Descrição |
+|---|---|
+| `--search TEXTO` | mantém os títulos que contêm todas as palavras (ignora caixa e acentos) |
+| `--year ANO` | ano da ação (padrão: o ano atual, preenchido pelo SIGAA) |
+| `--apply ID` | abre o formulário de inscrição dessa oportunidade e mostra a ação, sem enviar nada |
+| `--qualifications TEXTO` | texto do campo Qualificações, lido pela coordenação |
+| `--lattes URL` | link do Currículo Lattes (opcional) |
+| `--confirm` | pressiona **Registrar-se como Interessado**; exige `--apply` e `--qualifications` |
+| `--json` | usa o contrato JSON normalizado, também exposto pelo MCP |
+
+Sem `--confirm` nada é escrito no SIGAA. Com `--confirm`, o comando só sai com
+código 0 quando o SIGAA confirma a inscrição. Detalhes em
+[Participações em extensão](/extensao), seção "Inscrever-se em uma seleção".
 
 ## Ler do banco
 
