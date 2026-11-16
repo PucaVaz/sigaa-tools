@@ -1,4 +1,6 @@
 """UFPB endpoints and JSF beta-portal navigation."""
+from urllib.parse import urlsplit
+
 from ..errors import NavigationError
 from .base import Capability, InstitutionProfile, MenuLabel
 
@@ -21,6 +23,9 @@ AVA_URL = f"{BASE}/ava/index.jsf"
 AUTH_MARKER = "Sair do SIGAA"
 # Substring of the URL we get bounced to when a session expires.
 LOGIN_REDIRECT_MARKER = "logon.jsf"
+# A dead session is redirected here (/sigaa/portal/discente/ -> /sigaa/ ->
+# /publico/): a small public page with no login form and no logon.jsf link.
+PUBLIC_AREA_PATH = "/publico"
 
 KEYRING_SERVICE = "sigaa-ufpb"
 SESSION_COOKIE_NAMES = frozenset({"JSESSIONID"})
@@ -92,7 +97,8 @@ class UfpbNavigator:
         return auth_session.perform_login(session, self.profile)
 
     def looks_logged_out(self, text, url=""):
-        # Text only, as before providers existed; the final URL is not consulted.
+        if _is_public_area(url):
+            return True
         return (
             self.profile.auth_marker not in text
             and self.profile.login_redirect_marker in text
@@ -139,6 +145,11 @@ class UfpbNavigator:
         if fields is None:
             raise NavigationError(f"portal event not found: {event_id!r}")
         return session.post(self.profile.portal_action_url, fields)
+
+
+def _is_public_area(url: str) -> bool:
+    path = urlsplit(url).path
+    return path == PUBLIC_AREA_PATH or path.startswith(PUBLIC_AREA_PATH + "/")
 
 
 def _portal_reached(text: str, profile: InstitutionProfile) -> bool:

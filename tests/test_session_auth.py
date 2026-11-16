@@ -137,6 +137,21 @@ def test_cookie_header_prefix_is_accepted():
     assert auth_session.parse_cookie_header(header) == {"a": "1", "b": "2"}
 
 
+@pytest.mark.parametrize("separator", ["@", ",", "/", "(", "?", "{", "<"])
+def test_secret_with_an_illegal_cookie_key_is_refused_without_quoting_it(separator):
+    # http.cookies raises CookieError("Illegal key '<text before =>'") for these;
+    # for a leftover password that text is part of the secret.
+    prefix, suffix = secrets.token_hex(4), secrets.token_hex(4)
+    secret = f"{prefix}{separator}{suffix}={secrets.token_hex(4)}"
+
+    with pytest.raises(MissingCredentialsError) as excinfo:
+        auth_session.parse_cookie_header(secret)
+
+    assert error_stage(excinfo.value) == STAGE_AUTH
+    assert prefix not in str(excinfo.value)
+    assert suffix not in str(excinfo.value)
+
+
 def test_session_institution_falls_back_to_sigaa_session_not_sigaa_pass(monkeypatch):
     import sigaa.config as config_module
 

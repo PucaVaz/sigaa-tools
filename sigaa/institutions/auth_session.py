@@ -6,7 +6,7 @@ a browser and stores that session's Cookie header with ``sigaa login``; this
 helper replays it against SIGAA only. It never contacts the SSO host: a bounce
 there raises ``SsoRedirectError`` from the request guard before it is sent.
 """
-from http.cookies import SimpleCookie
+from http.cookies import CookieError, SimpleCookie
 from urllib.parse import urlsplit
 
 from ..errors import LoginRejectedError, MissingCredentialsError
@@ -26,7 +26,12 @@ def parse_cookie_header(header):
     if not header or "\n" in header or "\r" in header:
         raise MissingCredentialsError(_NOT_A_COOKIE)
     jar = SimpleCookie()
-    jar.load(header)
+    try:
+        jar.load(header)
+    except CookieError:
+        # CookieError quotes the offending key, which for a leftover password
+        # is part of the secret, so it must never reach a message or the store.
+        raise MissingCredentialsError(_NOT_A_COOKIE) from None
     cookies = {name: morsel.value for name, morsel in jar.items()}
     if not cookies:
         raise MissingCredentialsError(_NOT_A_COOKIE)
