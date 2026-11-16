@@ -7,7 +7,10 @@ written to disk in plaintext by this module.
 
 from __future__ import annotations
 
+import logging
 import os
+import stat
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -21,6 +24,47 @@ KEYRING_SETTINGS_SERVICE = "sigaa-tools"
 PASSWORD_ENV = "SIGAA_PASS"
 SESSION_ENV = "SIGAA_SESSION"
 
+logger = logging.getLogger(__name__)
+
+
+def ensure_session_bus() -> None:
+    """Discover the current user's Linux session bus before keyring initializes.
+
+    Keep explicit addresses, including nonstandard transports, untouched.
+    Discovery only supplies an address; it never unlocks a keyring.
+    """
+    if sys.platform != "linux" or "DBUS_SESSION_BUS_ADDRESS" in os.environ:
+        return
+    uid = os.getuid()
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    candidates = [Path(runtime)] if runtime else []
+    candidates.append(Path(f"/run/user/{uid}"))
+    for directory in candidates:
+        if not directory.is_absolute():
+            continue
+        bus = directory / "bus"
+        try:
+            directory_info = directory.lstat()
+            bus_info = bus.lstat()
+        except OSError:
+            continue
+        if (
+            not stat.S_ISDIR(directory_info.st_mode)
+            or directory_info.st_uid != uid
+            or directory_info.st_mode & 0o022
+            or not stat.S_ISSOCK(bus_info.st_mode)
+            or bus_info.st_uid != uid
+        ):
+            continue
+        # D-Bus addresses percent-encode bytes outside their literal alphabet.
+        from urllib.parse import quote
+
+        os.environ["DBUS_SESSION_BUS_ADDRESS"] = "unix:path=" + quote(
+            os.fsencode(bus), safe="/-_."
+        )
+        return
+
+
 # MCP tool surfaces. Local keeps every tool; hosted is the reduced surface for a
 # shared deployment. Nothing is ever removed from the local/self-hosted build.
 LOCAL_MODE = "local"
@@ -29,6 +73,7 @@ SERVER_MODES = (LOCAL_MODE, HOSTED_MODE)
 
 
 def default_institution() -> str:
+    ensure_session_bus()
     key = os.environ.get("SIGAA_INSTITUTION")
     if not key:
         try:
@@ -78,6 +123,7 @@ def default_mode() -> str:
 
 def default_username(institution: str | None = None) -> str | None:
     """Return the environment override or the last account saved by login."""
+    ensure_session_bus()
     username = os.environ.get("SIGAA_USER")
     if username:
         return username
@@ -87,7 +133,11 @@ def default_username(institution: str | None = None) -> str | None:
         service = get(institution or default_institution()).profile.keyring_service
         saved = keyring.get_password(service, KEYRING_ACTIVE_USERNAME)
         return saved or None
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "Cannot read account from OS keyring (%s); "
+            "check session D-Bus and keyring availability", type(exc).__name__
+        )
         return None
 
 
@@ -112,6 +162,7 @@ class Settings:
         as a cookie.
         """
         profile = get(self.institution).profile
+        ensure_session_bus()
         if self.username:
             try:
                 import keyring
@@ -119,8 +170,11 @@ class Settings:
                 secret = keyring.get_password(profile.keyring_service, self.username)
                 if secret:
                     return secret
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "Cannot read password from OS keyring (%s); "
+                    "check session D-Bus and keyring availability", type(exc).__name__
+                )
         return os.environ.get(secret_env(profile))
 
     def require_credentials(self) -> tuple[str, str]:

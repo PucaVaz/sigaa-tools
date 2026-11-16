@@ -83,6 +83,7 @@ def verify_and_store_login(
     profile = get(institution).profile
     secret_kind = "session" if profile.auth_mode == "session" else "password"
     storage_message = f"{secret_kind} stored in keyring"
+    config.ensure_session_bus()
     try:
         import keyring
 
