@@ -156,8 +156,8 @@ def test_session_institution_falls_back_to_sigaa_session_not_sigaa_pass(monkeypa
 
 
 def test_password_institutions_are_unchanged():
-    assert get("ufpb").profile.auth_mode == "password"
-    assert get("ufpb").profile.sso_hosts == frozenset()
+    assert get("ufcg").profile.auth_mode == "password"
+    assert get("ufcg").profile.sso_hosts == frozenset()
 
 
 def test_navigator_expired_page_without_login_form_is_an_expired_session():
@@ -216,9 +216,64 @@ def test_ufpb_expired_session_lands_on_the_login_form_and_is_rejected():
     assert all(r.method == "GET" for r in requests)
 
 
-def test_ufpb_password_login_and_session_replay_share_the_portal_check():
+def test_ufpb_navigator_tells_the_portal_from_the_login_form():
     portal = (UFPB_FIXTURES / "portal.html").read_text()
     assert UfpbNavigator().portal_reached(portal, UFPB.portal_action_url)
     assert not UfpbNavigator().portal_reached(
         (UFPB_FIXTURES / "auth_redirect.html").read_text(), UFPB.logon_url
     )
+
+
+def test_ufpb_signs_in_by_session_and_never_posts_the_login_form():
+    # The logon form carries a captcha, so the real navigator replays a session.
+    assert UFPB.auth_mode == "session"
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, text=(UFPB_FIXTURES / "portal.html").read_text())
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    with Session(
+        "test-student", _cookie(), profile=UFPB, navigator=UfpbNavigator(), client=client
+    ) as session:
+        assert UFPB.auth_marker in session.login()
+    assert [r.method for r in requests] == ["GET"]
+    assert UFPB.logon_url not in {str(r.url) for r in requests}
+
+
+@pytest.mark.parametrize("with_equals_sign", [False, True])
+def test_ufpb_leftover_password_is_refused_before_any_request(with_equals_sign):
+    # Accounts set up before the captcha still hold a password in the same
+    # keyring slot. One containing "=" parses as a cookie and must not be sent.
+    leftover = secrets.token_hex(8)
+    if with_equals_sign:
+        leftover = f"{leftover}={secrets.token_hex(4)}"
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200)
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    with Session(
+        "test-student", leftover, profile=UFPB, navigator=UfpbNavigator(), client=client
+    ) as session:
+        with pytest.raises(MissingCredentialsError) as excinfo:
+            session.login()
+    assert error_stage(excinfo.value) == STAGE_AUTH
+    assert leftover not in str(excinfo.value)
+    assert requests == []
+
+
+def test_ufpb_password_variable_alone_is_named_as_unused(monkeypatch):
+    monkeypatch.setenv("SIGAA_PASS", secrets.token_urlsafe())
+    monkeypatch.delenv("SIGAA_SESSION", raising=False)
+    monkeypatch.setattr("keyring.get_password", lambda *a: None)
+    settings = Settings(institution="ufpb")
+    settings.username = "test-student"
+
+    problem = settings.credentials_problem()
+
+    assert "SIGAA_SESSION" in problem
+    assert "SIGAA_PASS is not used for UFPB" in problem

@@ -219,6 +219,16 @@ After `sigaa login`, no environment variables are needed. For headless
 environments without a keyring: `export SIGAA_USER=username SIGAA_PASS=password`
 (plaintext password files are not recommended). Optional: `SIGAA_DB=/path/to/sigaa.db` to override the store location.
 
+**UFPB signs in with a browser session.** Its login form carries a captcha, so
+the tool never posts your password there. Sign in at
+`https://sigaa.ufpb.br/sigaa/logon.jsf` in a private window, copy the request's
+whole `Cookie` value (DevTools > Network > any SIGAA request > Request Headers)
+and paste it into `sigaa login`. Close the window without clicking "Sair":
+signing out ends the session the tool reuses. When SIGAA expires the session,
+`sync` and `watch` fail at stage `auth` and you sign in again. The headless
+fallback for UFPB is `SIGAA_SESSION` (the same Cookie value); `SIGAA_PASS` is
+not used.
+
 ## Advanced manual configuration
 
 Usually you should run `sigaa init`. The examples below are for manual setups,

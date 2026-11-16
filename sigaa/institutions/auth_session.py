@@ -35,6 +35,11 @@ def parse_cookie_header(header):
 
 def perform_login(session, profile):
     cookies = parse_cookie_header(session._password)
+    if not profile.session_cookie_names <= cookies.keys():
+        raise MissingCredentialsError(
+            f"stored secret for {profile.label} is not a browser session; sign in "
+            "to SIGAA in a browser and run `sigaa login` again"
+        )
     client = session._client
     domain = urlsplit(profile.host).hostname
     for name, value in cookies.items():

@@ -41,7 +41,7 @@ def test_environment_overrides_username_and_supplies_password(
 ):
     _save_login(clean_credentials, "someone.else", "other-password")
     monkeypatch.setenv("SIGAA_USER", TEST_USERNAME)
-    monkeypatch.setenv("SIGAA_PASS", TEST_PASSWORD)
+    monkeypatch.setenv("SIGAA_SESSION", TEST_PASSWORD)
 
     settings = Settings(db_path=tmp_path / "t.db")
 
@@ -86,7 +86,7 @@ def test_missing_password_names_the_account_and_the_fix(
 
     problem = Settings(db_path=tmp_path / "t.db").credentials_problem()
 
-    assert problem.startswith("missing credentials: no password for account")
+    assert problem.startswith("missing credentials: no session for account")
     assert TEST_USERNAME in problem
     assert "sigaa login" in problem
 

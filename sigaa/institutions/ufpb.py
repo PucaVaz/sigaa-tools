@@ -23,6 +23,7 @@ AUTH_MARKER = "Sair do SIGAA"
 LOGIN_REDIRECT_MARKER = "logon.jsf"
 
 KEYRING_SERVICE = "sigaa-ufpb"
+SESSION_COOKIE_NAMES = frozenset({"JSESSIONID"})
 
 # UFPB class-time slots. Day digits: 2=Mon .. 7=Sat. Shift: M/T/N.
 # NOTE: clock times below are an UNCONFIRMED default; confirm against a turma's
@@ -73,6 +74,10 @@ PROFILE = InstitutionProfile(
         MenuLabel.OPPORTUNITIES: "Inscrever-se em Seleção de Projeto de Ensino",
     },
     capabilities=frozenset(Capability),
+    # The logon form carries an ALTCHA captcha, so a password cannot be posted
+    # unattended: the student signs in with a browser and the session is replayed.
+    auth_mode="session",
+    session_cookie_names=SESSION_COOKIE_NAMES,
     form_charset=FORM_CHARSET,
 )
 
@@ -82,9 +87,9 @@ class UfpbNavigator:
         self.profile = profile
 
     def login(self, session):
-        return perform_login(
-            session._client, session._username, session._password, profile=self.profile
-        )
+        from . import auth_session
+
+        return auth_session.perform_login(session, self.profile)
 
     def looks_logged_out(self, text, url=""):
         # Text only, as before providers existed; the final URL is not consulted.
@@ -134,48 +139,6 @@ class UfpbNavigator:
         if fields is None:
             raise NavigationError(f"portal event not found: {event_id!r}")
         return session.post(self.profile.portal_action_url, fields)
-
-
-def perform_login(client, username: str, password: str, *, profile: InstitutionProfile) -> str:
-    """Authenticate and return the rendered portal HTML (with the turma list).
-
-    Raises ``LoginRejectedError`` (a ``ValueError``) if the resulting portal is
-    not authenticated.
-    """
-    import httpx
-
-    from ..errors import LoginRejectedError, MissingCredentialsError
-    from ..http import extract_viewstate
-
-    if not username or not password:
-        raise MissingCredentialsError("missing SIGAA username or password")
-    login_page = client.get(profile.logon_url)
-    login_page.raise_for_status()
-
-    fields = {
-        "form": "form",
-        "form:width": "1280",
-        "form:height": "800",
-        "form:login": username,
-        "form:senha": password,
-        "form:entrar": "Entrar",
-        "javax.faces.ViewState": extract_viewstate(login_page.text),
-    }
-    # The post-login redirect targets the deprecated classic portal, whose
-    # http->https hop drops a trailing slash and 404s. The session cookie is set
-    # regardless, so the status of this response is irrelevant.
-    try:
-        client.post(profile.logon_url, data=fields, follow_redirects=False)
-    except httpx.HTTPError:
-        pass
-
-    # Enter via the slash-terminated classic URL, which 302s to the full beta
-    # portal. A plain GET of the beta URL returns only a loading shell.
-    portal = client.get(profile.portal_entry_url)
-    portal.raise_for_status()
-    if not _portal_reached(portal.text, profile):
-        raise LoginRejectedError("login failed: SIGAA rejected the credentials or showed a CAPTCHA")
-    return portal.text
 
 
 def _portal_reached(text: str, profile: InstitutionProfile) -> bool:

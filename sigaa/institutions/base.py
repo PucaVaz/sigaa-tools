@@ -80,6 +80,9 @@ class InstitutionProfile:
     # student logs in with a browser and the stored secret is that session's
     # Cookie header, never a password.
     auth_mode: str = "password"
+    # Cookies an imported session must carry. A stored secret without them is
+    # rejected before any request, so a leftover password is never sent.
+    session_cookie_names: frozenset[str] = frozenset()
     # Single sign-on hosts SIGAA bounces an expired session to. A redirect there
     # is never followed; it means the session is gone (stage ``auth``).
     sso_hosts: frozenset[str] = frozenset()
