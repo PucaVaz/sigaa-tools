@@ -41,7 +41,13 @@ from .documents import (
 )
 from .errors import ParseError, UnrecognizedPageError
 from .exporters.ics import build_calendar
-from .extensao import participations_to_dict
+from .extensao import (
+    OPPORTUNITY_SEARCH_TIMEOUT_SECONDS,
+    filter_opportunities,
+    opportunities_to_dict,
+    participations_to_dict,
+    selection_to_dict,
+)
 from .http import AuthError
 from .institutions import Capability, get
 from .parsers.curriculum import CurriculumDataError
@@ -402,6 +408,85 @@ def sigaa_list_extension_participations() -> dict:
     except (AuthError, ParseError, ValueError, httpx.HTTPError) as exc:
         raise ToolError(f"extension lookup failed: {exc}") from None
     return participations_to_dict(participations)
+
+
+def _extension_selection_client() -> SigaaClient:
+    _require(Capability.EXTENSION_SELECTION)
+    settings = Settings()
+    password = settings.resolve_password()
+    if not settings.username or not password:
+        raise ToolError("no credentials available")
+    return SigaaClient(
+        settings.username,
+        password,
+        institution=settings.institution,
+        timeout=OPPORTUNITY_SEARCH_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def sigaa_search_extension_opportunities(query: str, year: int | None = None) -> dict:
+    """Search the extension actions open for student selection. Networked, read-only, slow.
+
+    This is SIGAA's 'Vagas de Bolsas Disponíveis' search with the EXTENSÃO
+    type. ``query`` filters by title (every word must appear; case and accents
+    are ignored) and is required because SIGAA lists every action of the year.
+    ``year`` defaults to the current year. Each result carries the
+    ``opportunity_id`` that ``sigaa_apply_extension_selection`` takes and
+    ``can_apply``, which is false when SIGAA offers no selection link.
+    The search can take over a minute.
+    """
+    if not query.strip():
+        raise ToolError("query is required: SIGAA lists every extension action of the year")
+    try:
+        with _extension_selection_client() as client:
+            listed = client.list_extension_opportunities(year)
+    except _LIVE_ERRORS as exc:
+        raise ToolError(f"extension opportunity search failed: {exc}") from None
+    return opportunities_to_dict(
+        filter_opportunities(listed, query), listed=len(listed), query=query
+    )
+
+
+@mcp.tool()
+def sigaa_apply_extension_selection(
+    opportunity_id: str,
+    qualifications: str = "",
+    lattes_url: str | None = None,
+    year: int | None = None,
+    confirm: bool = False,
+) -> dict:
+    """Register the student as interested in an extension action's selection.
+
+    WRITES TO SIGAA when ``confirm`` is true: it presses 'Registrar-se como
+    Interessado', the student becomes a candidate and the coordinator reads
+    ``qualifications``. Only confirm when the student asked for this exact
+    action and wrote or approved the qualifications text; never invent it.
+
+    With ``confirm`` false (the default) nothing is submitted: the tool opens
+    the confirmation form and returns the action it belongs to (``status``
+    ``preview``), so the title and coordinator can be checked first.
+
+    ``opportunity_id`` comes from ``sigaa_search_extension_opportunities`` and
+    ``year`` must match the year searched there. ``status`` is ``registered``
+    only when SIGAA reports success, ``rejected`` with SIGAA's messages when it
+    refuses, and ``unconfirmed`` when SIGAA answered without either: then the
+    registration must be checked in SIGAA, not assumed.
+    """
+    if confirm and not qualifications.strip():
+        raise ToolError("qualifications text is required to confirm")
+    try:
+        with _extension_selection_client() as client:
+            selection_html = client.open_extension_selection(opportunity_id, year)
+            form = client.describe_extension_selection(selection_html)
+            registration = None
+            if confirm:
+                registration = client.register_extension_interest(
+                    selection_html, qualifications, lattes_url
+                )
+    except _LIVE_ERRORS as exc:
+        raise ToolError(f"extension selection failed: {exc}") from None
+    return selection_to_dict(form, registration)
 
 
 @mcp.tool()

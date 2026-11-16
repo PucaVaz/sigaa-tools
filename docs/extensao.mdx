@@ -1,6 +1,6 @@
 ---
 title: "Consultar participações em extensão"
-description: "Veja suas ações de extensão e quais declarações e certificados já podem ser emitidos, pelo CLI ou MCP."
+description: "Veja suas ações de extensão, quais declarações e certificados já podem ser emitidos e inscreva-se em uma seleção, pelo CLI ou MCP."
 meta:
   contentType: "How-to"
   category: "Começando"
@@ -119,7 +119,93 @@ tabela desconhecida ou colunas que mudaram de nome geram um erro de etapa
 `parse` (CLI sai com código 1; MCP retorna erro de tool). A lista vazia só é
 retornada quando a página é reconhecida e não mostra nenhuma ação de extensão.
 
+## Inscrever-se em uma seleção
+
+Para entrar em uma ação de extensão como discente, o SIGAA pede que você se
+registre como interessado na seleção da ação: Portal do Discente →
+**Inscrever-se em Seleção de Projeto de Ensino** → tipo de bolsa **Extensão** →
+ícone **Participar da Seleção** → **Registrar-se como Interessado**. O comando
+`sigaa selecao-extensao` e duas tools MCP fazem esse caminho.
+
+Esta é a única operação da ferramenta, além da matrícula on-line, que **escreve
+no SIGAA**. Ela acontece em três passos, e só o último envia algo:
+
+```bash
+# 1. achar a oportunidade (somente leitura, lento: o SIGAA lista o ano inteiro)
+sigaa selecao-extensao --search "trilha ufpb"
+
+# 2. abrir o formulário e conferir a ação (nada é enviado)
+sigaa selecao-extensao --apply 16743
+
+# 3. registrar o interesse
+sigaa selecao-extensao --apply 16743 \
+  --qualifications "Experiência em programação e monitoria..." --confirm
+```
+
+```text
+  16743 open    1 paid  CI-DCC       TRILHA – UFPB: FORMAÇÃO TÉCNICA, MENTORIA E PROTAGONISMO ESTUDANTIL EM COMPUTAÇÃO - Etapa 2026-2027
+1 of 1133 opportunities
+```
+
+O campo **Qualificações** é obrigatório no SIGAA e é lido pela coordenação da
+ação; o **Currículo Lattes** (`--lattes`) é opcional.
+
+### Pelo MCP
+
+| Tool | O que faz |
+|---|---|
+| `sigaa_search_extension_opportunities(query, year?)` | busca somente leitura; `query` é obrigatório porque o SIGAA lista todas as ações do ano |
+| `sigaa_apply_extension_selection(opportunity_id, qualifications, lattes_url?, year?, confirm=false)` | com `confirm=false` só mostra a ação (`status: "preview"`); com `confirm=true` registra o interesse |
+
+Um agente só deve chamar `confirm=true` quando o estudante pediu aquela ação
+específica e escreveu ou aprovou o texto de qualificações. As duas tools não
+gravam arquivos e continuam disponíveis com `SIGAA_MODE=hosted`.
+
+### Resposta
+
+```json
+{
+  "action": {
+    "opportunity_id": "16743",
+    "title": "TRILHA – UFPB: FORMAÇÃO TÉCNICA, MENTORIA E PROTAGONISMO ESTUDANTIL EM COMPUTAÇÃO - Etapa 2026-2027",
+    "action_code": "PJ823-2026",
+    "coordinator": "TATIANA ARAUJO SIMOES",
+    "kind": "PROJETO",
+    "unit": "CI - DEPARTAMENTO DE COMPUTAÇÃO CIENTÍFICA",
+    "funding": "FINANCIAMENTO INTERNO (EDITAL PROEX No 16/2026 - PROBEX 2026-2027)"
+  },
+  "submitted": true,
+  "status": "registered",
+  "messages": ["Operação realizada com sucesso. E-mail de confirmação enviado para: [e-mail]"]
+}
+```
+
+| `status` | Significado |
+|---|---|
+| `preview` | o formulário foi aberto e nada foi enviado |
+| `registered` | o SIGAA respondeu com o alerta de sucesso |
+| `rejected` | o SIGAA respondeu com um erro ou aviso; `messages` traz o texto |
+| `unconfirmed` | o SIGAA respondeu sem sucesso nem erro: confira em **Visualizar Resultados das inscrições** antes de assumir qualquer coisa |
+
+O e-mail e o telefone do estudante, exibidos no formulário, nunca são lidos, e
+endereços de e-mail nas mensagens do SIGAA são mascarados como `[e-mail]`.
+
+O SIGAA da UFPB decodifica formulários em Windows-1252. O texto de
+qualificações é enviado nessa codificação; caracteres que ela não representa
+(emojis, por exemplo) são recusados antes de qualquer envio, em vez de chegarem
+corrompidos à coordenação.
+
+Abrir o formulário de uma ação em que você já está inscrito falha com a
+mensagem do próprio SIGAA ("Você já realizou a inscrição para esta ação de
+extensão"), o que também serve para conferir uma inscrição feita.
+
+A lista de oportunidades só é considerada vazia quando o SIGAA diz "Nenhuma
+oportunidade foi encontrada". Uma oportunidade sem o ícone de seleção aparece
+com `can_apply: false` e não pode ser aberta.
+
 ## Fora do escopo
 
 - Emitir ou baixar declarações e certificados.
 - Eventos de `watch` para novas participações ou documentos liberados.
+- Cancelar uma inscrição ou consultar o resultado da seleção.
+- Seleções de monitoria, pesquisa, apoio técnico e ações associadas.

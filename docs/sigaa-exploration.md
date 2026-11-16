@@ -51,6 +51,7 @@ page is honoured once, and every later postback re-enters the turma first.
 | Declaração de Vínculo | ✅ | Enrollment declaration as PDF (`sigaa declaracao-vinculo` / `sigaa_download_declaracao_vinculo`). |
 | Ver Comprovante de Matrícula | ⚪ | Enrollment receipt. |
 | Consultar Estrutura Curricular | ✅ | Progresso e componentes ao vivo via `get_curriculum_status`, `sigaa curriculum` e `sigaa_get_curriculum`. A visão padrão reúne matriculados + pendentes obrigatórios; optativas pendentes são opções, não componentes todos obrigatórios. |
+| Inscrever-se em Seleção de Projeto de Ensino (Extensão) | ✅ | Busca em `/sigaa/graduacao/agregador_bolsa/busca.jsf` (tipo EXTENSÃO, todas as ações do ano numa página de ~3 MB) → ícone Participar da Seleção → formulário `/sigaa/extensao/DiscenteExtensao/inscricao_discente.jsf` (Qualificações obrigatório, Lattes opcional) → `alert-success` no portal. Formulários são decodificados em Windows-1252. `sigaa selecao-extensao`, `sigaa_search_extension_opportunities`, `sigaa_apply_extension_selection`. Monitoria/Pesquisa/Apoio Técnico não cobertos. |
 | CRA | ✅ | Valor oficial extraído do histórico acadêmico via `get_cra`, `sigaa cra` e `sigaa_get_cra`; pode estar indisponível para um ingressante cujo histórico ainda não o informe. |
 
 ## Confirmed working endpoints (reference)

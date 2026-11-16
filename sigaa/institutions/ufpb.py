@@ -37,6 +37,10 @@ SLOT_TIMES_UNCONFIRMED = {
 MATRICULA_INSTRUCOES_URL = f"{BASE}/graduacao/matricula/instrucoes.jsf"
 MATRICULA_TURMAS_CURRICULO_URL = f"{BASE}/graduacao/matricula/turmas_curriculo.jsf"
 
+# Pages are served as ISO-8859-1 and form posts are decoded the way browsers
+# encode them for that label: Windows-1252 (an en dash arrives as 0x96).
+FORM_CHARSET = "cp1252"
+
 PROFILE = InstitutionProfile(
     key="ufpb",
     label="UFPB",
@@ -66,8 +70,10 @@ PROFILE = InstitutionProfile(
         MenuLabel.ATESTADO: "Atestado de matrícula",
         MenuLabel.EXTENSION_DOCS: "Certificados e Declarações",
         MenuLabel.TASK_LIST: "Tarefas",
+        MenuLabel.OPPORTUNITIES: "Inscrever-se em Seleção de Projeto de Ensino",
     },
     capabilities=frozenset(Capability),
+    form_charset=FORM_CHARSET,
 )
 
 

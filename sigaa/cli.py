@@ -30,12 +30,19 @@ from .documents import (
 )
 from .errors import ParseError, UnsupportedFeatureError
 from .exporters.ics import build_calendar
-from .extensao import participations_to_dict
+from .extensao import (
+    OPPORTUNITY_SEARCH_TIMEOUT_SECONDS,
+    filter_opportunities,
+    opportunities_to_dict,
+    participations_to_dict,
+    selection_to_dict,
+)
 from .http import AuthError
 from .institutions import Capability, get
 from .onboard.cli import register as register_onboard
 from .parsers.curriculum import CurriculumDataError
 from .parsers.schedule import day_name, decode_schedule
+from .parsers.selecao_extensao import STATUS_REGISTERED, STATUS_UNCONFIRMED
 from .parsers.sipac import SipacParseError
 from .parsers.transcript import CraUnavailableError, TranscriptParseError
 from .services import classmates, watch, whatsnew
@@ -173,6 +180,30 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p_extensao.add_argument("--json", action="store_true")
     p_extensao.set_defaults(func=_cmd_extensao, capability=Capability.EXTENSAO)
+
+    p_selecao = sub.add_parser(
+        "selecao-extensao",
+        help="extension opportunities: search, and register interest in a selection "
+        "(networked)",
+    )
+    p_selecao.add_argument("--search", metavar="TEXT", help="keep titles containing every word")
+    p_selecao.add_argument("--year", type=int, help="action year (default: the current year)")
+    p_selecao.add_argument(
+        "--apply", metavar="OPPORTUNITY_ID", help="open this opportunity's selection form"
+    )
+    p_selecao.add_argument(
+        "--qualifications", metavar="TEXT", help="Qualificações text sent to the coordinator"
+    )
+    p_selecao.add_argument("--lattes", metavar="URL", help="Currículo Lattes link (optional)")
+    p_selecao.add_argument(
+        "--confirm",
+        action="store_true",
+        help="press 'Registrar-se como Interessado' (submits the registration)",
+    )
+    p_selecao.add_argument("--json", action="store_true")
+    p_selecao.set_defaults(
+        func=_cmd_selecao_extensao, capability=Capability.EXTENSION_SELECTION
+    )
 
     p_sipac = sub.add_parser(
         "sipac",
@@ -553,6 +584,66 @@ def _cmd_extensao(args, settings: Settings) -> int:
     else:
         _print_extensao(data)
     return 0
+
+
+def _cmd_selecao_extensao(args, settings: Settings) -> int:
+    password = settings.resolve_password()
+    if not settings.username or not password:
+        print(settings.credentials_problem(), file=sys.stderr)
+        return 1
+    if args.confirm and not args.apply:
+        print("--confirm requires --apply", file=sys.stderr)
+        return 1
+    if args.confirm and not (args.qualifications or "").strip():
+        print("--confirm requires --qualifications", file=sys.stderr)
+        return 1
+    try:
+        with SigaaClient(
+            settings.username,
+            password,
+            institution=settings.institution,
+            timeout=OPPORTUNITY_SEARCH_TIMEOUT_SECONDS,
+        ) as client:
+            if args.apply:
+                return _apply_extension_selection(args, client)
+            return _list_extension_opportunities(args, client)
+    except _LIVE_ERRORS as exc:
+        print(f"extension selection failed: {exc}", file=sys.stderr)
+        return 1
+
+
+def _list_extension_opportunities(args, client: SigaaClient) -> int:
+    listed = client.list_extension_opportunities(args.year)
+    matched = filter_opportunities(listed, args.search)
+    data = opportunities_to_dict(matched, listed=len(listed), query=args.search)
+    if args.json:
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+        return 0
+    for opportunity in data["opportunities"]:
+        flag = "open" if opportunity["can_apply"] else "closed"
+        print(
+            f"{opportunity['opportunity_id']:>7} {flag:6} "
+            f"{opportunity['paid_slots'] if opportunity['paid_slots'] is not None else '?':>2} paid  "
+            f"{opportunity['unit_code'] or '':12} {opportunity['title']}"
+        )
+    print(f"{data['matched']} of {data['listed']} opportunities", file=sys.stderr)
+    return 0
+
+
+def _apply_extension_selection(args, client: SigaaClient) -> int:
+    selection_html = client.open_extension_selection(args.apply, args.year)
+    form = client.describe_extension_selection(selection_html)
+    registration = None
+    if args.confirm:
+        registration = client.register_extension_interest(
+            selection_html, args.qualifications, args.lattes
+        )
+    data = selection_to_dict(form, registration)
+    if args.json:
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+    else:
+        _print_extension_selection(data)
+    return 0 if registration is None or registration.status == STATUS_REGISTERED else 1
 
 
 def _cmd_sipac_process(args, settings: Settings) -> int:
@@ -1099,6 +1190,22 @@ def _print_extensao(data: dict) -> None:
         f"Summary: {counts['declarations_available']} declaration(s) and "
         f"{counts['certificates_available']} certificate(s) available"
     )
+
+
+def _print_extension_selection(data: dict) -> None:
+    action = data["action"]
+    code = f"{action['action_code']} - " if action["action_code"] else ""
+    print(f"{code}{action['title']}")
+    details = [action["kind"], action["coordinator"], action["unit"], action["funding"]]
+    print("  " + " | ".join(detail for detail in details if detail))
+    if not data["submitted"]:
+        print("nothing submitted; re-run with --qualifications and --confirm to register")
+        return
+    print(f"status: {data['status']}")
+    for message in data["messages"]:
+        print(f"  {message}")
+    if data["status"] == STATUS_UNCONFIRMED:
+        print("  SIGAA answered without a confirmation; check 'Visualizar Resultados das inscrições'")
 
 
 def _extensao_heading(participation: dict) -> str:

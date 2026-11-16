@@ -9,12 +9,15 @@ again, and retries the call once.
 from __future__ import annotations
 
 import re
+from urllib.parse import urlencode
 
 import httpx
 
 from . import config
 from .errors import STAGE_AUTH, SigaaError
 from .institutions import InstitutionProfile, Navigator
+
+FORM_CONTENT_TYPE = "application/x-www-form-urlencoded"
 
 _VIEWSTATE_RE = re.compile(
     r'name="javax\.faces\.ViewState"[^>]*value="([^"]+)"'
@@ -24,6 +27,18 @@ _VIEWSTATE_RE = re.compile(
 def extract_viewstate(html: str, default: str = "j_id1") -> str:
     match = _VIEWSTATE_RE.search(html)
     return match.group(1) if match else default
+
+
+def encode_form(data: dict[str, str | list[str]], charset: str) -> bytes:
+    """URL-encode a form in ``charset``, refusing text it cannot represent."""
+    try:
+        return urlencode(data, doseq=True, encoding=charset, errors="strict").encode("ascii")
+    except UnicodeEncodeError as exc:
+        unsupported = sorted(set(exc.object[exc.start : exc.end]))
+        raise ValueError(
+            f"text contains characters SIGAA cannot store ({charset}): "
+            + " ".join(repr(char) for char in unsupported)
+        ) from None
 
 
 class AuthError(SigaaError):
@@ -69,10 +84,20 @@ class Session:
     def get(self, url: str) -> str:
         return self._request("GET", url)
 
-    def post(self, url: str, data: dict[str, str | list[str]]) -> str:
+    def post(
+        self, url: str, data: dict[str, str | list[str]], *, charset: str | None = None
+    ) -> str:
         """POST form data. A list value repeats the key (httpx encodes it so;
-        tuples inside the mapping break h11)."""
-        return self._request("POST", url, data=data)
+        tuples inside the mapping break h11).
+
+        httpx always encodes a form as UTF-8. Pass ``charset`` when the payload
+        carries free text and the institution decodes forms in another charset,
+        otherwise every accented character is stored as mojibake. Text the
+        charset cannot represent raises ``ValueError`` before any request.
+        """
+        if charset is None:
+            return self._request("POST", url, data=data)
+        return self._request("POST", url, content=encode_form(data, charset))
 
     def post_bytes(self, url: str, data: dict[str, str]) -> bytes:
         """POST expecting a binary download (e.g. a PDF). Re-logins if bounced."""
@@ -126,19 +151,28 @@ class Session:
             resp.raise_for_status()
         return resp.content, resp.headers.get("content-type"), resp.headers.get("content-disposition")
 
-    def _request(self, method: str, url: str, data: dict | None = None) -> str:
+    def _request(
+        self, method: str, url: str, data: dict | None = None, content: bytes | None = None
+    ) -> str:
         if not self._authenticated:
             self.login()
-        resp = self._send(method, url, data)
+        resp = self._send(method, url, data, content)
         if self._looks_logged_out(resp):
             self.login()
-            resp = self._send(method, url, data)
+            resp = self._send(method, url, data, content)
             if self._looks_logged_out(resp):
                 raise AuthError("session lost and re-login did not restore it")
         return resp.text
 
-    def _send(self, method: str, url: str, data: dict | None) -> httpx.Response:
-        resp = self._client.request(method, url, data=data)
+    def _send(
+        self, method: str, url: str, data: dict | None, content: bytes | None = None
+    ) -> httpx.Response:
+        if content is None:
+            resp = self._client.request(method, url, data=data)
+        else:
+            resp = self._client.request(
+                method, url, content=content, headers={"Content-Type": FORM_CONTENT_TYPE}
+            )
         resp.raise_for_status()
         return resp
 
