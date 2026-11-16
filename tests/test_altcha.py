@@ -7,7 +7,16 @@ import struct
 
 import pytest
 
-from sigaa.altcha import Challenge, Solution, form_field_value, parse_challenge, solve
+from sigaa import altcha
+from sigaa.altcha import (
+    MAX_COST,
+    MAX_KEY_LENGTH,
+    Challenge,
+    Solution,
+    form_field_value,
+    parse_challenge,
+    solve,
+)
 from sigaa.errors import STAGE_AUTH, CaptchaError, error_stage
 
 # A real challenge as served by /sigaa/gerarDesafioCaptcha (public endpoint data,
@@ -127,6 +136,16 @@ def test_payload_is_exactly_what_the_widget_posts():
         ' "nonce": "nothex", "salt": "cd"}, "signature": "x"}',
         '{"parameters": {"algorithm": "PBKDF2/SHA-256", "cost": 1, "keyPrefix": "00",'
         ' "nonce": "ab", "salt": "cd", "keyLength": 0}, "signature": "x"}',
+        '{"parameters": {"algorithm": "PBKDF2/SHA-256", "cost": 1, "keyPrefix": "00",'
+        ' "nonce": "ab", "salt": "cd"}, "signature": ""}',
+        '{"parameters": {"algorithm": "PBKDF2/SHA-256", "cost": true, "keyPrefix": "00",'
+        ' "nonce": "ab", "salt": "cd"}, "signature": "x"}',
+        '{"parameters": {"algorithm": "PBKDF2/SHA-256", "cost": 1, "keyPrefix": "00",'
+        ' "nonce": "ab", "salt": "cd", "keyLength": true}, "signature": "x"}',
+        '{"parameters": {"algorithm": "PBKDF2/SHA-256", "cost": %d, "keyPrefix": "00",'
+        ' "nonce": "ab", "salt": "cd"}, "signature": "x"}' % (MAX_COST + 1),
+        '{"parameters": {"algorithm": "PBKDF2/SHA-256", "cost": 1, "keyPrefix": "00",'
+        ' "nonce": "ab", "salt": "cd", "keyLength": %d}, "signature": "x"}' % (MAX_KEY_LENGTH + 1),
     ],
 )
 def test_parse_refuses_what_it_cannot_answer(text):
@@ -141,6 +160,50 @@ def test_solve_gives_up_when_the_prefix_is_out_of_reach():
 
     with pytest.raises(CaptchaError, match="10 attempts"):
         solve(challenge, max_attempts=10)
+
+
+def test_max_attempts_is_the_number_of_derivations(monkeypatch):
+    derivations = []
+    real = hashlib.pbkdf2_hmac
+
+    def counting(*args):
+        derivations.append(args[1])
+        return real(*args)
+
+    monkeypatch.setattr(altcha.hashlib, "pbkdf2_hmac", counting)
+    challenge = Challenge("PBKDF2/SHA-256", 10, 32, "00" * 16, "ab", "cd", "s" * 64, {})
+
+    with pytest.raises(CaptchaError):
+        solve(challenge, max_attempts=10)
+
+    assert len(derivations) == 10
+    assert derivations[-1] == bytes.fromhex("ab") + struct.pack(">I", 9)
+
+
+def test_parse_accepts_the_largest_cost_and_key_length():
+    body = {
+        "parameters": {
+            "algorithm": "PBKDF2/SHA-512", "cost": MAX_COST, "keyLength": MAX_KEY_LENGTH,
+            "keyPrefix": "00", "nonce": "ab", "salt": "cd",
+        },
+        "signature": "x",
+    }
+
+    challenge = parse_challenge(json.dumps(body))
+
+    assert (challenge.cost, challenge.key_length) == (MAX_COST, MAX_KEY_LENGTH)
+
+
+@pytest.mark.parametrize(
+    ("time_ms", "posted"),
+    [(128.84, "128.8"), (134.96, "135"), (0.5952499923296273, "0.6"), (135.0, "135")],
+)
+def test_solve_time_is_posted_with_one_decimal_like_the_widget(time_ms, posted):
+    challenge = parse_challenge(json.dumps(SIGAA_CHALLENGE))
+
+    field = form_field_value(challenge, Solution(counter=1, derived_key="00", time_ms=time_ms))
+
+    assert base64.b64decode(field).decode().endswith(f'"time":{posted}}}}}')
 
 
 def test_captcha_failures_are_staged_auth():

@@ -11,9 +11,11 @@ from urllib.parse import parse_qs
 import httpx
 import pytest
 
+from sigaa.altcha import MAX_COST
 from sigaa.config import Settings
 from sigaa.errors import (
     STAGE_AUTH,
+    CaptchaError,
     LoginRejectedError,
     MissingCredentialsError,
     SsoRedirectError,
@@ -301,11 +303,135 @@ def test_ufpb_navigator_tells_the_portal_from_the_login_form():
     )
 
 
+def _login_handler(requests, *, challenge=None, logon_html=None, challenge_status=200):
+    """A UFPB that accepts any login; records every request it receives."""
+    logon_html = logon_html or (UFPB_FIXTURES / "ufpb_logon.html").read_text()
+    challenge = challenge or _challenge_json()
+
+    def handler(request):
+        requests.append(request)
+        if request.url.path == "/sigaa/gerarDesafioCaptcha":
+            return httpx.Response(challenge_status, text=json.dumps(challenge))
+        if request.url.path == "/sigaa/logon.jsf":
+            return httpx.Response(200, text=logon_html)
+        return httpx.Response(200, text=(UFPB_FIXTURES / "portal.html").read_text())
+
+    return handler
+
+
 def test_ufpb_posts_the_password_only_after_the_captcha_is_solved():
-    # The logon form carries an ALTCHA captcha, which the navigator solves before
-    # posting; the session-replay path of #54 is no longer UFPB's login.
     assert UFPB.auth_mode == "password"
-    assert "gerarDesafioCaptcha" in (UFPB_FIXTURES / "ufpb_logon.html").read_text()
+    requests = []
+
+    with _ufpb_session(_login_handler(requests), secrets.token_urlsafe(16)) as session:
+        session.login()
+
+    steps = [(r.method, r.url.path) for r in requests]
+    assert steps[:3] == [
+        ("GET", "/sigaa/logon.jsf"),
+        ("GET", "/sigaa/gerarDesafioCaptcha"),
+        ("POST", "/sigaa/logon.jsf"),
+    ]
+    assert steps.count(("POST", "/sigaa/logon.jsf")) == 1
+
+
+def _unsupported_algorithm():
+    challenge = _challenge_json()
+    challenge["parameters"]["algorithm"] = "ARGON2ID"
+    return {"challenge": challenge}
+
+
+def _cost_out_of_reach():
+    return {"challenge": _challenge_json(cost=MAX_COST + 1)}
+
+
+def _widget_without_challenge_url():
+    html = (UFPB_FIXTURES / "ufpb_logon.html").read_text()
+    return {"logon_html": html.replace(' challenge="/sigaa/gerarDesafioCaptcha"', "")}
+
+
+def _challenge_endpoint_down():
+    return {"challenge_status": 500}
+
+
+@pytest.mark.parametrize(
+    ("server", "error"),
+    [
+        (_unsupported_algorithm, CaptchaError),
+        (_cost_out_of_reach, CaptchaError),
+        (_widget_without_challenge_url, UnrecognizedPageError),
+        (_challenge_endpoint_down, httpx.HTTPStatusError),
+    ],
+)
+def test_ufpb_unanswerable_captcha_never_posts_the_password(server, error):
+    requests = []
+    password = secrets.token_urlsafe(16)
+
+    with _ufpb_session(_login_handler(requests, **server()), password) as session:
+        with pytest.raises(error) as excinfo:
+            session.login()
+
+    assert all(r.method == "GET" for r in requests)
+    assert password not in str(excinfo.value)
+
+
+@pytest.mark.parametrize("separator", ["@", ",", "/", "(", "?", "{", "<"])
+def test_ufpb_password_that_is_an_illegal_cookie_key_still_logs_in(separator):
+    # http.cookies raises CookieError quoting the text before "=" for these
+    # shapes; the session guard must neither fail on them nor leak that text.
+    password = f"{secrets.token_hex(4)}{separator}{secrets.token_hex(4)}={secrets.token_hex(4)}"
+    requests = []
+
+    with _ufpb_session(_login_handler(requests), password) as session:
+        assert UFPB.auth_marker in session.login()
+
+    posts = [r for r in requests if r.method == "POST"]
+    assert parse_qs(posts[0].content.decode())["form:senha"] == [password]
+
+
+@pytest.mark.parametrize("password", ["", None])
+def test_ufpb_empty_password_is_refused_before_any_request(password):
+    requests = []
+
+    with _ufpb_session(_login_handler(requests), password) as session:
+        with pytest.raises(MissingCredentialsError):
+            session.login()
+
+    assert requests == []
+
+
+def _header_block(cookie):
+    return f"Cookie: {cookie}\nHost: sigaa.ufpb.br"
+
+
+def _with_unparseable_cookie(cookie):
+    return f"consent given; {cookie}"
+
+
+def _lowercased(cookie):
+    return cookie.lower()
+
+
+def _tab_separated(cookie):
+    return f"theme=dark;\t{cookie}"
+
+
+@pytest.mark.parametrize(
+    "shape", [_header_block, _with_unparseable_cookie, _lowercased, _tab_separated]
+)
+def test_ufpb_session_the_cookie_parser_rejects_is_still_refused(shape):
+    # http.cookies drops or rejects these headers, so a guard built on parsing
+    # them would post the session as the password.
+    stored = shape(f"JSESSIONID={secrets.token_hex(16)}")
+    requests = []
+
+    with _ufpb_session(_login_handler(requests), stored) as session:
+        with pytest.raises(MissingCredentialsError) as excinfo:
+            session.login()
+
+    assert error_stage(excinfo.value) == STAGE_AUTH
+    assert stored not in str(excinfo.value)
+    assert requests == []
 
 
 @pytest.mark.parametrize("with_extra_cookie", [False, True])
