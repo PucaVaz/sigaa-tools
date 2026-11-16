@@ -44,6 +44,13 @@ BACKEND_ENV = "SIGAA_ALTCHA_BACKEND"
 # The widget encodes the counter as a uint32; this is its hard ceiling.
 MAX_COUNTER = 0xFFFFFFFF
 
+# One derivation cannot be interrupted, so the timeout is only as responsive as
+# a single attempt. 10M iterations is about a second of native PBKDF2 (2000x
+# SIGAA's cost of 5000); a challenge above it is refused instead of hanging an
+# unattended run. 64 bytes is the longest digest the widget's algorithms emit.
+MAX_COST = 10_000_000
+MAX_KEY_LENGTH = 64
+
 # Give-up bounds. SIGAA's current setting (prefix "00") needs ~256 attempts on
 # average; a full second of native PBKDF2 covers a difficulty raise by ~400x.
 MAX_ATTEMPTS = 100_000
@@ -89,23 +96,26 @@ def parse_challenge(text: str) -> Challenge:
         raise CaptchaError("ALTCHA challenge is not JSON") from None
     if not isinstance(payload, dict) or not isinstance(payload.get("parameters"), dict):
         raise CaptchaError("ALTCHA challenge has no parameters object")
-    if not isinstance(payload.get("signature"), str):
+    if not isinstance(payload.get("signature"), str) or not payload["signature"]:
         raise CaptchaError("ALTCHA challenge has no signature")
     parameters = payload["parameters"]
     algorithm = _required(parameters, "algorithm", str)
     if algorithm not in _PBKDF2_ALGORITHMS:
         raise CaptchaError(f"unsupported ALTCHA algorithm: {algorithm}")
     cost = _required(parameters, "cost", int)
-    if cost < 1:
-        raise CaptchaError(f"ALTCHA cost must be positive, got {cost}")
+    if not 1 <= cost <= MAX_COST:
+        raise CaptchaError(f"ALTCHA cost must be between 1 and {MAX_COST}, got {cost}")
     nonce = _required(parameters, "nonce", str)
     salt = _required(parameters, "salt", str)
     key_prefix = _required(parameters, "keyPrefix", str)
     if not key_prefix:
         raise CaptchaError("ALTCHA keyPrefix is empty")
     key_length = parameters.get("keyLength", 32)
-    if not isinstance(key_length, int) or key_length < 1:
-        raise CaptchaError(f"ALTCHA keyLength must be a positive integer, got {key_length!r}")
+    if not _is_integer(key_length) or not 1 <= key_length <= MAX_KEY_LENGTH:
+        raise CaptchaError(
+            f"ALTCHA keyLength must be an integer between 1 and {MAX_KEY_LENGTH}, "
+            f"got {key_length!r}"
+        )
     if len(key_prefix) > key_length * 2:
         raise CaptchaError("ALTCHA keyPrefix is longer than the key")
     _hex_bytes(nonce, "nonce")
@@ -128,13 +138,16 @@ def solve(
     max_attempts: int = MAX_ATTEMPTS,
     timeout_seconds: float = TIMEOUT_SECONDS,
 ) -> Solution:
-    """Brute-force the counter, starting at 0 like the widget does."""
+    """Brute-force the counter, starting at 0 like the widget does.
+
+    ``max_attempts`` is the number of derivations: counters 0..max_attempts-1.
+    """
     prefix = challenge.key_prefix.lower()
     nonce = _hex_bytes(challenge.nonce, "nonce")
     salt = _hex_bytes(challenge.salt, "salt")
     hash_name = challenge.algorithm.removeprefix("PBKDF2/").replace("-", "").lower()
     started = time.monotonic()
-    for counter in range(min(max_attempts, MAX_COUNTER) + 1):
+    for counter in range(min(max_attempts, MAX_COUNTER + 1)):
         derived = hashlib.pbkdf2_hmac(
             hash_name,
             nonce + struct.pack(">I", counter),
@@ -203,16 +216,29 @@ def form_field_value(challenge: Challenge, solution: Solution) -> str:
         "solution": {
             "counter": solution.counter,
             "derivedKey": solution.derived_key,
-            "time": solution.time_ms,
+            "time": _widget_time(solution.time_ms),
         },
     }
     encoded = json.dumps(payload, separators=(",", ":")).encode()
     return base64.b64encode(encoded).decode()
 
 
+def _widget_time(time_ms: float) -> int | float:
+    """Solve time as the widget posts it: one decimal, and JSON-serialized the
+    way JavaScript does (a whole number has no fractional part)."""
+    rounded = round(time_ms, 1)
+    return int(rounded) if rounded.is_integer() else rounded
+
+
+def _is_integer(value: Any) -> bool:
+    # JSON true/false are ints to isinstance; they are not a cost or a length.
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
 def _required(parameters: dict, key: str, kind: type) -> Any:
     value = parameters.get(key)
-    if not isinstance(value, kind) or (kind is str and not value):
+    valid = _is_integer(value) if kind is int else isinstance(value, kind)
+    if not valid or (kind is str and not value):
         raise CaptchaError(f"ALTCHA challenge parameter {key!r} is missing")
     return value
 

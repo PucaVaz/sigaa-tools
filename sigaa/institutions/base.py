@@ -82,7 +82,7 @@ class InstitutionProfile:
     auth_mode: str = "password"
     # Cookies identifying an imported browser session. In session mode the
     # stored secret must carry them; in password mode a stored secret that
-    # parses as a Cookie header carrying them is refused instead of sent.
+    # names them (``JSESSIONID=...``) is refused instead of sent.
     session_cookie_names: frozenset[str] = frozenset()
     # Single sign-on hosts SIGAA bounces an expired session to. A redirect there
     # is never followed; it means the session is gone (stage ``auth``).

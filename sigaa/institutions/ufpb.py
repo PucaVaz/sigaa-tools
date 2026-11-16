@@ -1,5 +1,6 @@
 """UFPB endpoints and JSF beta-portal navigation."""
-from urllib.parse import urljoin
+import re
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 
@@ -12,7 +13,6 @@ from ..errors import (
 )
 from ..parsers._common import page_fingerprint
 from ..parsers.authentication import altcha_widget
-from . import auth_session
 from .base import Capability, InstitutionProfile, MenuLabel
 
 HOST = "https://sigaa.ufpb.br"
@@ -34,6 +34,9 @@ AVA_URL = f"{BASE}/ava/index.jsf"
 AUTH_MARKER = "Sair do SIGAA"
 # Substring of the URL we get bounced to when a session expires.
 LOGIN_REDIRECT_MARKER = "logon.jsf"
+# A dead session is redirected here (/sigaa/portal/discente/ -> /sigaa/ ->
+# /publico/): a small public page with no login form and no logon.jsf link.
+PUBLIC_AREA_PATH = "/publico"
 
 KEYRING_SERVICE = "sigaa-ufpb"
 SESSION_COOKIE_NAMES = frozenset({"JSESSIONID"})
@@ -91,7 +94,7 @@ PROFILE = InstitutionProfile(
     # (sigaa.altcha), so the classic password post works unattended again.
     auth_mode="password",
     # Cookies identifying an imported browser session. In password mode a stored
-    # secret parsing as a Cookie header with them is refused instead of sent.
+    # secret naming them (``JSESSIONID=...``) is refused instead of sent.
     session_cookie_names=SESSION_COOKIE_NAMES,
     form_charset=FORM_CHARSET,
 )
@@ -107,7 +110,8 @@ class UfpbNavigator:
         )
 
     def looks_logged_out(self, text, url=""):
-        # Text only, as before providers existed; the final URL is not consulted.
+        if _is_public_area(url):
+            return True
         return (
             self.profile.auth_marker not in text
             and self.profile.login_redirect_marker in text
@@ -156,6 +160,11 @@ class UfpbNavigator:
         return session.post(self.profile.portal_action_url, fields)
 
 
+def _is_public_area(url: str) -> bool:
+    path = urlsplit(url).path
+    return path == PUBLIC_AREA_PATH or path.startswith(PUBLIC_AREA_PATH + "/")
+
+
 def _portal_reached(text: str, profile: InstitutionProfile) -> bool:
     # The entry URL 302s to the beta portal, which links sign-out as /sigaa/logoff/
     # with no dispatch=logOff, so the shared authenticated_portal check rejects it.
@@ -172,6 +181,8 @@ def perform_login(client, username: str, password: str, *, profile: InstitutionP
     """
     from ..http import extract_viewstate
 
+    if not username or not password:
+        raise MissingCredentialsError("missing SIGAA username or password")
     _refuse_browser_session(profile, password)
     login_page = client.get(profile.logon_url)
     login_page.raise_for_status()
@@ -204,19 +215,21 @@ def perform_login(client, username: str, password: str, *, profile: InstitutionP
 
 def _refuse_browser_session(profile: InstitutionProfile, password: str) -> None:
     # While the captcha was unsolved, students stored a browser session's Cookie
-    # header in the password slot. It must be refused before any request, and one
-    # containing "=" must never parse as form data.
+    # header in the password slot. It must be refused before any request. The
+    # secret is searched for the cookie names instead of parsed: a header the
+    # cookie parser rejects (a pasted header block, an odd third-party cookie)
+    # would otherwise slip through and be posted as the password.
     if not profile.session_cookie_names:
         return
-    try:
-        cookies = auth_session.parse_cookie_header(password)
-    except MissingCredentialsError:
-        return
-    if profile.session_cookie_names <= cookies.keys():
+    if all(_names_cookie(password, name) for name in profile.session_cookie_names):
         raise MissingCredentialsError(
             f"stored secret for {profile.label} is a browser session Cookie header, "
             "not a password; run `sigaa login` again and paste the password"
         )
+
+
+def _names_cookie(secret: str, name: str) -> bool:
+    return re.search(rf"(?:^|[;:\s]){re.escape(name)}=", secret, re.IGNORECASE) is not None
 
 
 def _answer_captcha(client, login_html: str, page_url: str, profile: InstitutionProfile) -> dict:

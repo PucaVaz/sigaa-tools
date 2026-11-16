@@ -222,8 +222,10 @@ environments without a keyring: `export SIGAA_USER=username SIGAA_PASS=password`
 **UFPB's login captcha is answered automatically.** Its logon form carries an
 ALTCHA proof-of-work captcha: the tool fetches the challenge, solves it (a few
 hundred hash runs, under a second) and posts it with your credentials, so the
-usual keyring password flow works unattended. If UFPB ever replaces or hardens
-the captcha, `sync` and `watch` fail at stage `auth` instead of guessing.
+usual keyring password flow works unattended. If UFPB ever hardens the captcha
+beyond what the tool can answer, `sync` and `watch` fail at stage `auth`; if it
+replaces the captcha or the login page changes shape, they fail at stage
+`parse`. Either way the password is never posted on a guess.
 
 On an Apple-silicon Mac you can make the solve faster with the optional Metal
 backend: `uv tool install --force "sigaa-tools[metal] @ git+..."` (or
