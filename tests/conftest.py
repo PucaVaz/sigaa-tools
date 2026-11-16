@@ -135,6 +135,12 @@ class FakeSigaa:
         return Client
 
 
+@pytest.fixture(autouse=True)
+def default_altcha_backend(monkeypatch):
+    """A developer's SIGAA_ALTCHA_BACKEND must not pick the solver under test."""
+    monkeypatch.delenv("SIGAA_ALTCHA_BACKEND", raising=False)
+
+
 @pytest.fixture
 def clean_credentials(monkeypatch):
     """No ambient SIGAA env vars and an in-memory keyring. Returns the keyring dict."""

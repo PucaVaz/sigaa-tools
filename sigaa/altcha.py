@@ -18,6 +18,9 @@ Only the PBKDF2 algorithms the widget supports natively are implemented; the
 memory-hard ones (Scrypt, Argon2id) raise ``CaptchaError``. Challenge expiry is
 left to the server: the challenge is fetched, solved and posted within seconds,
 and a local clock off by minutes must not refuse a valid challenge.
+
+``solve_challenge`` picks the backend: the CPU solver below, or the Metal GPU
+backend (:mod:`sigaa.altcha_metal`) when the ``[metal]`` extra is installed.
 """
 
 from __future__ import annotations
@@ -25,12 +28,18 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 import struct
 import time
 from dataclasses import dataclass
 from typing import Any
 
 from .errors import CaptchaError
+
+# Selects the solver: "auto" uses the Metal GPU when the [metal] extra is
+# installed and working, "cpu" never loads it, "metal" refuses to fall back
+# (so a broken GPU surfaces as an error instead of silently slowing down).
+BACKEND_ENV = "SIGAA_ALTCHA_BACKEND"
 
 # The widget encodes the counter as a uint32; this is its hard ceiling.
 MAX_COUNTER = 0xFFFFFFFF
@@ -156,6 +165,53 @@ def solve(
     raise CaptchaError(
         f"ALTCHA not solved after {max_attempts} attempts (prefix {prefix!r})"
     )
+
+
+def solve_challenge(
+    challenge: Challenge,
+    *,
+    max_attempts: int = MAX_ATTEMPTS,
+    timeout_seconds: float = TIMEOUT_SECONDS,
+) -> Solution:
+    """Solve with the best backend available, CPU as the floor.
+
+    The Metal GPU backend (:mod:`sigaa.altcha_metal`) is used when the
+    ``[metal]`` extra is installed and its self-check passes. Whatever goes
+    wrong there, short of the solve's own give-up bounds, falls back here, so
+    correctness never depends on the GPU. The fallback restarts at counter 0
+    (a failed GPU's progress is not trusted) inside what is left of the timeout.
+    """
+    backend = os.environ.get(BACKEND_ENV, "auto").strip().lower() or "auto"
+    if backend not in {"auto", "cpu", "metal"}:
+        raise CaptchaError(f"{BACKEND_ENV} must be auto, cpu or metal, got {backend!r}")
+    started = time.monotonic()
+    if backend != "cpu":
+        import importlib
+
+        altcha_metal = None
+        try:
+            altcha_metal = importlib.import_module("sigaa.altcha_metal")
+        except ImportError:
+            pass  # the extra is not installed
+        if altcha_metal is not None:
+            try:
+                return altcha_metal.solve(
+                    challenge,
+                    max_attempts=max_attempts,
+                    timeout_seconds=timeout_seconds,
+                )
+            except CaptchaError:
+                raise  # the bounds were reached; the CPU would only repeat the search
+            except Exception:
+                # MetalUnavailable, but also anything pyobjc, the driver or the
+                # kernel's input packing raises: none of it may fail a login.
+                if backend == "metal":
+                    raise CaptchaError(
+                        "Metal backend requested by "
+                        f"{BACKEND_ENV}=metal is unavailable: cannot solve"
+                    ) from None
+    remaining = max(0.0, timeout_seconds - (time.monotonic() - started))
+    return solve(challenge, max_attempts=max_attempts, timeout_seconds=remaining)
 
 
 def form_field_value(challenge: Challenge, solution: Solution) -> str:
