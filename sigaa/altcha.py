@@ -19,8 +19,9 @@ memory-hard ones (Scrypt, Argon2id) raise ``CaptchaError``. Challenge expiry is
 left to the server: the challenge is fetched, solved and posted within seconds,
 and a local clock off by minutes must not refuse a valid challenge.
 
-``solve_challenge`` picks the backend: the CPU solver below, or the Metal GPU
-backend (:mod:`sigaa.altcha_metal`) when the ``[metal]`` extra is installed.
+``solve_challenge`` picks the backend: the CPU solver below, or a GPU backend
+(:mod:`sigaa.altcha_metal`, :mod:`sigaa.altcha_cuda`) when its ``[metal]`` or
+``[cuda]`` extra is installed.
 """
 
 from __future__ import annotations
@@ -36,10 +37,14 @@ from typing import Any
 
 from .errors import CaptchaError
 
-# Selects the solver: "auto" uses the Metal GPU when the [metal] extra is
-# installed and working, "cpu" never loads it, "metal" refuses to fall back
-# (so a broken GPU surfaces as an error instead of silently slowing down).
+# Selects the solver: "auto" tries the Metal GPU, then the CUDA GPU, when the
+# matching [metal]/[cuda] extra is installed and working; "cpu" never loads
+# them; "metal"/"cuda" refuse to fall back (so a broken GPU surfaces as an error
+# instead of silently slowing down).
 BACKEND_ENV = "SIGAA_ALTCHA_BACKEND"
+# Backend name -> label in errors, in the order "auto" tries them. Each lives in
+# sigaa/altcha_<name>.py and exposes solve().
+_GPU_BACKENDS = {"metal": "Metal", "cuda": "CUDA"}
 
 # The widget encodes the counter as a uint32; this is its hard ceiling.
 MAX_COUNTER = 0xFFFFFFFF
@@ -175,27 +180,30 @@ def solve_challenge(
 ) -> Solution:
     """Solve with the best backend available, CPU as the floor.
 
-    The Metal GPU backend (:mod:`sigaa.altcha_metal`) is used when the
-    ``[metal]`` extra is installed and its self-check passes. Whatever goes
-    wrong there, short of the solve's own give-up bounds, falls back here, so
+    A GPU backend (Metal, then CUDA) is used when its extra is installed and
+    its self-check passes. Whatever goes wrong there, short of the solve's own
+    give-up bounds, falls through to the next backend and finally here, so
     correctness never depends on the GPU. The fallback restarts at counter 0
     (a failed GPU's progress is not trusted) inside what is left of the timeout.
     """
     backend = os.environ.get(BACKEND_ENV, "auto").strip().lower() or "auto"
-    if backend not in {"auto", "cpu", "metal"}:
-        raise CaptchaError(f"{BACKEND_ENV} must be auto, cpu or metal, got {backend!r}")
+    if backend not in {"auto", "cpu", *_GPU_BACKENDS}:
+        raise CaptchaError(
+            f"{BACKEND_ENV} must be auto, cpu, metal or cuda, got {backend!r}"
+        )
     started = time.monotonic()
     if backend != "cpu":
         import importlib
 
-        altcha_metal = None
-        try:
-            altcha_metal = importlib.import_module("sigaa.altcha_metal")
-        except ImportError:
-            pass  # the extra is not installed
-        if altcha_metal is not None:
+        for name, label in _GPU_BACKENDS.items():
+            if backend not in {"auto", name}:
+                continue
             try:
-                return altcha_metal.solve(
+                module = importlib.import_module(f"sigaa.altcha_{name}")
+            except ImportError:
+                continue  # the extra is not installed
+            try:
+                return module.solve(
                     challenge,
                     max_attempts=max_attempts,
                     timeout_seconds=timeout_seconds,
@@ -203,12 +211,13 @@ def solve_challenge(
             except CaptchaError:
                 raise  # the bounds were reached; the CPU would only repeat the search
             except Exception:
-                # MetalUnavailable, but also anything pyobjc, the driver or the
-                # kernel's input packing raises: none of it may fail a login.
-                if backend == "metal":
+                # MetalUnavailable/CudaUnavailable, but also anything pyobjc,
+                # cuda-bindings, the driver or the kernel's input packing
+                # raises: none of it may fail a login.
+                if backend == name:
                     raise CaptchaError(
-                        "Metal backend requested by "
-                        f"{BACKEND_ENV}=metal is unavailable: cannot solve"
+                        f"{label} backend requested by "
+                        f"{BACKEND_ENV}={name} is unavailable: cannot solve"
                     ) from None
     remaining = max(0.0, timeout_seconds - (time.monotonic() - started))
     return solve(challenge, max_attempts=max_attempts, timeout_seconds=remaining)
