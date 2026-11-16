@@ -21,6 +21,8 @@ USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
 KEYRING_ACTIVE_USERNAME = "__active_username__"
 KEYRING_ACTIVE_INSTITUTION = "__active_institution__"
 KEYRING_SETTINGS_SERVICE = "sigaa-tools"
+PASSWORD_ENV = "SIGAA_PASS"
+SESSION_ENV = "SIGAA_SESSION"
 
 logger = logging.getLogger(__name__)
 
@@ -191,11 +193,22 @@ class Settings:
         if not password:
             profile = get(self.institution).profile
             secret = "session" if profile.auth_mode == "session" else "password"
-            raise MissingCredentialsError(
+            message = (
                 f"missing credentials: no {secret} for account {self.username!r} "
                 f"in the keyring (run `sigaa login`; {secret_env(profile)} is an "
                 "optional fallback)"
             )
+            if profile.auth_mode == "session" and os.environ.get(PASSWORD_ENV):
+                message += (
+                    f". {PASSWORD_ENV} is not used for {profile.label}: its login "
+                    "needs a browser sign-in"
+                )
+            if profile.auth_mode == "password" and os.environ.get(SESSION_ENV):
+                message += (
+                    f". {SESSION_ENV} is not used for {profile.label}: its login "
+                    "takes a password"
+                )
+            raise MissingCredentialsError(message)
         return self.username, password
 
     def credentials_problem(self) -> str | None:
@@ -211,4 +224,4 @@ class Settings:
 
 def secret_env(profile) -> str:
     """The environment variable that holds the secret when keyring cannot."""
-    return "SIGAA_SESSION" if profile.auth_mode == "session" else "SIGAA_PASS"
+    return SESSION_ENV if profile.auth_mode == "session" else PASSWORD_ENV

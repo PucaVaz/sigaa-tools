@@ -1,0 +1,128 @@
+<!-- Synthetic fixture: search results whose table lost the 'Unidade' column. -->
+<html>
+<head><title>SIGAA - Sistema Integrado de Gest&#227;o de Atividades Acad&#234;micas</title></head>
+<body>
+<div id="conteudo">
+<h2><a href='/sigaa/portal/discente/'>Portal do Discente</a> &gt; Vagas de Bolsas Dispon&#237;veis na UFPB</h2>
+<form id="busca" name="busca" method="post" action="/sigaa/graduacao/agregador_bolsa/busca.jsf" enctype="application/x-www-form-urlencoded">
+<input type="hidden" name="busca" value="busca" />
+<table class="formulario" width="80%">
+<caption>Buscar Oportunidades</caption>
+<tbody>
+<tr>
+	<td width="5%"></td>
+	<th class="obrigatorio">Tipo de bolsa:</th>
+	<td><select id="busca:tipo" name="busca:tipo" size="1" onchange="return mostrarFiltrosOportunidades();">
+		<option value="-1">--- SELECIONE O TIPO DE BOLSA DE SEU INTERESSE ---</option>
+		<option value="1">MONITORIA</option>
+		<option value="2" selected="selected">EXTENS&#195;O</option>
+		<option value="3">PESQUISA</option>
+		<option value="4">APOIO T&#201;CNICO</option>
+		<option value="5">A&#199;&#213;ES ASSOCIADAS</option>
+	</select></td>
+</tr>
+<tr id="linhaAnoAtividade" style="display: none;">
+	<td width="5%"></td>
+	<th class="obrigatorio">Ano:</th>
+	<td><input id="busca:buscaAnoAtividade" type="text" name="busca:buscaAnoAtividade" value="2026" maxlength="4" size="4" /></td>
+</tr>
+<tr id="linhaTipoAtividade" style="display: none;">
+	<td><input id="busca:tipoAtividadeCheck" type="checkbox" name="busca:tipoAtividadeCheck" /></td>
+	<td>Tipo Atividade:</td>
+	<td><select id="busca:tipoAtividade" name="busca:tipoAtividade" size="1">
+		<option value="3">CURSO</option>
+		<option value="2">PROJETO</option>
+	</select></td>
+</tr>
+<tr id="linhaServidor" style="display: none;">
+	<td><input id="busca:servidorCheck" type="checkbox" name="busca:servidorCheck" /></td>
+	<td>Orientador:</td>
+	<td><input id="busca:nome" type="text" name="busca:nome" />
+		<input type="hidden" id="busca:idServidor" name="busca:idServidor" value="0" /></td>
+</tr>
+<tr id="linhaCentro" style="display: none;">
+	<td><input id="busca:centroCheck" type="checkbox" name="busca:centroCheck" /></td>
+	<td>Centro:</td>
+	<td><select id="busca:centro" name="busca:centro" size="1">
+		<option value="1632">CCAE - CENTRO DE CI&#202;NCIAS APLICADAS E EDUCA&#199;&#195;O</option>
+		<option value="2564">CCTA - CENTRO DE COMUNICA&#199;&#195;O, TURISMO E ARTES</option>
+	</select></td>
+</tr>
+<tr id="linhaUnidadeAdm" style="display: none;">
+	<td><input id="busca:unidadeAdmCheck" type="checkbox" name="busca:unidadeAdmCheck" /></td>
+	<td>Unidade:</td>
+	<td><select id="busca:unidadeAdm" name="busca:unidadeAdm" size="1"></select></td>
+</tr>
+</tbody>
+<tfoot>
+<tr><td colspan="3">
+	<input type="submit" name="busca:btaoBuscar" value="Buscar" />
+	<input type="submit" name="busca:btaoCancel" value="Cancelar" />
+</td></tr>
+</tfoot>
+</table>
+<input type="hidden" name="javax.faces.ViewState" id="javax.faces.ViewState" value="j_id3" />
+</form>
+<form id="listagemResultado" name="listagemResultado" method="post" action="/sigaa/graduacao/agregador_bolsa/busca.jsf" enctype="application/x-www-form-urlencoded">
+<input type="hidden" name="listagemResultado" value="listagemResultado" />
+<div class="infoAltRem">
+	<img src="/sigaa/img/view.gif" style="overflow: visible;" />: Ver detalhes do projeto
+	<img src="/sigaa/img/graduacao/coordenador/aluno.png" style="overflow: visible;" />: Participar da Sele&#231;&#227;o de Bolsas de Extens&#227;o
+</div>
+<table class="listagem">
+<caption>Oportunidades encontradas(4)</caption>
+<thead>
+<tr><th>Descri&#231;&#227;o da Bolsa</th><th>Vagas Remuneradas</th><th>Respons&#225;vel</th><th>Setor</th><th></th></tr>
+</thead>
+<tbody>
+<tr class="linhaPar">
+	<td>Arquivo P&#250;blico do Estado da Para&#237;ba:  higieniza&#231;&#227;o, conserva&#231;&#227;o, organiza&#231;&#227;o e dissemina&#231;&#227;o documental</td>
+	<td>0</td>
+	<td></td>
+	<td><span title="CCSA - DEPARTAMENTO DE CI&#202;NCIA DA INFORMA&#199;&#195;O">CCSA - DCI</span></td>
+	<td nowrap="nowrap">
+		<a id="listagemResultado:vetProjDetalhes" href="#" style="border: 0;" title="Detalhes do projeto" onclick="if(typeof jsfcljs == 'function'){jsfcljs(document.getElementById('listagemResultado'),{'listagemResultado:vetProjDetalhes':'listagemResultado:vetProjDetalhes','id':'14225'},'');}return false"><img src="/sigaa/img/view.gif" /></a>
+		<img src="/sigaa/a4j/g/3_3_3.Finalimages/spacer.gif.jsf" class="rich-spacer" height="1" width="2" />
+		<a id="listagemResultado:cadastrarInteresseParticipacaoExtensao" href="#" style="border: 0;" title="Participar da Sele&#231;&#227;o de Bolsas de Extens&#227;o" onclick="if(typeof jsfcljs == 'function'){jsfcljs(document.getElementById('listagemResultado'),{'listagemResultado:cadastrarInteresseParticipacaoExtensao':'listagemResultado:cadastrarInteresseParticipacaoExtensao','idTipoBolsa':'2','idOportunidade':'14225','idUsuario':'0'},'');}return false"><img src="/sigaa/img/graduacao/coordenador/aluno.png" /></a>
+	</td>
+</tr>
+<tr class="linhaImpar">
+	<td>TRILHANDO REDES DE PROTE&#199;&#195;O: DO LITORAL AO SERT&#195;O NA GARANTIA DE DIREITOS, PREVEN&#199;&#195;O E ENFRENTAMENTO &#192;S VIOL&#202;NCIAS CONTRA AS MULHERES NA PARA&#205;BA</td>
+	<td>0</td>
+	<td></td>
+	<td><span title="CCHLA - DEPARTAMENTO DE PSICOLOGIA">CCHLA - DP</span></td>
+	<td nowrap="nowrap">
+		<a id="listagemResultado:vetProjDetalhesj_id_233" href="#" style="border: 0;" title="Detalhes do projeto" onclick="if(typeof jsfcljs == 'function'){jsfcljs(document.getElementById('listagemResultado'),{'listagemResultado:vetProjDetalhesj_id_233':'listagemResultado:vetProjDetalhesj_id_233','id':'15658'},'');}return false"><img src="/sigaa/img/view.gif" /></a>
+		<img src="/sigaa/a4j/g/3_3_3.Finalimages/spacer.gif.jsf" class="rich-spacer" height="1" width="2" />
+		<a id="listagemResultado:cadastrarInteresseParticipacaoExtensaoj_id_233" href="#" style="border: 0;" title="Participar da Sele&#231;&#227;o de Bolsas de Extens&#227;o" onclick="if(typeof jsfcljs == 'function'){jsfcljs(document.getElementById('listagemResultado'),{'listagemResultado:cadastrarInteresseParticipacaoExtensaoj_id_233':'listagemResultado:cadastrarInteresseParticipacaoExtensaoj_id_233','idTipoBolsa':'2','idOportunidade':'15658','idUsuario':'0'},'');}return false"><img src="/sigaa/img/graduacao/coordenador/aluno.png" /></a>
+	</td>
+</tr>
+<tr class="linhaPar">
+	<td>NAS TRILHAS CULTURAIS DOS CAMINHOS DO FRIO, ETAPAS: AREIA, ALAGOA NOVA E REM&#205;GIO. ANO 04</td>
+	<td>0</td>
+	<td></td>
+	<td><span title="CCA - DEPARTAMENTO DE SOLOS E ENGENHARIA RURAL">CCA-DSER</span></td>
+	<td nowrap="nowrap">
+		<a id="listagemResultado:vetProjDetalhesj_id_275" href="#" style="border: 0;" title="Detalhes do projeto" onclick="if(typeof jsfcljs == 'function'){jsfcljs(document.getElementById('listagemResultado'),{'listagemResultado:vetProjDetalhesj_id_275':'listagemResultado:vetProjDetalhesj_id_275','id':'15720'},'');}return false"><img src="/sigaa/img/view.gif" /></a>
+		<img src="/sigaa/a4j/g/3_3_3.Finalimages/spacer.gif.jsf" class="rich-spacer" height="1" width="2" />
+		
+	</td>
+</tr>
+<tr class="linhaImpar">
+	<td>TRILHA &#150; UFPB: FORMA&#199;&#195;O T&#201;CNICA, MENTORIA E PROTAGONISMO ESTUDANTIL EM COMPUTA&#199;&#195;O - Etapa 2026-2027</td>
+	<td>1</td>
+	<td></td>
+	<td><span title="CI - DEPARTAMENTO DE COMPUTA&#199;&#195;O CIENT&#205;FICA">CI-DCC</span></td>
+	<td nowrap="nowrap">
+		<a id="listagemResultado:vetProjDetalhesj_id_1001" href="#" style="border: 0;" title="Detalhes do projeto" onclick="if(typeof jsfcljs == 'function'){jsfcljs(document.getElementById('listagemResultado'),{'listagemResultado:vetProjDetalhesj_id_1001':'listagemResultado:vetProjDetalhesj_id_1001','id':'16743'},'');}return false"><img src="/sigaa/img/view.gif" /></a>
+		<img src="/sigaa/a4j/g/3_3_3.Finalimages/spacer.gif.jsf" class="rich-spacer" height="1" width="2" />
+		<a id="listagemResultado:cadastrarInteresseParticipacaoExtensaoj_id_1001" href="#" style="border: 0;" title="Participar da Sele&#231;&#227;o de Bolsas de Extens&#227;o" onclick="if(typeof jsfcljs == 'function'){jsfcljs(document.getElementById('listagemResultado'),{'listagemResultado:cadastrarInteresseParticipacaoExtensaoj_id_1001':'listagemResultado:cadastrarInteresseParticipacaoExtensaoj_id_1001','idTipoBolsa':'2','idOportunidade':'16743','idUsuario':'0'},'');}return false"><img src="/sigaa/img/graduacao/coordenador/aluno.png" /></a>
+	</td>
+</tr>
+</tbody>
+</table>
+<input type="hidden" name="javax.faces.ViewState" id="javax.faces.ViewState" value="j_id3" />
+</form>
+</div>
+</body>
+</html>

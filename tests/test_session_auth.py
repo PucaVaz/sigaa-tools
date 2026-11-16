@@ -1,26 +1,40 @@
+import base64
+import hashlib
+import json
 import secrets
+import struct
+import time
 from dataclasses import replace
 from pathlib import Path
+from urllib.parse import parse_qs
 
 import httpx
 import pytest
 
+from sigaa.altcha import MAX_COST
 from sigaa.config import Settings
 from sigaa.errors import (
     STAGE_AUTH,
+    CaptchaError,
     LoginRejectedError,
     MissingCredentialsError,
     SsoRedirectError,
+    UnrecognizedPageError,
     error_stage,
 )
 from sigaa.http import Session
+from sigaa.institutions import all as all_institutions
 from sigaa.institutions import auth_session, get
+from sigaa.institutions.ufpb import UfpbNavigator
+from sigaa.parsers.authentication import altcha_widget, authenticated_portal
 
 FIXTURES = Path(__file__).parent / "fixtures/ufcg"
+UFPB_FIXTURES = Path(__file__).parent / "fixtures"
 SSO = "sso.example.edu.br"
 PROFILE = replace(
     get("ufcg").profile, auth_mode="session", sso_hosts=frozenset({SSO})
 )
+UFPB = get("ufpb").profile
 
 
 class Navigator:
@@ -29,6 +43,9 @@ class Navigator:
 
     def looks_logged_out(self, text, url=""):
         return url.endswith("/expired.jsp")
+
+    def portal_reached(self, text, url=""):
+        return authenticated_portal(text, url, PROFILE)
 
 
 def _cookie():
@@ -122,6 +139,21 @@ def test_cookie_header_prefix_is_accepted():
     assert auth_session.parse_cookie_header(header) == {"a": "1", "b": "2"}
 
 
+@pytest.mark.parametrize("separator", ["@", ",", "/", "(", "?", "{", "<"])
+def test_secret_with_an_illegal_cookie_key_is_refused_without_quoting_it(separator):
+    # http.cookies raises CookieError("Illegal key '<text before =>'") for these;
+    # for a leftover password that text is part of the secret.
+    prefix, suffix = secrets.token_hex(4), secrets.token_hex(4)
+    secret = f"{prefix}{separator}{suffix}={secrets.token_hex(4)}"
+
+    with pytest.raises(MissingCredentialsError) as excinfo:
+        auth_session.parse_cookie_header(secret)
+
+    assert error_stage(excinfo.value) == STAGE_AUTH
+    assert prefix not in str(excinfo.value)
+    assert suffix not in str(excinfo.value)
+
+
 def test_session_institution_falls_back_to_sigaa_session_not_sigaa_pass(monkeypatch):
     import sigaa.config as config_module
 
@@ -141,6 +173,8 @@ def test_session_institution_falls_back_to_sigaa_session_not_sigaa_pass(monkeypa
 
 
 def test_password_institutions_are_unchanged():
+    assert get("ufcg").profile.auth_mode == "password"
+    assert get("ufcg").profile.sso_hosts == frozenset()
     assert get("ufpb").profile.auth_mode == "password"
     assert get("ufpb").profile.sso_hosts == frozenset()
 
@@ -155,3 +189,296 @@ def test_navigator_expired_page_without_login_form_is_an_expired_session():
     with _session(handler, _cookie()) as session:
         with pytest.raises(LoginRejectedError, match="expired"):
             session.login()
+
+
+def _ufpb_session(handler, secret):
+    client = httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True)
+    return Session(
+        "test-student", secret, profile=UFPB, navigator=UfpbNavigator(), client=client
+    )
+
+
+def test_every_navigator_judges_the_portal():
+    for institution in all_institutions():
+        assert callable(institution.navigator.portal_reached), institution.profile.key
+
+
+def test_ufpb_signs_in_by_password_after_solving_the_captcha():
+    challenge = _challenge_json()
+    posts = []
+    challenge_fetches = []
+
+    def handler(request):
+        if request.url.path == "/sigaa/logon.jsf" and request.method == "POST":
+            posts.append(parse_qs(request.content.decode()))
+            # The post-login redirect targets a classic URL that 404s; the real
+            # flow ignores it and enters through portal_entry_url instead.
+            return httpx.Response(
+                302, headers={"Location": "http://sigaa.ufpb.br/sigaa/portais/discente/discente.jsf"}
+            )
+        if request.url.path == "/sigaa/gerarDesafioCaptcha":
+            challenge_fetches.append(request)
+            return httpx.Response(200, text=json.dumps(challenge))
+        if request.url.path == "/sigaa/logon.jsf":
+            return httpx.Response(200, text=(UFPB_FIXTURES / "ufpb_logon.html").read_text())
+        if str(request.url) == UFPB.portal_entry_url:
+            return httpx.Response(302, headers={"Location": UFPB.portal_action_url})
+        return httpx.Response(200, text=(UFPB_FIXTURES / "portal.html").read_text())
+
+    password = secrets.token_urlsafe(16)
+    with _ufpb_session(handler, password) as session:
+        assert UFPB.auth_marker in session.login()
+        assert session._authenticated
+
+    assert [r.method for r in challenge_fetches] == ["GET"]
+    assert len(posts) == 1
+    fields = posts[0]
+    assert fields["form:login"] == ["test-student"]
+    assert fields["form:senha"] == [password]
+    assert fields["form:entrar"] == ["Entrar"]
+    payload = json.loads(base64.b64decode(fields["altcha"][0]))
+    assert payload["challenge"]["parameters"] == challenge["parameters"]
+    assert payload["challenge"]["signature"] == challenge["signature"]
+    # Verify the answer the way the server does: one derivation at the posted counter.
+    parameters = challenge["parameters"]
+    key = hashlib.pbkdf2_hmac(
+        "sha256",
+        bytes.fromhex(parameters["nonce"]) + struct.pack(">I", payload["solution"]["counter"]),
+        bytes.fromhex(parameters["salt"]),
+        parameters["cost"],
+        parameters["keyLength"],
+    ).hex()
+    assert payload["solution"]["derivedKey"] == key
+    assert key.startswith(parameters["keyPrefix"])
+
+
+def test_ufpb_rejected_credentials_or_captcha_is_reported():
+    def handler(request):
+        if request.url.path == "/sigaa/logon.jsf" and request.method == "POST":
+            return httpx.Response(200, text=(UFPB_FIXTURES / "ufpb_logon.html").read_text())
+        if request.url.path == "/sigaa/gerarDesafioCaptcha":
+            return httpx.Response(200, text=json.dumps(_challenge_json()))
+        if request.url.path == "/sigaa/logon.jsf":
+            return httpx.Response(200, text=(UFPB_FIXTURES / "ufpb_logon.html").read_text())
+        return httpx.Response(200, text=(UFPB_FIXTURES / "auth_redirect.html").read_text())
+
+    with _ufpb_session(handler, secrets.token_urlsafe(16)) as session:
+        with pytest.raises(LoginRejectedError, match="rejected the credentials or captcha"):
+            session.login()
+
+
+def test_ufpb_login_page_without_the_altcha_widget_is_never_posted():
+    # A captcha-protected login page that no longer shows the widget has changed
+    # shape; posting a bare password to it would be a guess.
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, text=(UFPB_FIXTURES / "auth_redirect.html").read_text())
+
+    with _ufpb_session(handler, secrets.token_urlsafe(16)) as session:
+        with pytest.raises(UnrecognizedPageError, match="unrecognized login page"):
+            session.login()
+    assert all(r.method == "GET" for r in requests)
+    assert all(r.url.path == "/sigaa/logon.jsf" for r in requests)
+
+
+def test_altcha_widget_is_read_from_the_login_page():
+    widget = altcha_widget((UFPB_FIXTURES / "ufpb_logon.html").read_text())
+
+    assert widget.name == "altcha"
+    assert widget.challenge == "/sigaa/gerarDesafioCaptcha"
+
+
+def test_altcha_widget_without_a_challenge_url_is_unrecognized():
+    with pytest.raises(UnrecognizedPageError):
+        altcha_widget('<html><body><altcha-widget name="altcha"></altcha-widget></body></html>')
+
+
+def test_ufpb_navigator_tells_the_portal_from_the_login_form():
+    portal = (UFPB_FIXTURES / "portal.html").read_text()
+    assert UfpbNavigator().portal_reached(portal, UFPB.portal_action_url)
+    assert not UfpbNavigator().portal_reached(
+        (UFPB_FIXTURES / "auth_redirect.html").read_text(), UFPB.logon_url
+    )
+
+
+def _login_handler(requests, *, challenge=None, logon_html=None, challenge_status=200):
+    """A UFPB that accepts any login; records every request it receives."""
+    logon_html = logon_html or (UFPB_FIXTURES / "ufpb_logon.html").read_text()
+    challenge = challenge or _challenge_json()
+
+    def handler(request):
+        requests.append(request)
+        if request.url.path == "/sigaa/gerarDesafioCaptcha":
+            return httpx.Response(challenge_status, text=json.dumps(challenge))
+        if request.url.path == "/sigaa/logon.jsf":
+            return httpx.Response(200, text=logon_html)
+        return httpx.Response(200, text=(UFPB_FIXTURES / "portal.html").read_text())
+
+    return handler
+
+
+def test_ufpb_posts_the_password_only_after_the_captcha_is_solved():
+    assert UFPB.auth_mode == "password"
+    requests = []
+
+    with _ufpb_session(_login_handler(requests), secrets.token_urlsafe(16)) as session:
+        session.login()
+
+    steps = [(r.method, r.url.path) for r in requests]
+    assert steps[:3] == [
+        ("GET", "/sigaa/logon.jsf"),
+        ("GET", "/sigaa/gerarDesafioCaptcha"),
+        ("POST", "/sigaa/logon.jsf"),
+    ]
+    assert steps.count(("POST", "/sigaa/logon.jsf")) == 1
+
+
+def _unsupported_algorithm():
+    challenge = _challenge_json()
+    challenge["parameters"]["algorithm"] = "ARGON2ID"
+    return {"challenge": challenge}
+
+
+def _cost_out_of_reach():
+    return {"challenge": _challenge_json(cost=MAX_COST + 1)}
+
+
+def _widget_without_challenge_url():
+    html = (UFPB_FIXTURES / "ufpb_logon.html").read_text()
+    return {"logon_html": html.replace(' challenge="/sigaa/gerarDesafioCaptcha"', "")}
+
+
+def _challenge_endpoint_down():
+    return {"challenge_status": 500}
+
+
+@pytest.mark.parametrize(
+    ("server", "error"),
+    [
+        (_unsupported_algorithm, CaptchaError),
+        (_cost_out_of_reach, CaptchaError),
+        (_widget_without_challenge_url, UnrecognizedPageError),
+        (_challenge_endpoint_down, httpx.HTTPStatusError),
+    ],
+)
+def test_ufpb_unanswerable_captcha_never_posts_the_password(server, error):
+    requests = []
+    password = secrets.token_urlsafe(16)
+
+    with _ufpb_session(_login_handler(requests, **server()), password) as session:
+        with pytest.raises(error) as excinfo:
+            session.login()
+
+    assert all(r.method == "GET" for r in requests)
+    assert password not in str(excinfo.value)
+
+
+@pytest.mark.parametrize("separator", ["@", ",", "/", "(", "?", "{", "<"])
+def test_ufpb_password_that_is_an_illegal_cookie_key_still_logs_in(separator):
+    # http.cookies raises CookieError quoting the text before "=" for these
+    # shapes; the session guard must neither fail on them nor leak that text.
+    password = f"{secrets.token_hex(4)}{separator}{secrets.token_hex(4)}={secrets.token_hex(4)}"
+    requests = []
+
+    with _ufpb_session(_login_handler(requests), password) as session:
+        assert UFPB.auth_marker in session.login()
+
+    posts = [r for r in requests if r.method == "POST"]
+    assert parse_qs(posts[0].content.decode())["form:senha"] == [password]
+
+
+@pytest.mark.parametrize("password", ["", None])
+def test_ufpb_empty_password_is_refused_before_any_request(password):
+    requests = []
+
+    with _ufpb_session(_login_handler(requests), password) as session:
+        with pytest.raises(MissingCredentialsError):
+            session.login()
+
+    assert requests == []
+
+
+def _header_block(cookie):
+    return f"Cookie: {cookie}\nHost: sigaa.ufpb.br"
+
+
+def _with_unparseable_cookie(cookie):
+    return f"consent given; {cookie}"
+
+
+def _lowercased(cookie):
+    return cookie.lower()
+
+
+def _tab_separated(cookie):
+    return f"theme=dark;\t{cookie}"
+
+
+@pytest.mark.parametrize(
+    "shape", [_header_block, _with_unparseable_cookie, _lowercased, _tab_separated]
+)
+def test_ufpb_session_the_cookie_parser_rejects_is_still_refused(shape):
+    # http.cookies drops or rejects these headers, so a guard built on parsing
+    # them would post the session as the password.
+    stored = shape(f"JSESSIONID={secrets.token_hex(16)}")
+    requests = []
+
+    with _ufpb_session(_login_handler(requests), stored) as session:
+        with pytest.raises(MissingCredentialsError) as excinfo:
+            session.login()
+
+    assert error_stage(excinfo.value) == STAGE_AUTH
+    assert stored not in str(excinfo.value)
+    assert requests == []
+
+
+@pytest.mark.parametrize("with_extra_cookie", [False, True])
+def test_ufpb_stored_browser_session_is_refused_before_any_request(with_extra_cookie):
+    # Students who onboarded while the captcha was unsolved hold a Cookie header
+    # in the password slot. One containing "=" must never parse as form data.
+    stored = f"JSESSIONID={secrets.token_hex(16)}"
+    if with_extra_cookie:
+        stored += f"; sigscookie={secrets.token_hex(8)}"
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200)
+
+    with _ufpb_session(handler, stored) as session:
+        with pytest.raises(MissingCredentialsError) as excinfo:
+            session.login()
+    assert error_stage(excinfo.value) == STAGE_AUTH
+    assert stored not in str(excinfo.value)
+    assert requests == []
+
+
+def test_ufpb_session_variable_alone_is_named_as_unused(monkeypatch):
+    monkeypatch.setenv("SIGAA_SESSION", _cookie())
+    monkeypatch.delenv("SIGAA_PASS", raising=False)
+    monkeypatch.setattr("keyring.get_password", lambda *a: None)
+    settings = Settings(institution="ufpb")
+    settings.username = "test-student"
+
+    problem = settings.credentials_problem()
+
+    assert "SIGAA_PASS" in problem
+    assert "SIGAA_SESSION is not used for UFPB" in problem
+
+
+def _challenge_json(cost=10):
+    """A challenge like the endpoint serves: random nonce and salt, future expiry."""
+    return {
+        "parameters": {
+            "algorithm": "PBKDF2/SHA-256",
+            "cost": cost,
+            "expiresAt": int(time.time()) + 600,
+            "keyLength": 32,
+            "keyPrefix": "00",
+            "nonce": secrets.token_hex(16),
+            "salt": secrets.token_hex(16),
+        },
+        "signature": secrets.token_hex(32),
+    }

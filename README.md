@@ -48,10 +48,11 @@ sigaa ics --out sigaa.ics  # export classes + deadlines as calendar
 sigaa curriculum           # live progress & required courses
 sigaa cra --json           # official CRA as JSON
 sigaa extensao             # extension participations + available declarations/certificates
+sigaa selecao-extensao --search trilha   # extension actions open for selection
 sigaa watch --once --json  # sync and report changes as JSON (see Notifications)
 ```
 
-Store-backed commands (`classes`, `news`, `grades`, `deadlines`) are fast and offline. Network commands (`sync`, `watch`, `curriculum`, `cra`, `extensao`, downloads) need internet.
+Store-backed commands (`classes`, `news`, `grades`, `deadlines`) are fast and offline. Network commands (`sync`, `watch`, `curriculum`, `cra`, `extensao`, `selecao-extensao`, downloads) need internet.
 
 ## SIPAC public process lookup
 
@@ -87,6 +88,7 @@ server without manual absolute-path editing.
 Tools: `sigaa_list_classes`, `sigaa_list_news`, `sigaa_get_news_body`,
 `sigaa_get_schedule`, `sigaa_list_grades`, `sigaa_list_deadlines`,
 `sigaa_get_curriculum`, `sigaa_get_cra`, `sigaa_list_extension_participations`,
+`sigaa_search_extension_opportunities`, `sigaa_apply_extension_selection`,
 `sigaa_find_classmate`, `sigaa_export_ics`,
 `sipac_get_public_process`, `sipac_search_public_processes`,
 `sigaa_download_historico`,
@@ -121,6 +123,15 @@ member, audience, extension student) with `declaration_available` and
 `certificate_available` flags that mirror the icons SIGAA shows right now. It
 never issues or downloads a document, so it stays available in hosted mode. See
 [docs/extensao.mdx](docs/extensao.mdx).
+
+`sigaa_search_extension_opportunities(query, year?)` searches the extension
+actions open for student selection and returns each `opportunity_id`.
+`sigaa_apply_extension_selection(opportunity_id, qualifications, lattes_url?,
+year?, confirm=false)` is the one tool that **writes to SIGAA**: with
+`confirm=true` it presses "Registrar-se como Interessado" and the coordinator
+reads the qualifications text. Without `confirm` it only previews the action.
+`status` is `registered` only when SIGAA itself reports success. Same contract
+as `sigaa selecao-extensao`.
 
 Every download tool accepts a safe filename (not an arbitrary path), never
 overwrites, and writes under the app's private `downloads` directory. This
@@ -207,6 +218,22 @@ Keyring-first, env-second. Never commit credentials, cookies, downloaded live HT
 After `sigaa login`, no environment variables are needed. For headless
 environments without a keyring: `export SIGAA_USER=username SIGAA_PASS=password`
 (plaintext password files are not recommended). Optional: `SIGAA_DB=/path/to/sigaa.db` to override the store location.
+
+**UFPB's login captcha is answered automatically.** Its logon form carries an
+ALTCHA proof-of-work captcha: the tool fetches the challenge, solves it (a few
+hundred hash runs, under a second) and posts it with your credentials, so the
+usual keyring password flow works unattended. If UFPB ever hardens the captcha
+beyond what the tool can answer, `sync` and `watch` fail at stage `auth`; if it
+replaces the captcha or the login page changes shape, they fail at stage
+`parse`. Either way the password is never posted on a guess.
+
+On an Apple-silicon Mac you can make the solve faster with the optional Metal
+backend: `uv tool install --force "sigaa-tools[metal] @ git+..."` (or
+`pip install 'sigaa-tools[metal]'`). The GPU shader compiles at runtime from
+embedded source — no Xcode needed — and is self-checked against the CPU solver
+on first use; any problem falls back to CPU silently. Force a backend with
+`SIGAA_ALTCHA_BACKEND=cpu|metal|auto` (default `auto`). The GPU is only used
+for this tool's own logins, one solve per login.
 
 ## Advanced manual configuration
 

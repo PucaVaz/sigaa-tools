@@ -33,6 +33,9 @@ Issues = "https://github.com/PucaVaz/sigaa-tools/issues"
 
 [project.optional-dependencies]
 mcp = ["mcp>=1.27,<2"]
+# Optional Metal GPU backend for the ALTCHA proof-of-work (macOS only; the
+# shader compiles at runtime, no Xcode needed). Without it the CPU solver runs.
+metal = ["pyobjc-framework-Metal>=10.0; sys_platform == 'darwin'"]
 dev = ["pytest>=8.0", "ruff>=0.6.0"]
 
 [project.scripts]

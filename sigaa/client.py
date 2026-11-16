@@ -6,6 +6,7 @@ import hashlib
 import re
 from dataclasses import replace
 from decimal import Decimal
+from urllib.parse import urljoin
 
 import httpx
 
@@ -28,7 +29,10 @@ from .models import (
     CoursePlan,
     CurriculumStatus,
     Deadline,
+    ExtensionOpportunity,
     ExtensionParticipation,
+    ExtensionRegistration,
+    ExtensionSelectionForm,
     Grade,
     Material,
     NewsItem,
@@ -46,6 +50,7 @@ from .parsers import materials as materials_parser
 from .parsers import news as news_parser
 from .parsers import participantes as participantes_parser
 from .parsers import portal as portal_parser
+from .parsers import selecao_extensao as selecao_parser
 from .parsers import tarefa as tarefa_parser
 from .parsers import tarefa_list as tarefa_list_parser
 from .parsers import topicos as topicos_parser
@@ -106,6 +111,66 @@ class SigaaClient:
         self.profile.require(Capability.EXTENSAO)
         html = self._portal_menu_post(self.profile.menu_labels[MenuLabel.EXTENSION_DOCS])
         return extensao_parser.parse_extension_participations(html)
+
+    def search_extension_opportunities(self, year: int | None = None) -> str:
+        """Search the extension opportunities; return the results page HTML.
+
+        Read-only. ``year`` defaults to the one SIGAA pre-fills (the current
+        year). The results page lists every extension action of that year, so
+        the answer is large and slow: give the client a generous timeout.
+        """
+        self.profile.require(Capability.EXTENSION_SELECTION)
+        search_page = self._portal_menu_post(self.profile.menu_labels[MenuLabel.OPPORTUNITIES])
+        action, fields = selecao_parser.build_search_postback(search_page, year)
+        return self._session.post(self._form_url(action), fields)
+
+    def list_extension_opportunities(
+        self, year: int | None = None, results_html: str | None = None
+    ) -> list[ExtensionOpportunity]:
+        """Extension opportunities listed for a year."""
+        html = results_html or self.search_extension_opportunities(year)
+        return selecao_parser.parse_opportunities(html)
+
+    def open_extension_selection(
+        self, opportunity_id: str, year: int | None = None, results_html: str | None = None
+    ) -> str:
+        """Open one opportunity's confirmation form; return its HTML.
+
+        Nothing is submitted: this is the page a student reads before pressing
+        'Registrar-se como Interessado'. Parse it with
+        :func:`sigaa.parsers.selecao_extensao.parse_selection_form`.
+        """
+        self.profile.require(Capability.EXTENSION_SELECTION)
+        html = results_html or self.search_extension_opportunities(year)
+        action, fields = selecao_parser.build_apply_postback(html, opportunity_id)
+        return self._session.post(self._form_url(action), fields)
+
+    def describe_extension_selection(self, selection_html: str) -> ExtensionSelectionForm:
+        """The extension action a confirmation form belongs to."""
+        return selecao_parser.parse_selection_form(selection_html)
+
+    def register_extension_interest(
+        self, selection_html: str, qualifications: str, lattes_url: str | None = None
+    ) -> ExtensionRegistration:
+        """Press 'Registrar-se como Interessado' on a confirmation form.
+
+        Writes to SIGAA: the student becomes a candidate in the action's
+        selection and the coordinator sees the qualifications text.
+        """
+        self.profile.require(Capability.EXTENSION_SELECTION)
+        if not qualifications.strip():
+            raise ValueError("qualifications text is required by SIGAA")
+        action, fields = selecao_parser.build_registration_postback(
+            selection_html, qualifications.strip(), (lattes_url or "").strip() or None
+        )
+        receipt = self._session.post(
+            self._form_url(action), fields, charset=self.profile.form_charset
+        )
+        return selecao_parser.parse_registration_result(receipt)
+
+    def _form_url(self, action: str) -> str:
+        """Absolute URL of a form action; the session refuses any other origin."""
+        return urljoin(self.profile.host, action.split(";", 1)[0])
 
     def open_matricula_curriculo(self) -> str:
         """Navigate Portal -> Realizar Matrícula -> Iniciar Seleção; return the

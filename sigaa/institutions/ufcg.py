@@ -1,7 +1,7 @@
 """Provisional UFCG profile: classic authentication, pending live onboarding."""
 from urllib.parse import urlsplit
 
-from ..parsers.authentication import has_login_form
+from ..parsers.authentication import authenticated_portal, has_login_form
 
 from ..errors import NavigationError
 from . import auth_classic
@@ -43,6 +43,9 @@ class UfcgNavigator:
         if urlsplit(url).path.endswith(("verTelaLogin.do", "logar.do")):
             return True
         return has_login_form(text)
+
+    def portal_reached(self, text, url=""):
+        return authenticated_portal(text, url, PROFILE)
 
     def portal_menu_post(self, session, portal, label):
         raise NavigationError("UFCG portal navigation requires live onboarding captures")

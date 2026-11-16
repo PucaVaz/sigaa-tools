@@ -1,5 +1,18 @@
 """UFPB endpoints and JSF beta-portal navigation."""
-from ..errors import NavigationError
+import re
+from urllib.parse import urljoin, urlsplit
+
+import httpx
+
+from ..altcha import form_field_value, parse_challenge, solve_challenge
+from ..errors import (
+    LoginRejectedError,
+    MissingCredentialsError,
+    NavigationError,
+    UnrecognizedPageError,
+)
+from ..parsers._common import page_fingerprint
+from ..parsers.authentication import altcha_widget
 from .base import Capability, InstitutionProfile, MenuLabel
 
 HOST = "https://sigaa.ufpb.br"
@@ -21,8 +34,12 @@ AVA_URL = f"{BASE}/ava/index.jsf"
 AUTH_MARKER = "Sair do SIGAA"
 # Substring of the URL we get bounced to when a session expires.
 LOGIN_REDIRECT_MARKER = "logon.jsf"
+# A dead session is redirected here (/sigaa/portal/discente/ -> /sigaa/ ->
+# /publico/): a small public page with no login form and no logon.jsf link.
+PUBLIC_AREA_PATH = "/publico"
 
 KEYRING_SERVICE = "sigaa-ufpb"
+SESSION_COOKIE_NAMES = frozenset({"JSESSIONID"})
 
 # UFPB class-time slots. Day digits: 2=Mon .. 7=Sat. Shift: M/T/N.
 # NOTE: clock times below are an UNCONFIRMED default; confirm against a turma's
@@ -36,6 +53,10 @@ SLOT_TIMES_UNCONFIRMED = {
 # Matrícula on-line (enrollment request) flow.
 MATRICULA_INSTRUCOES_URL = f"{BASE}/graduacao/matricula/instrucoes.jsf"
 MATRICULA_TURMAS_CURRICULO_URL = f"{BASE}/graduacao/matricula/turmas_curriculo.jsf"
+
+# Pages are served as ISO-8859-1 and form posts are decoded the way browsers
+# encode them for that label: Windows-1252 (an en dash arrives as 0x96).
+FORM_CHARSET = "cp1252"
 
 PROFILE = InstitutionProfile(
     key="ufpb",
@@ -66,8 +87,16 @@ PROFILE = InstitutionProfile(
         MenuLabel.ATESTADO: "Atestado de matrícula",
         MenuLabel.EXTENSION_DOCS: "Certificados e Declarações",
         MenuLabel.TASK_LIST: "Tarefas",
+        MenuLabel.OPPORTUNITIES: "Inscrever-se em Seleção de Projeto de Ensino",
     },
     capabilities=frozenset(Capability),
+    # The logon form's captcha is ALTCHA proof-of-work, which this tool solves
+    # (sigaa.altcha), so the classic password post works unattended again.
+    auth_mode="password",
+    # Cookies identifying an imported browser session. In password mode a stored
+    # secret naming them (``JSESSIONID=...``) is refused instead of sent.
+    session_cookie_names=SESSION_COOKIE_NAMES,
+    form_charset=FORM_CHARSET,
 )
 
 
@@ -81,11 +110,15 @@ class UfpbNavigator:
         )
 
     def looks_logged_out(self, text, url=""):
-        # Text only, as before providers existed; the final URL is not consulted.
+        if _is_public_area(url):
+            return True
         return (
             self.profile.auth_marker not in text
             and self.profile.login_redirect_marker in text
         )
+
+    def portal_reached(self, text, url=""):
+        return _portal_reached(text, self.profile)
 
     def portal_menu_post(self, session, portal, label):
         from ..parsers.portal import build_menu_postback
@@ -127,22 +160,32 @@ class UfpbNavigator:
         return session.post(self.profile.portal_action_url, fields)
 
 
+def _is_public_area(url: str) -> bool:
+    path = urlsplit(url).path
+    return path == PUBLIC_AREA_PATH or path.startswith(PUBLIC_AREA_PATH + "/")
+
+
+def _portal_reached(text: str, profile: InstitutionProfile) -> bool:
+    # The entry URL 302s to the beta portal, which links sign-out as /sigaa/logoff/
+    # with no dispatch=logOff, so the shared authenticated_portal check rejects it.
+    return profile.auth_marker in text
+
+
 def perform_login(client, username: str, password: str, *, profile: InstitutionProfile) -> str:
     """Authenticate and return the rendered portal HTML (with the turma list).
 
-    Raises ``LoginRejectedError`` (a ``ValueError``) if the resulting portal is
-    not authenticated.
+    The logon form carries an ALTCHA captcha: the challenge is fetched from the
+    widget's endpoint, solved (proof-of-work) and posted in its hidden field
+    alongside the credentials. Raises ``LoginRejectedError`` if the resulting
+    portal is not authenticated.
     """
-    import httpx
-
-    from ..errors import LoginRejectedError, MissingCredentialsError
     from ..http import extract_viewstate
 
     if not username or not password:
         raise MissingCredentialsError("missing SIGAA username or password")
+    _refuse_browser_session(profile, password)
     login_page = client.get(profile.logon_url)
     login_page.raise_for_status()
-
     fields = {
         "form": "form",
         "form:width": "1280",
@@ -151,6 +194,7 @@ def perform_login(client, username: str, password: str, *, profile: InstitutionP
         "form:senha": password,
         "form:entrar": "Entrar",
         "javax.faces.ViewState": extract_viewstate(login_page.text),
+        **_answer_captcha(client, login_page.text, str(login_page.url), profile),
     }
     # The post-login redirect targets the deprecated classic portal, whose
     # http->https hop drops a trailing slash and 404s. The session cookie is set
@@ -165,8 +209,44 @@ def perform_login(client, username: str, password: str, *, profile: InstitutionP
     portal = client.get(profile.portal_entry_url)
     portal.raise_for_status()
     if profile.auth_marker not in portal.text:
-        raise LoginRejectedError("login failed: SIGAA rejected the credentials or showed a CAPTCHA")
+        raise LoginRejectedError("login failed: SIGAA rejected the credentials or captcha")
     return portal.text
+
+
+def _refuse_browser_session(profile: InstitutionProfile, password: str) -> None:
+    # While the captcha was unsolved, students stored a browser session's Cookie
+    # header in the password slot. It must be refused before any request. The
+    # secret is searched for the cookie names instead of parsed: a header the
+    # cookie parser rejects (a pasted header block, an odd third-party cookie)
+    # would otherwise slip through and be posted as the password.
+    if not profile.session_cookie_names:
+        return
+    if all(_names_cookie(password, name) for name in profile.session_cookie_names):
+        raise MissingCredentialsError(
+            f"stored secret for {profile.label} is a browser session Cookie header, "
+            "not a password; run `sigaa login` again and paste the password"
+        )
+
+
+def _names_cookie(secret: str, name: str) -> bool:
+    return re.search(rf"(?:^|[;:\s]){re.escape(name)}=", secret, re.IGNORECASE) is not None
+
+
+def _answer_captcha(client, login_html: str, page_url: str, profile: InstitutionProfile) -> dict:
+    """Solve the login page's ALTCHA challenge; return its hidden form field.
+
+    The page is expected to carry the widget; its absence means the login page
+    changed shape, which is never answered by posting a bare password.
+    """
+    widget = altcha_widget(login_html)
+    if widget is None:
+        raise UnrecognizedPageError("login", page_fingerprint(login_html))
+    url = urljoin(page_url, widget.challenge)
+    profile.validate_url(url)
+    response = client.get(url)
+    response.raise_for_status()
+    challenge = parse_challenge(response.text)
+    return {widget.name: form_field_value(challenge, solve_challenge(challenge))}
 
 
 NAVIGATOR = UfpbNavigator()

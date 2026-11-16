@@ -1,0 +1,24 @@
+<!DOCTYPE HTML>
+<!-- Synthetic: UFPB's logon.jsf shape. The ALTCHA widget (official 3.5.0) creates
+     the hidden "altcha" field at runtime, so it is absent from the server HTML. -->
+<html lang="pt-br">
+<head>
+<title>SIGAA-UFPB</title>
+<script src="/sigaa/javascript/altcha-3.5.0/altcha.umd.min.js" charset="UTF-8"></script>
+<script src="/sigaa/javascript/altcha-3.5.0/i18n/pt-br.umd.js" charset="UTF-8"></script>
+</head>
+<body>
+<div class="div-form">
+<form id="form" name="form" method="post" action="/sigaa/logon.jsf" enctype="application/x-www-form-urlencoded" onsubmit="javascript:desativarBotaoEntrar();">
+<input type="hidden" name="form" value="form" />
+<input id="form:width" type="hidden" name="form:width" value="0" />
+<input id="form:height" type="hidden" name="form:height" value="0" />
+<input id="form:login" type="text" name="form:login" class="form-control" size="20" />
+<input id="form:senha" type="password" name="form:senha" value="" size="20" class="form-control" />
+<input id="form:entrar" type="submit" name="form:entrar" value="Entrar" class="btn btn-primary" />
+<input type="hidden" name="javax.faces.ViewState" id="javax.faces.ViewState" value="j_id1" />
+<altcha-widget name="altcha" challenge="/sigaa/gerarDesafioCaptcha" language="pt-br" style="--altcha-max-width: 100%;"></altcha-widget>
+</form>
+</div>
+</body>
+</html>
