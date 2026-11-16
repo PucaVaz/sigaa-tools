@@ -99,7 +99,7 @@ def test_capture_preserves_http_bytes_metadata_and_two_class_contexts(monkeypatc
                      fetcher=lambda client, turma: "<html>served from memory</html>")
     features = (feature, replace(feature, key="enroll", opt_in=True), cached)
     monkeypatch.setattr(module, "FEATURES", features)
-    monkeypatch.setenv("SIGAA_SESSION", secrets.token_urlsafe())
+    monkeypatch.setenv("SIGAA_PASS", secrets.token_urlsafe())
     settings = Settings(username="test-student", db_path=tmp_path / "db")
     directory, manifest = module.capture(settings, output=tmp_path / "captures")
     entries = manifest["entries"]
@@ -186,7 +186,7 @@ def test_failed_class_lookup_survives_capture_and_probe(monkeypatch, tmp_path, f
         client.list_turmas = fail
         return client
     monkeypatch.setattr(module, "SigaaClient", factory)
-    monkeypatch.setenv("SIGAA_SESSION", secrets.token_urlsafe())
+    monkeypatch.setenv("SIGAA_PASS", secrets.token_urlsafe())
     directory, manifest = module.capture(
         Settings(username="test-student", institution="ufpb"), output=tmp_path / "captures")
     class_keys = {f.key for f in module.FEATURES if f.needs_turma}

@@ -35,6 +35,17 @@ class LoginRejectedError(SigaaError, ValueError):
     stage = STAGE_AUTH
 
 
+class CaptchaError(SigaaError):
+    """The login captcha could not be answered, so the form is never posted.
+
+    Covers an unparseable challenge, an algorithm this tool cannot run and a
+    solve that exceeds its bounds. Staged as ``auth``: the login cannot be
+    completed until it is fixed.
+    """
+
+    stage = STAGE_AUTH
+
+
 class ParseError(SigaaError):
     """A page SIGAA returned no longer matches the markup the parser expects."""
 

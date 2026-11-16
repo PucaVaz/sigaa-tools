@@ -149,6 +149,11 @@ class Settings:
                     f". {PASSWORD_ENV} is not used for {profile.label}: its login "
                     "needs a browser sign-in"
                 )
+            if profile.auth_mode == "password" and os.environ.get(SESSION_ENV):
+                message += (
+                    f". {SESSION_ENV} is not used for {profile.label}: its login "
+                    "takes a password"
+                )
             raise MissingCredentialsError(message)
         return self.username, password
 
