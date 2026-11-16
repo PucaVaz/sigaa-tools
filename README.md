@@ -225,6 +225,14 @@ hundred hash runs, under a second) and posts it with your credentials, so the
 usual keyring password flow works unattended. If UFPB ever replaces or hardens
 the captcha, `sync` and `watch` fail at stage `auth` instead of guessing.
 
+On an Apple-silicon Mac you can make the solve faster with the optional Metal
+backend: `uv tool install --force "sigaa-tools[metal] @ git+..."` (or
+`pip install 'sigaa-tools[metal]'`). The GPU shader compiles at runtime from
+embedded source — no Xcode needed — and is self-checked against the CPU solver
+on first use; any problem falls back to CPU silently. Force a backend with
+`SIGAA_ALTCHA_BACKEND=cpu|metal|auto` (default `auto`). The GPU is only used
+for this tool's own logins, one solve per login.
+
 ## Advanced manual configuration
 
 Usually you should run `sigaa init`. The examples below are for manual setups,

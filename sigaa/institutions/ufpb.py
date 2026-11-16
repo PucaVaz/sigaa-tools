@@ -3,7 +3,7 @@ from urllib.parse import urljoin
 
 import httpx
 
-from ..altcha import form_field_value, parse_challenge, solve
+from ..altcha import form_field_value, parse_challenge, solve_challenge
 from ..errors import (
     LoginRejectedError,
     MissingCredentialsError,
@@ -233,7 +233,7 @@ def _answer_captcha(client, login_html: str, page_url: str, profile: Institution
     response = client.get(url)
     response.raise_for_status()
     challenge = parse_challenge(response.text)
-    return {widget.name: form_field_value(challenge, solve(challenge))}
+    return {widget.name: form_field_value(challenge, solve_challenge(challenge))}
 
 
 NAVIGATOR = UfpbNavigator()
