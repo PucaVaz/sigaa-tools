@@ -176,12 +176,15 @@ def solve_challenge(
     """Solve with the best backend available, CPU as the floor.
 
     The Metal GPU backend (:mod:`sigaa.altcha_metal`) is used when the
-    ``[metal]`` extra is installed and its self-check passes; any Metal failure
-    falls back here, so correctness never depends on the GPU.
+    ``[metal]`` extra is installed and its self-check passes. Whatever goes
+    wrong there, short of the solve's own give-up bounds, falls back here, so
+    correctness never depends on the GPU. The fallback restarts at counter 0
+    (a failed GPU's progress is not trusted) inside what is left of the timeout.
     """
     backend = os.environ.get(BACKEND_ENV, "auto").strip().lower() or "auto"
     if backend not in {"auto", "cpu", "metal"}:
         raise CaptchaError(f"{BACKEND_ENV} must be auto, cpu or metal, got {backend!r}")
+    started = time.monotonic()
     if backend != "cpu":
         import importlib
 
@@ -197,13 +200,18 @@ def solve_challenge(
                     max_attempts=max_attempts,
                     timeout_seconds=timeout_seconds,
                 )
-            except altcha_metal.MetalUnavailable:
+            except CaptchaError:
+                raise  # the bounds were reached; the CPU would only repeat the search
+            except Exception:
+                # MetalUnavailable, but also anything pyobjc, the driver or the
+                # kernel's input packing raises: none of it may fail a login.
                 if backend == "metal":
                     raise CaptchaError(
                         "Metal backend requested by "
                         f"{BACKEND_ENV}=metal is unavailable: cannot solve"
                     ) from None
-    return solve(challenge, max_attempts=max_attempts, timeout_seconds=timeout_seconds)
+    remaining = max(0.0, timeout_seconds - (time.monotonic() - started))
+    return solve(challenge, max_attempts=max_attempts, timeout_seconds=remaining)
 
 
 def form_field_value(challenge: Challenge, solution: Solution) -> str:

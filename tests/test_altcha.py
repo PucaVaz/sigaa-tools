@@ -231,15 +231,15 @@ class _StubMetal(types.ModuleType):
 
     MetalUnavailable = type("MetalUnavailable", (RuntimeError,), {})
 
-    def __init__(self, *, fail=False):
+    def __init__(self, *, fail=False, error=None):
         super().__init__("sigaa.altcha_metal")
-        self.fail = fail
+        self.error = error or (self.MetalUnavailable("no device") if fail else None)
         self.calls = []
 
     def solve(self, challenge, **kwargs):
         self.calls.append(challenge)
-        if self.fail:
-            raise self.MetalUnavailable("no device")
+        if self.error is not None:
+            raise self.error
         return Solution(counter=1, derived_key="00ff", time_ms=1.0)
 
 
@@ -292,3 +292,54 @@ def test_unknown_backend_value_is_refused(monkeypatch):
 
     with pytest.raises(CaptchaError, match=BACKEND_ENV):
         solve_challenge(EASY_CHALLENGE)
+
+
+# Whatever the GPU path raises, a login must not fail on it: pyobjc and driver
+# errors, and input the kernel's packing rejects, are not MetalUnavailable.
+UNEXPECTED_METAL_ERRORS = [ValueError("non-hexadecimal"), struct.error("out of range"), OSError()]
+
+
+@pytest.mark.parametrize("error", UNEXPECTED_METAL_ERRORS, ids=lambda e: type(e).__name__)
+def test_auto_backend_falls_back_to_cpu_on_any_metal_error(monkeypatch, error):
+    monkeypatch.setitem(sys.modules, "sigaa.altcha_metal", _StubMetal(error=error))
+
+    assert solve_challenge(EASY_CHALLENGE).counter == 12
+
+
+@pytest.mark.parametrize("error", UNEXPECTED_METAL_ERRORS, ids=lambda e: type(e).__name__)
+def test_forced_metal_reports_any_metal_error_as_a_captcha_failure(monkeypatch, error):
+    monkeypatch.setenv(BACKEND_ENV, "metal")
+    monkeypatch.setitem(sys.modules, "sigaa.altcha_metal", _StubMetal(error=error))
+
+    with pytest.raises(CaptchaError, match="Metal backend requested"):
+        solve_challenge(EASY_CHALLENGE)
+
+
+def test_metal_giving_up_is_not_retried_on_the_cpu(monkeypatch):
+    stub = _StubMetal(error=CaptchaError("ALTCHA not solved after 5 attempts"))
+    monkeypatch.setitem(sys.modules, "sigaa.altcha_metal", stub)
+
+    def cpu(*args, **kwargs):
+        raise AssertionError("the bounds were reached; the CPU must not search again")
+
+    monkeypatch.setattr(altcha, "solve", cpu)
+
+    with pytest.raises(CaptchaError, match="5 attempts"):
+        solve_challenge(EASY_CHALLENGE)
+
+
+def test_cpu_fallback_gets_only_the_time_metal_left(monkeypatch):
+    clock = iter([100.0, 130.0])
+    monkeypatch.setattr(altcha.time, "monotonic", lambda: next(clock))
+    monkeypatch.setitem(sys.modules, "sigaa.altcha_metal", _StubMetal(fail=True))
+    seen = {}
+
+    def cpu(challenge, *, max_attempts, timeout_seconds):
+        seen.update(max_attempts=max_attempts, timeout_seconds=timeout_seconds)
+        return Solution(counter=12, derived_key="00", time_ms=1.0)
+
+    monkeypatch.setattr(altcha, "solve", cpu)
+
+    solve_challenge(EASY_CHALLENGE, max_attempts=50, timeout_seconds=90.0)
+
+    assert seen == {"max_attempts": 50, "timeout_seconds": 60.0}

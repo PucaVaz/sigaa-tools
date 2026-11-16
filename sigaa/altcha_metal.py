@@ -13,9 +13,11 @@ CommonCrypto in the ALTCHA study: a fully unrolled SHA-256 compression (16-word
 rolling schedule, indices literal so state lives in registers) driving PBKDF2
 in the exact HMAC shape the widget uses — key = nonce ‖ big-endian uint32
 counter, 32-byte key, U1 from ``salt ‖ INT(1)``. One GPU thread per counter;
-the lowest matching counter wins via an atomic min. Batches start small and
+the lowest matching counter wins via an atomic min. Batches start at 4096 and
 double on a miss, so SIGAA's current difficulty (~256 attempts) usually clears
-in one ~5 ms dispatch and the recommended counter (10 000) in one sweep.
+in one dispatch (~65 ms floor on an M5) and the recommended counter (10 000)
+in two. The winning key is re-derived with hashlib before it is returned, so a
+key the CPU would not produce is never posted.
 
 This solver answers this tool's own login — one solve per login, like a
 browser ticking the widget. It is not a bulk solver, and never targets
@@ -26,9 +28,10 @@ from __future__ import annotations
 
 import hashlib
 import struct
+import threading
 import time
 
-from .altcha import CaptchaError, Challenge, Solution
+from .altcha import MAX_COUNTER, CaptchaError, Challenge, Solution
 
 # Prefix lengths the kernel compares in ≤4 words. Everything else (odd hex
 # length, longer prefixes, other key lengths) stays on the CPU solver, which
@@ -41,6 +44,12 @@ _REQUIRED_NONCE_SALT = 16
 # single dispatch, and doubling covers the recommended counter 10000 in two.
 _BATCH_START = 4096
 _MAX_BATCH = 16384
+# A dispatch lasts as long as one counter's whole derivation, whatever the
+# batch size: about 13 us per iteration on an M5 (the ~65ms floor above is
+# SIGAA's cost of 5000). The timeout is only checked between dispatches and a
+# dispatch cannot be interrupted, so a cost that would hold the GPU for more
+# than ~2s is left to the CPU solver, which checks the clock every attempt.
+_MAX_COST = 150_000
 _THREADS_PER_GROUP_CAP = 256
 
 # First-use self-check: a tiny known challenge solved on the GPU and compared
@@ -253,6 +262,10 @@ class MetalSolver:
         # Every thread writes its 32-byte key, so the batch buffer covers the
         # largest dispatch.
         self._keys = device.newBufferWithLength_options_(_MAX_BATCH * 32, 0)
+        # The solver is a process-wide singleton and its key buffer is shared:
+        # a dispatch and the read of its winning key must not interleave with
+        # another caller's dispatch.
+        self._dispatch_lock = threading.Lock()
         self._self_check()
 
     def solve(
@@ -269,28 +282,26 @@ class MetalSolver:
         salt = bytes.fromhex(challenge.salt)
         if len(nonce) != _REQUIRED_NONCE_SALT or len(salt) != _REQUIRED_NONCE_SALT:
             raise MetalUnavailable("GPU kernel expects a 16-byte nonce and salt")
-        prefix = bytes.fromhex(challenge.key_prefix)
-        if not 1 <= len(prefix) <= _MAX_PREFIX_BYTES:
-            raise MetalUnavailable(
-                f"GPU kernel compares prefixes of 1..{_MAX_PREFIX_BYTES} bytes"
-            )
+        if challenge.cost > _MAX_COST:
+            raise MetalUnavailable(f"GPU dispatch would outlast the timeout check above cost {_MAX_COST}")
+        prefix = _whole_byte_prefix(challenge.key_prefix)
         target = [0, 0, 0, 0]
         for index, byte in enumerate(prefix):
             target[index // 4] |= byte << (8 * (3 - index % 4))
 
         started = time.monotonic()
+        # Same bound as the CPU solver: max_attempts derivations, counters from 0.
+        limit = min(max_attempts, MAX_COUNTER + 1)
         base, batch = 0, _BATCH_START
-        while base <= max_attempts:
-            batch = min(batch, max_attempts - base + 1)
-            hit = self._run_batch(nonce, salt, target, challenge, base, batch)
+        while base < limit:
+            batch = min(batch, limit - base)
+            hit = self._run_batch(nonce, salt, target, len(prefix), challenge.cost, base, batch)
             if hit is not None:
-                key = self._key(hit)
-                if not key.startswith(challenge.key_prefix.lower()):
-                    # The kernel checked the same condition; a disagreement
-                    # means the GPU path cannot be trusted for this login.
-                    raise MetalUnavailable("GPU key disagrees with the requested prefix")
+                offset, key = hit
+                counter = base + offset
+                self._verify(challenge, nonce, salt, counter, key)
                 return Solution(
-                    counter=base + hit,
+                    counter=counter,
                     derived_key=key,
                     time_ms=(time.monotonic() - started) * 1000,
                 )
@@ -306,16 +317,31 @@ class MetalSolver:
             f"(prefix {challenge.key_prefix!r})"
         )
 
+    @staticmethod
+    def _verify(challenge: Challenge, nonce: bytes, salt: bytes, counter: int, key: str) -> None:
+        """Refuse a GPU answer the CPU would not give: one derivation, <1 ms.
+
+        This is what makes the GPU a speed-only change. A kernel or driver
+        fault, or a key read from another dispatch, ends in the CPU fallback
+        instead of a rejected login.
+        """
+        expected = hashlib.pbkdf2_hmac(
+            "sha256", nonce + struct.pack(">I", counter), salt, challenge.cost, 32
+        ).hex()
+        if key != expected or not expected.startswith(challenge.key_prefix.lower()):
+            raise MetalUnavailable("GPU answer disagrees with hashlib at the winning counter")
+
     def _run_batch(
         self,
         nonce: bytes,
         salt: bytes,
         target: list[int],
-        challenge: Challenge,
+        prefix_bytes: int,
+        cost: int,
         base: int,
         count: int,
-    ) -> int | None:
-        """Dispatch one batch; return the winning counter's offset or None."""
+    ) -> tuple[int, str] | None:
+        """Dispatch one batch; return the winning counter's offset and key, or None."""
         Metal = self._Metal
         params = struct.pack(
             "<16I",
@@ -323,35 +349,38 @@ class MetalSolver:
             *struct.unpack(">4I", salt),
             *target,
             base,
-            challenge.cost,
-            len(bytes.fromhex(challenge.key_prefix)),
+            cost,
+            prefix_bytes,
             count,
         )
-        params_buffer = self._device.newBufferWithBytes_length_options_(
-            params, len(params), 0
-        )
-        found_buffer = self._device.newBufferWithBytes_length_options_(
-            struct.pack("<I", 0xFFFFFFFF), 4, 0
-        )
-        command = self._queue.commandBuffer()
-        encoder = command.computeCommandEncoder()
-        encoder.setComputePipelineState_(self._pipeline)
-        encoder.setBuffer_offset_atIndex_(params_buffer, 0, 0)
-        encoder.setBuffer_offset_atIndex_(self._keys, 0, 1)
-        encoder.setBuffer_offset_atIndex_(found_buffer, 0, 2)
-        threads = min(
-            _THREADS_PER_GROUP_CAP, self._pipeline.maxTotalThreadsPerThreadgroup()
-        )
-        encoder.dispatchThreads_threadsPerThreadgroup_(
-            Metal.MTLSizeMake(count, 1, 1), Metal.MTLSizeMake(threads, 1, 1)
-        )
-        encoder.endEncoding()
-        command.commit()
-        command.waitUntilCompleted()
-        if command.error() is not None:
-            raise MetalUnavailable(f"GPU dispatch failed: {command.error()}")
-        found = struct.unpack("<I", b"".join(found_buffer.contents()[:4]))[0]
-        return None if found == 0xFFFFFFFF else found
+        with self._dispatch_lock:
+            params_buffer = self._device.newBufferWithBytes_length_options_(
+                params, len(params), 0
+            )
+            found_buffer = self._device.newBufferWithBytes_length_options_(
+                struct.pack("<I", 0xFFFFFFFF), 4, 0
+            )
+            command = self._queue.commandBuffer()
+            encoder = command.computeCommandEncoder()
+            encoder.setComputePipelineState_(self._pipeline)
+            encoder.setBuffer_offset_atIndex_(params_buffer, 0, 0)
+            encoder.setBuffer_offset_atIndex_(self._keys, 0, 1)
+            encoder.setBuffer_offset_atIndex_(found_buffer, 0, 2)
+            threads = min(
+                _THREADS_PER_GROUP_CAP, self._pipeline.maxTotalThreadsPerThreadgroup()
+            )
+            encoder.dispatchThreads_threadsPerThreadgroup_(
+                Metal.MTLSizeMake(count, 1, 1), Metal.MTLSizeMake(threads, 1, 1)
+            )
+            encoder.endEncoding()
+            command.commit()
+            command.waitUntilCompleted()
+            if command.error() is not None:
+                raise MetalUnavailable(f"GPU dispatch failed: {command.error()}")
+            found = struct.unpack("<I", b"".join(found_buffer.contents()[:4]))[0]
+            if found == 0xFFFFFFFF:
+                return None
+            return found, self._key(found)
 
     def _key(self, gid: int) -> str:
         raw = b"".join(self._keys.contents()[gid * 32 : (gid + 1) * 32])
@@ -360,25 +389,16 @@ class MetalSolver:
         return struct.pack(">8I", *struct.unpack("<8I", raw)).hex()
 
     def _self_check(self) -> None:
-        challenge = Challenge(
-            algorithm="PBKDF2/SHA-256",
-            cost=_SELF_CHECK_COST,
-            key_length=32,
-            key_prefix="00",
-            nonce=_SELF_CHECK_NONCE,
-            salt=_SELF_CHECK_SALT,
-            signature="self-check",
-            parameters={},
-        )
         hit = self._run_batch(
             bytes.fromhex(_SELF_CHECK_NONCE),
             bytes.fromhex(_SELF_CHECK_SALT),
             [0, 0, 0, 0],
-            challenge,
+            1,
+            _SELF_CHECK_COST,
             _SELF_CHECK_COUNTER,
             1,
         )
-        if hit != 0:
+        if hit is None or hit[0] != 0:
             raise MetalUnavailable("GPU self-check did not produce its known key")
         expected = hashlib.pbkdf2_hmac(
             "sha256",
@@ -387,5 +407,23 @@ class MetalSolver:
             _SELF_CHECK_COST,
             32,
         ).hex()
-        if self._key(0) != expected:
+        if hit[1] != expected:
             raise MetalUnavailable("GPU output disagrees with hashlib at the self-check")
+
+
+def _whole_byte_prefix(key_prefix: str) -> bytes:
+    """The prefix as bytes, or ``MetalUnavailable`` when the kernel cannot compare it.
+
+    The widget compares hex text, so an odd-length prefix ("0", "000") is valid;
+    the kernel compares whole bytes. Those, and anything not hexadecimal, belong
+    to the CPU solver.
+    """
+    if len(key_prefix) % 2:
+        raise MetalUnavailable("GPU kernel compares whole-byte prefixes only")
+    try:
+        prefix = bytes.fromhex(key_prefix)
+    except ValueError:
+        raise MetalUnavailable("GPU kernel needs a hexadecimal prefix") from None
+    if not 1 <= len(prefix) <= _MAX_PREFIX_BYTES:
+        raise MetalUnavailable(f"GPU kernel compares prefixes of 1..{_MAX_PREFIX_BYTES} bytes")
+    return prefix
