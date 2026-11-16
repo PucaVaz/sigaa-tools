@@ -16,6 +16,34 @@ class LoginForm:
     password_field: str
 
 
+@dataclass(frozen=True)
+class AltchaWidget:
+    """The ``<altcha-widget>`` guarding a login form.
+
+    ``challenge`` is the URL the widget fetches its signed challenge from and
+    ``name`` the hidden field the solved payload is posted in; the widget
+    creates that field at runtime, so it is absent from the server HTML.
+    """
+
+    name: str
+    challenge: str
+
+
+def altcha_widget(html):
+    """The page's ALTCHA widget, or None when the form carries no captcha.
+
+    A widget without a challenge URL cannot be answered, so it is unrecognized
+    markup rather than the absence of a captcha.
+    """
+    soup = BeautifulSoup(html, "lxml")
+    node = soup.select_one("altcha-widget")
+    if node is None:
+        return None
+    if not node.get("challenge"):
+        raise UnrecognizedPageError("altcha widget", page_fingerprint(soup))
+    return AltchaWidget(str(node.get("name") or "altcha"), str(node["challenge"]))
+
+
 def login_action(html, url):
     soup = BeautifulSoup(html, "lxml")
     forms = [
