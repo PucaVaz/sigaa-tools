@@ -1,4 +1,6 @@
 """UFPB endpoints and JSF beta-portal navigation."""
+from urllib.parse import urlsplit
+
 from ..errors import NavigationError
 from .base import Capability, InstitutionProfile, MenuLabel
 
@@ -21,8 +23,12 @@ AVA_URL = f"{BASE}/ava/index.jsf"
 AUTH_MARKER = "Sair do SIGAA"
 # Substring of the URL we get bounced to when a session expires.
 LOGIN_REDIRECT_MARKER = "logon.jsf"
+# A dead session is redirected here (/sigaa/portal/discente/ -> /sigaa/ ->
+# /publico/): a small public page with no login form and no logon.jsf link.
+PUBLIC_AREA_PATH = "/publico"
 
 KEYRING_SERVICE = "sigaa-ufpb"
+SESSION_COOKIE_NAMES = frozenset({"JSESSIONID"})
 
 # UFPB class-time slots. Day digits: 2=Mon .. 7=Sat. Shift: M/T/N.
 # NOTE: clock times below are an UNCONFIRMED default; confirm against a turma's
@@ -73,6 +79,10 @@ PROFILE = InstitutionProfile(
         MenuLabel.OPPORTUNITIES: "Inscrever-se em Seleção de Projeto de Ensino",
     },
     capabilities=frozenset(Capability),
+    # The logon form carries an ALTCHA captcha, so a password cannot be posted
+    # unattended: the student signs in with a browser and the session is replayed.
+    auth_mode="session",
+    session_cookie_names=SESSION_COOKIE_NAMES,
     form_charset=FORM_CHARSET,
 )
 
@@ -82,16 +92,20 @@ class UfpbNavigator:
         self.profile = profile
 
     def login(self, session):
-        return perform_login(
-            session._client, session._username, session._password, profile=self.profile
-        )
+        from . import auth_session
+
+        return auth_session.perform_login(session, self.profile)
 
     def looks_logged_out(self, text, url=""):
-        # Text only, as before providers existed; the final URL is not consulted.
+        if _is_public_area(url):
+            return True
         return (
             self.profile.auth_marker not in text
             and self.profile.login_redirect_marker in text
         )
+
+    def portal_reached(self, text, url=""):
+        return _portal_reached(text, self.profile)
 
     def portal_menu_post(self, session, portal, label):
         from ..parsers.portal import build_menu_postback
@@ -133,46 +147,15 @@ class UfpbNavigator:
         return session.post(self.profile.portal_action_url, fields)
 
 
-def perform_login(client, username: str, password: str, *, profile: InstitutionProfile) -> str:
-    """Authenticate and return the rendered portal HTML (with the turma list).
+def _is_public_area(url: str) -> bool:
+    path = urlsplit(url).path
+    return path == PUBLIC_AREA_PATH or path.startswith(PUBLIC_AREA_PATH + "/")
 
-    Raises ``LoginRejectedError`` (a ``ValueError``) if the resulting portal is
-    not authenticated.
-    """
-    import httpx
 
-    from ..errors import LoginRejectedError, MissingCredentialsError
-    from ..http import extract_viewstate
-
-    if not username or not password:
-        raise MissingCredentialsError("missing SIGAA username or password")
-    login_page = client.get(profile.logon_url)
-    login_page.raise_for_status()
-
-    fields = {
-        "form": "form",
-        "form:width": "1280",
-        "form:height": "800",
-        "form:login": username,
-        "form:senha": password,
-        "form:entrar": "Entrar",
-        "javax.faces.ViewState": extract_viewstate(login_page.text),
-    }
-    # The post-login redirect targets the deprecated classic portal, whose
-    # http->https hop drops a trailing slash and 404s. The session cookie is set
-    # regardless, so the status of this response is irrelevant.
-    try:
-        client.post(profile.logon_url, data=fields, follow_redirects=False)
-    except httpx.HTTPError:
-        pass
-
-    # Enter via the slash-terminated classic URL, which 302s to the full beta
-    # portal. A plain GET of the beta URL returns only a loading shell.
-    portal = client.get(profile.portal_entry_url)
-    portal.raise_for_status()
-    if profile.auth_marker not in portal.text:
-        raise LoginRejectedError("login failed: SIGAA rejected the credentials or showed a CAPTCHA")
-    return portal.text
+def _portal_reached(text: str, profile: InstitutionProfile) -> bool:
+    # The entry URL 302s to the beta portal, which links sign-out as /sigaa/logoff/
+    # with no dispatch=logOff, so the shared authenticated_portal check rejects it.
+    return profile.auth_marker in text
 
 
 NAVIGATOR = UfpbNavigator()

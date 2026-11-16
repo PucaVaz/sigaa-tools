@@ -14,13 +14,18 @@ from sigaa.errors import (
     error_stage,
 )
 from sigaa.http import Session
+from sigaa.institutions import all as all_institutions
 from sigaa.institutions import auth_session, get
+from sigaa.institutions.ufpb import UfpbNavigator
+from sigaa.parsers.authentication import authenticated_portal
 
 FIXTURES = Path(__file__).parent / "fixtures/ufcg"
+UFPB_FIXTURES = Path(__file__).parent / "fixtures"
 SSO = "sso.example.edu.br"
 PROFILE = replace(
     get("ufcg").profile, auth_mode="session", sso_hosts=frozenset({SSO})
 )
+UFPB = get("ufpb").profile
 
 
 class Navigator:
@@ -29,6 +34,16 @@ class Navigator:
 
     def looks_logged_out(self, text, url=""):
         return url.endswith("/expired.jsp")
+
+    def portal_reached(self, text, url=""):
+        return authenticated_portal(text, url, PROFILE)
+
+
+class UfpbSessionNavigator(UfpbNavigator):
+    """UFPB's own navigator, logging in by replaying a session instead of a password."""
+
+    def login(self, session):
+        return auth_session.perform_login(session, UFPB)
 
 
 def _cookie():
@@ -122,6 +137,21 @@ def test_cookie_header_prefix_is_accepted():
     assert auth_session.parse_cookie_header(header) == {"a": "1", "b": "2"}
 
 
+@pytest.mark.parametrize("separator", ["@", ",", "/", "(", "?", "{", "<"])
+def test_secret_with_an_illegal_cookie_key_is_refused_without_quoting_it(separator):
+    # http.cookies raises CookieError("Illegal key '<text before =>'") for these;
+    # for a leftover password that text is part of the secret.
+    prefix, suffix = secrets.token_hex(4), secrets.token_hex(4)
+    secret = f"{prefix}{separator}{suffix}={secrets.token_hex(4)}"
+
+    with pytest.raises(MissingCredentialsError) as excinfo:
+        auth_session.parse_cookie_header(secret)
+
+    assert error_stage(excinfo.value) == STAGE_AUTH
+    assert prefix not in str(excinfo.value)
+    assert suffix not in str(excinfo.value)
+
+
 def test_session_institution_falls_back_to_sigaa_session_not_sigaa_pass(monkeypatch):
     import sigaa.config as config_module
 
@@ -141,8 +171,8 @@ def test_session_institution_falls_back_to_sigaa_session_not_sigaa_pass(monkeypa
 
 
 def test_password_institutions_are_unchanged():
-    assert get("ufpb").profile.auth_mode == "password"
-    assert get("ufpb").profile.sso_hosts == frozenset()
+    assert get("ufcg").profile.auth_mode == "password"
+    assert get("ufcg").profile.sso_hosts == frozenset()
 
 
 def test_navigator_expired_page_without_login_form_is_an_expired_session():
@@ -155,3 +185,110 @@ def test_navigator_expired_page_without_login_form_is_an_expired_session():
     with _session(handler, _cookie()) as session:
         with pytest.raises(LoginRejectedError, match="expired"):
             session.login()
+
+
+def _ufpb_session(handler, secret):
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    return Session(
+        "test-student", secret, profile=UFPB, navigator=UfpbSessionNavigator(), client=client
+    )
+
+
+def test_every_navigator_judges_the_portal():
+    for institution in all_institutions():
+        assert callable(institution.navigator.portal_reached), institution.profile.key
+
+
+def test_ufpb_session_is_accepted_on_the_beta_portal_it_redirects_to():
+    # The entry URL 302s to the beta portal, which links sign-out as /sigaa/logoff/
+    # rather than dispatch=logOff; the shared check used to reject it.
+    header = _cookie()
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        if str(request.url) == UFPB.portal_entry_url:
+            return httpx.Response(302, headers={"Location": UFPB.portal_action_url})
+        return httpx.Response(200, text=(UFPB_FIXTURES / "portal.html").read_text())
+
+    with _ufpb_session(handler, header) as session:
+        assert UFPB.auth_marker in session.login()
+        assert session._authenticated
+    assert [str(r.url) for r in requests] == [UFPB.portal_entry_url, UFPB.portal_action_url]
+    assert all(r.method == "GET" and r.headers["cookie"] == header for r in requests)
+
+
+def test_ufpb_expired_session_lands_on_the_login_form_and_is_rejected():
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, text=(UFPB_FIXTURES / "auth_redirect.html").read_text())
+
+    with _ufpb_session(handler, _cookie()) as session:
+        with pytest.raises(LoginRejectedError, match="expired"):
+            session.login()
+    assert all(r.method == "GET" for r in requests)
+
+
+def test_ufpb_navigator_tells_the_portal_from_the_login_form():
+    portal = (UFPB_FIXTURES / "portal.html").read_text()
+    assert UfpbNavigator().portal_reached(portal, UFPB.portal_action_url)
+    assert not UfpbNavigator().portal_reached(
+        (UFPB_FIXTURES / "auth_redirect.html").read_text(), UFPB.logon_url
+    )
+
+
+def test_ufpb_signs_in_by_session_and_never_posts_the_login_form():
+    # The logon form carries a captcha, so the real navigator replays a session.
+    assert UFPB.auth_mode == "session"
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, text=(UFPB_FIXTURES / "portal.html").read_text())
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    with Session(
+        "test-student", _cookie(), profile=UFPB, navigator=UfpbNavigator(), client=client
+    ) as session:
+        assert UFPB.auth_marker in session.login()
+    assert [r.method for r in requests] == ["GET"]
+    assert UFPB.logon_url not in {str(r.url) for r in requests}
+
+
+@pytest.mark.parametrize("with_equals_sign", [False, True])
+def test_ufpb_leftover_password_is_refused_before_any_request(with_equals_sign):
+    # Accounts set up before the captcha still hold a password in the same
+    # keyring slot. One containing "=" parses as a cookie and must not be sent.
+    leftover = secrets.token_hex(8)
+    if with_equals_sign:
+        leftover = f"{leftover}={secrets.token_hex(4)}"
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200)
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    with Session(
+        "test-student", leftover, profile=UFPB, navigator=UfpbNavigator(), client=client
+    ) as session:
+        with pytest.raises(MissingCredentialsError) as excinfo:
+            session.login()
+    assert error_stage(excinfo.value) == STAGE_AUTH
+    assert leftover not in str(excinfo.value)
+    assert requests == []
+
+
+def test_ufpb_password_variable_alone_is_named_as_unused(monkeypatch):
+    monkeypatch.setenv("SIGAA_PASS", secrets.token_urlsafe())
+    monkeypatch.delenv("SIGAA_SESSION", raising=False)
+    monkeypatch.setattr("keyring.get_password", lambda *a: None)
+    settings = Settings(institution="ufpb")
+    settings.username = "test-student"
+
+    problem = settings.credentials_problem()
+
+    assert "SIGAA_SESSION" in problem
+    assert "SIGAA_PASS is not used for UFPB" in problem

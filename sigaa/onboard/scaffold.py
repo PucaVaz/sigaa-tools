@@ -48,6 +48,9 @@ class Navigator:
     def looks_logged_out(self, text, url=""):
         raise _pending("session check")
 
+    def portal_reached(self, text, url=""):
+        raise _pending("portal check")
+
     def portal_menu_post(self, session, portal, label):
         raise _pending("portal navigation")
 

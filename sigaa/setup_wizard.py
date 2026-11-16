@@ -16,6 +16,7 @@ from xml.sax.saxutils import escape
 from . import config
 from .client import SigaaClient
 from .config import Settings
+from .errors import LoginRejectedError, MissingCredentialsError
 from .institutions import InstitutionProfile, all, get
 from .services.sync import sync
 
@@ -58,6 +59,13 @@ def verify_and_store_login(
     try:
         with SigaaClient(username, password, institution=institution) as client:
             student = client.get_student()
+    except (LoginRejectedError, MissingCredentialsError) as e:
+        if get(institution).profile.auth_mode == "session":
+            # An imported session has no password to get wrong; keep the reason.
+            raise ValueError(str(e)) from e
+        raise ValueError(
+            "incorrect username or password. check credentials and try again."
+        ) from e
     except Exception as e:
         error_msg = str(e).lower()
         if "unauthorized" in error_msg or "401" in error_msg or "login" in error_msg:
@@ -72,11 +80,12 @@ def verify_and_store_login(
             raise ValueError(f"login failed: {e}") from e
 
     password_stored = True
-    storage_message = "password stored in keyring"
+    profile = get(institution).profile
+    secret_kind = "session" if profile.auth_mode == "session" else "password"
+    storage_message = f"{secret_kind} stored in keyring"
     try:
         import keyring
 
-        profile = get(institution).profile
         keyring.set_password(profile.keyring_service, username, password)
         keyring.set_password(
             profile.keyring_service,
@@ -108,11 +117,13 @@ def prompt_login(settings: Settings, input_func: Callable[[str], str] = input) -
     if not settings.username:
         settings.username = input_func("SIGAA username: ").strip()
     if get(settings.institution).profile.auth_mode == "session":
-        # SSO with reCAPTCHA: the student logs in with a browser; we store the
-        # SIGAA session's Cookie header in place of a password.
+        # A captcha guards the login: the student logs in with a browser; we store
+        # the SIGAA session's Cookie header in place of a password.
         print("Log in to SIGAA in your browser, then copy the request's whole Cookie value")
         print("(DevTools > Network > any SIGAA page > Request Headers > Cookie). Keep every")
         print("cookie in it: the Application tab can miss ones SIGAA needs.")
+        print("Use a private window and close it without signing out: signing out")
+        print("ends the session this tool reuses.")
         password = getpass.getpass("SIGAA Cookie header: ").strip()
     else:
         password = getpass.getpass("SIGAA password: ")

@@ -8,7 +8,7 @@ browser and stores the SIGAA session's Cookie header with
 from urllib.parse import urlsplit
 
 from ..errors import NavigationError
-from ..parsers.authentication import has_login_form
+from ..parsers.authentication import authenticated_portal, has_login_form
 from . import auth_session
 from .base import Capability, InstitutionProfile, MenuLabel
 
@@ -69,6 +69,9 @@ class UfgNavigator:
         if urlsplit(url).path.endswith(("verTelaLogin.do", "logar.do", "expirada.jsp")):
             return True
         return has_login_form(text)
+
+    def portal_reached(self, text, url=""):
+        return authenticated_portal(text, url, PROFILE)
 
     def portal_menu_post(self, session, portal, label):
         from ..parsers.portal import jscook_menu_postback

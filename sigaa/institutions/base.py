@@ -80,6 +80,9 @@ class InstitutionProfile:
     # student logs in with a browser and the stored secret is that session's
     # Cookie header, never a password.
     auth_mode: str = "password"
+    # Cookies an imported session must carry. A stored secret without them is
+    # rejected before any request, so a leftover password is never sent.
+    session_cookie_names: frozenset[str] = frozenset()
     # Single sign-on hosts SIGAA bounces an expired session to. A redirect there
     # is never followed; it means the session is gone (stage ``auth``).
     sso_hosts: frozenset[str] = frozenset()
@@ -113,6 +116,9 @@ class InstitutionProfile:
 class Navigator(Protocol):
     def login(self, session: Session) -> str: ...
     def looks_logged_out(self, text: str, url: str = "") -> bool: ...
+    # Whether a page is the authenticated student portal. Forks land on different
+    # pages and mark sign-out differently, so a replayed session is judged here.
+    def portal_reached(self, text: str, url: str = "") -> bool: ...
     def portal_menu_post(self, session: Session, portal: str, label: str) -> str: ...
     def enter_turma(self, session: Session, portal: str, turma: Turma) -> str: ...
     def turma_menu_post(self, session: Session, principal: str, label: str) -> str: ...

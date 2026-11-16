@@ -6,11 +6,11 @@ a browser and stores that session's Cookie header with ``sigaa login``; this
 helper replays it against SIGAA only. It never contacts the SSO host: a bounce
 there raises ``SsoRedirectError`` from the request guard before it is sent.
 """
-from http.cookies import SimpleCookie
+from http.cookies import CookieError, SimpleCookie
 from urllib.parse import urlsplit
 
 from ..errors import LoginRejectedError, MissingCredentialsError
-from ..parsers.authentication import authenticated_portal, has_login_form
+from ..parsers.authentication import has_login_form
 
 _NOT_A_COOKIE = (
     "stored SIGAA session is not a Cookie header; paste the whole Cookie value "
@@ -26,7 +26,12 @@ def parse_cookie_header(header):
     if not header or "\n" in header or "\r" in header:
         raise MissingCredentialsError(_NOT_A_COOKIE)
     jar = SimpleCookie()
-    jar.load(header)
+    try:
+        jar.load(header)
+    except CookieError:
+        # CookieError quotes the offending key, which for a leftover password
+        # is part of the secret, so it must never reach a message or the store.
+        raise MissingCredentialsError(_NOT_A_COOKIE) from None
     cookies = {name: morsel.value for name, morsel in jar.items()}
     if not cookies:
         raise MissingCredentialsError(_NOT_A_COOKIE)
@@ -35,13 +40,18 @@ def parse_cookie_header(header):
 
 def perform_login(session, profile):
     cookies = parse_cookie_header(session._password)
+    if not profile.session_cookie_names <= cookies.keys():
+        raise MissingCredentialsError(
+            f"stored secret for {profile.label} is not a browser session; sign in "
+            "to SIGAA in a browser and run `sigaa login` again"
+        )
     client = session._client
     domain = urlsplit(profile.host).hostname
     for name, value in cookies.items():
         client.cookies.set(name, value, domain=domain, path="/")
     response = client.get(profile.portal_entry_url, follow_redirects=True)
     response.raise_for_status()
-    if authenticated_portal(response.text, response.url, profile):
+    if session.navigator.portal_reached(response.text, str(response.url)):
         return response.text
     # The navigator knows its fork's own "session expired" pages, which need not
     # carry a login form (UFG's is an empty expirada.jsp).
