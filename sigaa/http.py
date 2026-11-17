@@ -9,6 +9,8 @@ again, and retries the call once.
 from __future__ import annotations
 
 import re
+import time
+from collections.abc import Callable
 from urllib.parse import urlencode
 
 import httpx
@@ -18,6 +20,14 @@ from .errors import STAGE_AUTH, SigaaError
 from .institutions import InstitutionProfile, Navigator
 
 FORM_CONTENT_TYPE = "application/x-www-form-urlencoded"
+
+# A connection that was never established sent nothing, so any request may retry it.
+CONNECT_RETRIES = 2
+# Resends of a read-only request whose response was lost (timeout, dropped
+# connection). Bounded: with the 30 s timeout a dead server costs one request
+# at most (MAX_RESENDS + 1) timeouts before the run fails as ``network``.
+MAX_RESENDS = 2
+RESEND_BACKOFF_SECONDS = 1.0
 
 _VIEWSTATE_RE = re.compile(
     r'name="javax\.faces\.ViewState"[^>]*value="([^"]+)"'
@@ -57,15 +67,18 @@ class Session:
         timeout: float | httpx.Timeout = 30.0,
         profile: InstitutionProfile,
         navigator: Navigator,
+        sleep: Callable[[float], None] = time.sleep,
     ):
         self.profile = profile
         self.navigator = navigator
         self._username = username
         self._password = password
+        self._sleep = sleep
         self._client = client or httpx.Client(
             headers={"User-Agent": config.USER_AGENT},
             follow_redirects=True,
             timeout=timeout,
+            transport=httpx.HTTPTransport(retries=CONNECT_RETRIES),
             event_hooks={"request": [self._validate_request]},
         )
         self._authenticated = False
@@ -82,7 +95,16 @@ class Session:
         return portal_html
 
     def get(self, url: str) -> str:
-        return self._request("GET", url)
+        return self._request("GET", url, resendable=True)
+
+    def post_navigation(self, url: str, data: dict[str, str | list[str]]) -> str:
+        """POST a JSF postback that only navigates (open a turma, click a menu).
+
+        Unlike ``post``, it is resent when the response is lost: SIGAA answers a
+        repeated navigation postback with the same page. Never use it for a form
+        that changes account state.
+        """
+        return self._request("POST", url, data=data, resendable=True)
 
     def post(
         self, url: str, data: dict[str, str | list[str]], *, charset: str | None = None
@@ -152,17 +174,34 @@ class Session:
         return resp.content, resp.headers.get("content-type"), resp.headers.get("content-disposition")
 
     def _request(
-        self, method: str, url: str, data: dict | None = None, content: bytes | None = None
+        self,
+        method: str,
+        url: str,
+        data: dict | None = None,
+        content: bytes | None = None,
+        *,
+        resendable: bool = False,
     ) -> str:
         if not self._authenticated:
             self.login()
-        resp = self._send(method, url, data, content)
+        send = self._send_with_resends if resendable else self._send
+        resp = send(method, url, data, content)
         if self._looks_logged_out(resp):
             self.login()
-            resp = self._send(method, url, data, content)
+            resp = send(method, url, data, content)
             if self._looks_logged_out(resp):
                 raise AuthError("session lost and re-login did not restore it")
         return resp.text
+
+    def _send_with_resends(
+        self, method: str, url: str, data: dict | None, content: bytes | None = None
+    ) -> httpx.Response:
+        for resend in range(MAX_RESENDS):
+            try:
+                return self._send(method, url, data, content)
+            except httpx.TransportError:
+                self._sleep(RESEND_BACKOFF_SECONDS * 2**resend)
+        return self._send(method, url, data, content)
 
     def _send(
         self, method: str, url: str, data: dict | None, content: bytes | None = None

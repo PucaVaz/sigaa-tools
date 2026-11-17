@@ -19,7 +19,7 @@ from .documents import (
     document_spec,
     validate_academic_document,
 )
-from .errors import NavigationError
+from .errors import NavigationError, WrongTurmaError
 from .http import AuthError, Session, extract_viewstate
 from .institutions import Capability, MenuLabel, get
 from .models import (
@@ -55,6 +55,19 @@ from .parsers import tarefa as tarefa_parser
 from .parsers import tarefa_list as tarefa_list_parser
 from .parsers import topicos as topicos_parser
 from .parsers import transcript as transcript_parser
+from .parsers.turma_header import displayed_turma_code
+
+
+def _require_turma(html: str, turma: Turma) -> str:
+    """Return ``html`` unless its header names a turma other than ``turma``.
+
+    A page with no turma header, or a turma with no known code, cannot be
+    checked and is left to its parser.
+    """
+    displayed = displayed_turma_code(html)
+    if turma.code and displayed and displayed.casefold() != turma.code.casefold():
+        raise WrongTurmaError(turma.code, displayed)
+    return html
 
 
 class SigaaClient:
@@ -325,7 +338,18 @@ class SigaaClient:
         return self.navigator.portal_menu_post(self._session, self._portal(), link_text)
 
     def enter_turma(self, turma: Turma) -> str:
-        return self.navigator.enter_turma(self._session, self._portal(), turma)
+        try:
+            return self._enter_turma_once(turma)
+        except WrongTurmaError:
+            # After several Turma Virtual pages the cached portal ViewState goes
+            # stale and SIGAA keeps answering with the previous turma. A newly
+            # rendered portal carries a ViewState the server still honours.
+            self._portal_html = self._session.get(self.profile.portal_entry_url)
+            return self._enter_turma_once(turma)
+
+    def _enter_turma_once(self, turma: Turma) -> str:
+        page = self.navigator.enter_turma(self._session, self._portal(), turma)
+        return _require_turma(page, turma)
 
     def _principal_for_postback(self, turma: Turma, turma_html: str | None) -> str:
         """Return a Principal page that is safe to build one postback from.
@@ -352,7 +376,8 @@ class SigaaClient:
         from that page, see :meth:`_principal_for_postback`.
         """
         principal = self._principal_for_postback(turma, turma_html)
-        return self.navigator.turma_menu_post(self._session, principal, link_text)
+        page = self.navigator.turma_menu_post(self._session, principal, link_text)
+        return _require_turma(page, turma)
 
     def get_turma_grades(self, turma: Turma, turma_html: str | None = None) -> TurmaGrade | None:
         """Per-turma grade report (Ver Notas), linked to the turma."""
@@ -401,8 +426,8 @@ class SigaaClient:
         )
         if fields is None:
             raise NavigationError(f"news body postback not found: {news_id!r}")
-        body_html = self._session.post(self.profile.ava_url, fields)
-        return news_parser.parse_news_body(body_html)
+        body_html = self._session.post_navigation(self.profile.ava_url, fields)
+        return news_parser.parse_news_body(_require_turma(body_html, turma))
 
     def _open_event(self, event_id: str) -> str:
         """Replay the portal deadline anchor's postback to render the event page."""

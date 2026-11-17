@@ -46,6 +46,8 @@ class _FakeSession:
         filename = "vernotas.html" if "menu:notas" in fields else "plano.html"
         return (Path(__file__).parent / "fixtures" / filename).read_text()
 
+    post_navigation = post
+
 
 def _client() -> tuple[SigaaClient, _FakeSession]:
     client = SigaaClient.__new__(SigaaClient)

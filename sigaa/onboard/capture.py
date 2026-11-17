@@ -72,6 +72,10 @@ class ReadOnlySession:
         self.validate_post(data)
         return self._wrapped.post(url, data)
 
+    def post_navigation(self, url, data):
+        self.validate_post(data)
+        return self._wrapped.post_navigation(url, data)
+
 
 def private_directory(path: Path):
     """Create each missing directory privately; reject symlinks in the path."""
