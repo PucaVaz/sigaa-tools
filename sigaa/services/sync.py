@@ -7,7 +7,7 @@ Every failure is recorded in ``sync_run`` and tagged with a stage (see
 ``sigaa.errors``). A class page that cannot be read is reported in its
 ``ClassSummary`` and fails the run, while the other classes still sync.
 
-Classes are spread over independent logins that run at the same time. SIGAA
+Each class is read through a login of its own, all at the same time. SIGAA
 keeps the current turma in per-session state, so requests inside one session
 can never overlap; separate logins have separate state.
 """

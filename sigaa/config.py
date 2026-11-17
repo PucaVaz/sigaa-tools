@@ -24,9 +24,12 @@ KEYRING_SETTINGS_SERVICE = "sigaa-tools"
 PASSWORD_ENV = "SIGAA_PASS"
 SESSION_ENV = "SIGAA_SESSION"
 SYNC_SESSIONS_ENV = "SIGAA_SYNC_SESSIONS"
-# Independent logins a sync spreads its classes over. Two is what was measured
-# live (correct content, no server slowdown); more would only add load on SIGAA.
-MAX_SYNC_SESSIONS = 2
+# Most independent logins one sync opens: by default one per class, up to this.
+# Seven is the highest count measured live at UFPB (every class read correctly,
+# no server slowdown); a student with more classes shares logins between them.
+# The work is network waiting, so the machine barely matters: seven simultaneous
+# login proofs-of-work took 0.2 s on a laptop and 0.7 s on a small VM.
+MAX_SYNC_SESSIONS = 7
 
 logger = logging.getLogger(__name__)
 

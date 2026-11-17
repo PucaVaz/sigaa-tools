@@ -2,7 +2,8 @@
 
 SIGAA keeps the current turma in per-session state, so requests inside one
 session cannot overlap. Separate logins have separate state: measured live at
-UFPB, two sessions read all classes correctly in well under half the time. An
+UFPB with one login per class (seven), every class was read correctly in about
+a quarter of the time and the server answered no slower. An
 imported browser session (``auth_mode="session"``) is one server session however
 many clients replay it, so it always syncs sequentially.
 """
@@ -12,7 +13,7 @@ import threading
 
 import pytest
 
-from sigaa.config import SYNC_SESSIONS_ENV, Settings
+from sigaa.config import MAX_SYNC_SESSIONS, SYNC_SESSIONS_ENV, Settings
 from sigaa.errors import STAGE_AUTH, STAGE_NETWORK, STAGE_PARSE, LoginRejectedError
 from sigaa.models import NewsItem, Student, Turma
 from sigaa.services import sync as sync_module
@@ -130,27 +131,50 @@ def _run(monkeypatch, settings, sigaa: _Sigaa):
     return sync_module.sync(settings)
 
 
-def test_classes_are_split_across_two_logins(monkeypatch, settings):
+def test_every_class_gets_a_login_of_its_own(monkeypatch, settings):
     sigaa = _Sigaa()
 
     result = _run(monkeypatch, settings, sigaa)
 
     assert result.ok, result.error
     shares = sigaa.entered_by_session()
-    assert len(shares) == 2
-    assert all(shares)
-    assert sorted(code for share in shares for code in share) == sorted(CODES)
+    assert sorted(shares) == sorted([code] for code in CODES)
 
 
-def test_the_two_sessions_run_at_the_same_time(monkeypatch, settings):
+def test_the_sessions_run_at_the_same_time(monkeypatch, settings):
     sigaa = _Sigaa()
-    sigaa.overlap = threading.Barrier(2)
+    sigaa.overlap = threading.Barrier(len(CODES))
 
     result = _run(monkeypatch, settings, sigaa)
 
-    # A sequential run never gets a second party to the barrier and breaks it.
+    # A sequential run never gathers every party at the barrier and breaks it.
     assert result.ok, result.error
-    assert len({client.thread for client in sigaa.logins}) == 2
+    assert len({client.thread for client in sigaa.logins}) == len(CODES)
+
+
+def test_more_classes_than_the_session_cap_share_logins(monkeypatch, settings):
+    extra = [
+        Turma(id_turma=str(900000 + index), name=f"EXTRA {index}", code=f"EXTRA{index}")
+        for index in range(2)
+    ]
+    sigaa = _Sigaa(turmas=TURMAS + extra)
+
+    result = _run(monkeypatch, settings, sigaa)
+
+    assert result.ok, result.error
+    shares = sigaa.entered_by_session()
+    assert len(shares) == MAX_SYNC_SESSIONS
+    assert sum(len(share) for share in shares) == len(TURMAS) + len(extra)
+
+
+def test_the_session_count_can_be_lowered(monkeypatch, settings):
+    monkeypatch.setenv(SYNC_SESSIONS_ENV, "3")
+    sigaa = _Sigaa()
+
+    result = _run(monkeypatch, Settings(institution="ufpb", db_path=settings.db_path), sigaa)
+
+    assert result.ok, result.error
+    assert sorted(len(share) for share in sigaa.entered_by_session()) == [2, 2, 3]
 
 
 def test_results_keep_the_portal_order_whatever_finishes_first(monkeypatch, settings):
@@ -198,8 +222,9 @@ def test_a_second_login_that_is_rejected_fails_the_run(monkeypatch, settings):
 
     assert not result.ok
     assert result.error_stage == STAGE_AUTH
-    # The first session's classes synced and are still reported.
-    assert [summary.code for summary in result.classes] == CODES[0::2]
+    # Only the rejected session's class is missing from the report.
+    assert len(result.classes) == len(CODES) - 1
+    assert result.classes[0].code == CODES[0]
 
 
 def test_a_class_missing_from_the_second_sessions_portal_fails_the_run(monkeypatch, settings):
@@ -236,8 +261,9 @@ def test_the_session_count_can_be_set_to_one(monkeypatch, settings):
     assert sigaa.entered_by_session() == [CODES]
 
 
-def test_an_invalid_session_count_is_rejected(monkeypatch, settings):
-    monkeypatch.setenv(SYNC_SESSIONS_ENV, "0")
+@pytest.mark.parametrize("count", ["0", str(MAX_SYNC_SESSIONS + 1), "many"])
+def test_an_invalid_session_count_is_rejected(monkeypatch, settings, count):
+    monkeypatch.setenv(SYNC_SESSIONS_ENV, count)
 
     with pytest.raises(ValueError, match=SYNC_SESSIONS_ENV):
         Settings(institution="ufpb", db_path=settings.db_path)
