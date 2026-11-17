@@ -6,6 +6,10 @@ reports zero new items once caught up.
 Every failure is recorded in ``sync_run`` and tagged with a stage (see
 ``sigaa.errors``). A class page that cannot be read is reported in its
 ``ClassSummary`` and fails the run, while the other classes still sync.
+
+Classes are spread over independent logins that run at the same time. SIGAA
+keeps the current turma in per-session state, so requests inside one session
+can never overlap; separate logins have separate state.
 """
 
 from __future__ import annotations
@@ -14,12 +18,13 @@ import json
 import re
 import unicodedata
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from ..client import SigaaClient
 from ..config import Settings
 from ..errors import NavigationError, error_stage
-from ..institutions import Capability, get
+from ..institutions import Capability, InstitutionProfile, get
 from ..models import (
     Attendance,
     ClassActivity,
@@ -40,6 +45,7 @@ TOPIC_SOURCE = "topico"
 TAREFA_LIST_SOURCE = "tarefa"
 TOPIC_DETAIL = "tópico de aula"
 TAREFA_LIST_DETAIL = "tarefas"
+PASSWORD_AUTH = "password"
 
 
 @dataclass
@@ -100,10 +106,34 @@ def sync(settings: Settings, fetch_bodies: bool = False) -> SyncResult:
             # Stored before the classes, so a class activity the portal already
             # lists under its SIGAA id is not stored a second time.
             fresh_portal = [d for d in client.list_deadlines() if repo.upsert_deadline(d)]
-            for turma in turmas:
-                result.classes.append(
-                    _sync_turma(client, repo, turma, fetch_bodies, result, supported)
-                )
+            first_share, *other_shares = _split_between_sessions(turmas, settings)
+            with ThreadPoolExecutor(max_workers=max(1, len(other_shares))) as pool:
+                pending = [
+                    pool.submit(
+                        _sync_share_in_new_session,
+                        settings,
+                        (username, password),
+                        share,
+                        fetch_bodies,
+                        supported,
+                    )
+                    for share in other_shares
+                ]
+                synced = [
+                    _sync_turma_alone(client, repo, turma, fetch_bodies, supported)
+                    for turma in first_share
+                ]
+                failures = []
+                for share in pending:
+                    try:
+                        synced.extend(share.result())
+                    except Exception as exc:  # noqa: BLE001 - re-raised below
+                        failures.append(exc)
+            # Merged before a session's failure is raised, so the classes that
+            # did sync are still reported next to the error.
+            _merge_in_portal_order(result, turmas, synced)
+            if failures:
+                raise failures[0]
             _count_portal_deadlines(result, fresh_portal)
 
             if Capability.GRADES in supported:
@@ -119,6 +149,75 @@ def sync(settings: Settings, fetch_bodies: bool = False) -> SyncResult:
         repo.record_sync(len(result.new_items), ok=result.ok, detail=result.error)
         conn.close()
     return result
+
+
+def _split_between_sessions(turmas: list[Turma], settings: Settings) -> list[list[Turma]]:
+    """One list of classes per login; the first belongs to the session already open."""
+    sessions = _usable_sessions(get(settings.institution).profile, settings, len(turmas))
+    return [turmas[offset::sessions] for offset in range(sessions)]
+
+
+def _usable_sessions(profile: InstitutionProfile, settings: Settings, turma_count: int) -> int:
+    # An imported browser session is one server session however many clients
+    # replay its cookies: sharing it between threads crosses turma content.
+    if profile.auth_mode != PASSWORD_AUTH:
+        return 1
+    return max(1, min(settings.sync_sessions, turma_count))
+
+
+def _sync_share_in_new_session(
+    settings: Settings,
+    credentials: tuple[str, str],
+    share: list[Turma],
+    fetch_bodies: bool,
+    supported: frozenset[Capability],
+) -> list[tuple[ClassSummary, SyncResult]]:
+    """Sync ``share`` through a login and a store connection of this thread's own."""
+    conn = connect(settings.db_path)
+    try:
+        with SigaaClient(*credentials, institution=settings.institution) as client:
+            # The JSF hooks that open a turma belong to the portal render they
+            # were read from, so each session uses the ones from its own portal.
+            own_turmas = {turma.id_turma: turma for turma in client.list_turmas()}
+            missing = [turma.id_turma for turma in share if turma.id_turma not in own_turmas]
+            if missing:
+                raise NavigationError(f"class {missing[0]!r} is not on the second session's portal")
+            return [
+                _sync_turma_alone(
+                    client, Repository(conn), own_turmas[turma.id_turma], fetch_bodies, supported
+                )
+                for turma in share
+            ]
+    finally:
+        conn.close()
+
+
+def _sync_turma_alone(
+    client: SigaaClient,
+    repo: Repository,
+    turma: Turma,
+    fetch_bodies: bool,
+    supported: frozenset[Capability],
+) -> tuple[ClassSummary, SyncResult]:
+    """Sync one class into a result of its own, so sessions never share a list."""
+    found = SyncResult()
+    return _sync_turma(client, repo, turma, fetch_bodies, found, supported), found
+
+
+def _merge_in_portal_order(
+    result: SyncResult, turmas: list[Turma], synced: list[tuple[ClassSummary, SyncResult]]
+) -> None:
+    by_turma = {summary.id_turma: (summary, found) for summary, found in synced}
+    for turma in turmas:
+        if turma.id_turma not in by_turma:
+            continue
+        summary, found = by_turma[turma.id_turma]
+        result.classes.append(summary)
+        result.new_items.extend(found.new_items)
+        result.new_materials.extend(found.new_materials)
+        result.grade_updates.extend(found.grade_updates)
+        result.new_deadlines.extend(found.new_deadlines)
+        result.attendance_updates.extend(found.attendance_updates)
 
 
 def _sync_turma(

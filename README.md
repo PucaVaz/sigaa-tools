@@ -79,6 +79,7 @@ Agents can call `sipac_get_public_process` with `{"number": "23074.056437/2026-2
 
 Headless fallback: `export SIGAA_USER=... SIGAA_PASS=...`.
 Optional `SIGAA_DB=/path/to/sigaa.db` to override the store location.
+A sync reads your classes through two logins at once; `SIGAA_SYNC_SESSIONS=1` keeps it to one.
 
 ## MCP server (for code agents)
 
