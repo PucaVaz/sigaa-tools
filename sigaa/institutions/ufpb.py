@@ -136,7 +136,7 @@ class UfpbNavigator:
             "idTurma": turma.id_turma,
             "javax.faces.ViewState": extract_viewstate(portal),
         }
-        return session.post(self.profile.portal_action_url, fields)
+        return session.post_navigation(self.profile.portal_action_url, fields)
 
     def turma_menu_post(self, session, principal, label):
         from ..http import extract_viewstate
@@ -149,7 +149,7 @@ class UfpbNavigator:
             field: field,
             "javax.faces.ViewState": extract_viewstate(principal, default="j_id2"),
         }
-        return session.post(self.profile.ava_url, fields)
+        return session.post_navigation(self.profile.ava_url, fields)
 
     def open_event(self, session, portal, event_id):
         from ..http import extract_viewstate

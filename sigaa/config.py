@@ -23,6 +23,13 @@ KEYRING_ACTIVE_INSTITUTION = "__active_institution__"
 KEYRING_SETTINGS_SERVICE = "sigaa-tools"
 PASSWORD_ENV = "SIGAA_PASS"
 SESSION_ENV = "SIGAA_SESSION"
+SYNC_SESSIONS_ENV = "SIGAA_SYNC_SESSIONS"
+# Most independent logins one sync opens: by default one per class, up to this.
+# Seven is the highest count measured live at UFPB (every class read correctly,
+# no server slowdown); a student with more classes shares logins between them.
+# The work is network waiting, so the machine barely matters: seven simultaneous
+# login proofs-of-work took 0.2 s on a laptop and 0.7 s on a small VM.
+MAX_SYNC_SESSIONS = 7
 
 logger = logging.getLogger(__name__)
 
@@ -141,11 +148,22 @@ def default_username(institution: str | None = None) -> str | None:
         return None
 
 
+def default_sync_sessions() -> int:
+    """Logins used by one sync (override via SIGAA_SYNC_SESSIONS; 1 is sequential)."""
+    raw = os.environ.get(SYNC_SESSIONS_ENV)
+    if raw is None:
+        return MAX_SYNC_SESSIONS
+    if not raw.isdigit() or not 1 <= int(raw) <= MAX_SYNC_SESSIONS:
+        raise ValueError(f"{SYNC_SESSIONS_ENV} must be between 1 and {MAX_SYNC_SESSIONS}")
+    return int(raw)
+
+
 @dataclass
 class Settings:
     db_path: Path | None = None
     username: str | None = None
     institution: str = field(default_factory=default_institution)
+    sync_sessions: int = field(default_factory=default_sync_sessions)
 
     def __post_init__(self):
         get(self.institution)

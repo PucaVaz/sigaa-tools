@@ -95,6 +95,20 @@ class NavigationError(ParseError, ValueError):
     """A required navigation target is absent from the current render."""
 
 
+class WrongTurmaError(NavigationError):
+    """SIGAA answered a turma request with another turma's page.
+
+    The server keeps the current turma in session state and still answers HTTP
+    200 when that state and the request disagree. Raised instead of parsing, so
+    one class's content is never stored under another.
+    """
+
+    def __init__(self, expected: str, displayed: str):
+        self.expected = expected
+        self.displayed = displayed
+        super().__init__(f"expected turma {expected}, SIGAA answered with {displayed}")
+
+
 class SsoRedirectError(LoginRejectedError):
     """SIGAA bounced the request to its single sign-on host: the session is gone.
 
