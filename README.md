@@ -233,8 +233,14 @@ backend: `uv tool install --force "sigaa-tools[metal] @ git+..."` (or
 `pip install 'sigaa-tools[metal]'`). The GPU shader compiles at runtime from
 embedded source — no Xcode needed — and is self-checked against the CPU solver
 on first use; any problem falls back to CPU silently. Force a backend with
-`SIGAA_ALTCHA_BACKEND=cpu|metal|auto` (default `auto`). The GPU is only used
-for this tool's own logins, one solve per login.
+`SIGAA_ALTCHA_BACKEND=cpu|metal|cuda|auto` (default `auto`). The GPU is only
+used for this tool's own logins, one solve per login.
+
+On Windows or Linux with an NVIDIA GPU, the optional CUDA backend does the same:
+`pip install 'sigaa-tools[cuda]'` (`cuda-bindings` plus the `nvidia-cuda-nvrtc`
+wheel). The kernel compiles at runtime through NVRTC, so no CUDA Toolkit or
+`nvcc` is needed — only the NVIDIA driver. It is self-checked the same way and
+falls back to CPU on any problem; `auto` tries Metal, then CUDA, then CPU.
 
 ## Advanced manual configuration
 

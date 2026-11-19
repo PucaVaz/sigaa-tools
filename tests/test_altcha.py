@@ -343,3 +343,119 @@ def test_cpu_fallback_gets_only_the_time_metal_left(monkeypatch):
     solve_challenge(EASY_CHALLENGE, max_attempts=50, timeout_seconds=90.0)
 
     assert seen == {"max_attempts": 50, "timeout_seconds": 60.0}
+
+
+# --- CUDA backend selection --------------------------------------------------
+
+
+class _StubCuda(_StubMetal):
+    """A sigaa.altcha_cuda stand-in for dispatch tests, without a GPU."""
+
+    def __init__(self, *, fail=False, error=None):
+        super().__init__(fail=fail, error=error)
+        self.__name__ = "sigaa.altcha_cuda"
+
+
+@pytest.fixture(autouse=True)
+def no_cuda_unless_stubbed(monkeypatch):
+    """A developer's real GPU must not answer the dispatch tests in this file."""
+    monkeypatch.setitem(sys.modules, "sigaa.altcha_cuda", None)
+
+
+def test_auto_backend_uses_cuda_when_metal_is_absent(monkeypatch):
+    stub = _StubCuda()
+    monkeypatch.setitem(sys.modules, "sigaa.altcha_metal", None)
+    monkeypatch.setitem(sys.modules, "sigaa.altcha_cuda", stub)
+
+    solution = solve_challenge(EASY_CHALLENGE)
+
+    assert stub.calls == [EASY_CHALLENGE]
+    assert solution.counter == 1
+
+
+def test_auto_backend_tries_cuda_after_metal_fails(monkeypatch):
+    metal, cuda = _StubMetal(fail=True), _StubCuda()
+    monkeypatch.setitem(sys.modules, "sigaa.altcha_metal", metal)
+    monkeypatch.setitem(sys.modules, "sigaa.altcha_cuda", cuda)
+
+    solve_challenge(EASY_CHALLENGE)
+
+    assert (len(metal.calls), len(cuda.calls)) == (1, 1)
+
+
+def test_auto_backend_prefers_metal_over_cuda(monkeypatch):
+    metal, cuda = _StubMetal(), _StubCuda()
+    monkeypatch.setitem(sys.modules, "sigaa.altcha_metal", metal)
+    monkeypatch.setitem(sys.modules, "sigaa.altcha_cuda", cuda)
+
+    solve_challenge(EASY_CHALLENGE)
+
+    assert (len(metal.calls), len(cuda.calls)) == (1, 0)
+
+
+def test_auto_backend_falls_back_to_cpu_when_every_gpu_fails(monkeypatch):
+    monkeypatch.setitem(sys.modules, "sigaa.altcha_metal", _StubMetal(fail=True))
+    monkeypatch.setitem(sys.modules, "sigaa.altcha_cuda", _StubCuda(fail=True))
+
+    assert solve_challenge(EASY_CHALLENGE).counter == 12
+
+
+@pytest.mark.parametrize("error", UNEXPECTED_METAL_ERRORS, ids=lambda e: type(e).__name__)
+def test_auto_backend_falls_back_to_cpu_on_any_cuda_error(monkeypatch, error):
+    monkeypatch.setitem(sys.modules, "sigaa.altcha_metal", None)
+    monkeypatch.setitem(sys.modules, "sigaa.altcha_cuda", _StubCuda(error=error))
+
+    assert solve_challenge(EASY_CHALLENGE).counter == 12
+
+
+def test_forced_cuda_never_falls_back(monkeypatch):
+    monkeypatch.setenv(BACKEND_ENV, "cuda")
+    monkeypatch.setitem(sys.modules, "sigaa.altcha_cuda", _StubCuda(fail=True))
+
+    with pytest.raises(CaptchaError, match="CUDA backend requested"):
+        solve_challenge(EASY_CHALLENGE)
+
+
+def test_forced_cuda_does_not_touch_metal(monkeypatch):
+    metal = _StubMetal()
+    monkeypatch.setenv(BACKEND_ENV, "cuda")
+    monkeypatch.setitem(sys.modules, "sigaa.altcha_metal", metal)
+    monkeypatch.setitem(sys.modules, "sigaa.altcha_cuda", _StubCuda())
+
+    solve_challenge(EASY_CHALLENGE)
+
+    assert metal.calls == []
+
+
+def test_forced_metal_does_not_touch_cuda(monkeypatch):
+    cuda = _StubCuda()
+    monkeypatch.setenv(BACKEND_ENV, "metal")
+    monkeypatch.setitem(sys.modules, "sigaa.altcha_metal", _StubMetal())
+    monkeypatch.setitem(sys.modules, "sigaa.altcha_cuda", cuda)
+
+    solve_challenge(EASY_CHALLENGE)
+
+    assert cuda.calls == []
+
+
+def test_cuda_giving_up_is_not_retried_on_the_cpu(monkeypatch):
+    stub = _StubCuda(error=CaptchaError("ALTCHA not solved after 5 attempts"))
+    monkeypatch.setitem(sys.modules, "sigaa.altcha_metal", None)
+    monkeypatch.setitem(sys.modules, "sigaa.altcha_cuda", stub)
+
+    def cpu(*args, **kwargs):
+        raise AssertionError("the bounds were reached; the CPU must not search again")
+
+    monkeypatch.setattr(altcha, "solve", cpu)
+
+    with pytest.raises(CaptchaError, match="5 attempts"):
+        solve_challenge(EASY_CHALLENGE)
+
+
+def test_cpu_backend_never_imports_cuda(monkeypatch):
+    stub = _StubCuda()
+    stub.solve = lambda *args, **kwargs: pytest.fail("CPU backend must not touch CUDA")
+    monkeypatch.setenv(BACKEND_ENV, "cpu")
+    monkeypatch.setitem(sys.modules, "sigaa.altcha_cuda", stub)
+
+    assert solve_challenge(EASY_CHALLENGE).counter == 12
