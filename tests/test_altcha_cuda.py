@@ -112,14 +112,10 @@ def host_kernel(tmp_path_factory):
     assert build.returncode == 0, build.stderr
 
     def run(prefix, cost, base, count, nonce=NONCE, salt=SALT):
-        raw = bytes.fromhex(prefix)
-        target = [0, 0, 0, 0]
-        for index, byte in enumerate(raw):
-            target[index // 4] |= byte << (8 * (3 - index % 4))
         params = [
             *struct.unpack(">4I", bytes.fromhex(nonce)),
             *struct.unpack(">4I", bytes.fromhex(salt)),
-            *target, base, cost, len(raw), count,
+            *altcha_cuda._prefix_target(prefix), base, cost, len(prefix), count,
         ]
         out = subprocess.run(
             [str(binary), *map(str, params)], capture_output=True, text=True, check=True
@@ -148,9 +144,10 @@ def test_kernel_finds_the_self_check_counter(host_kernel):
     assert key == derive(_challenge("00"), counter)
 
 
-@pytest.mark.parametrize("length", [1, 3, 4, 5, 15, 16])
+@pytest.mark.parametrize("length", [1, 2, 3, 5, 7, 8, 9, 15, 16, 17, 31, 32])
 def test_kernel_compares_prefixes_of_every_word_alignment(host_kernel, length):
-    prefix = derive(_challenge("00"), 12)[: length * 2]
+    # Lengths in hex digits: odd ones end half-way through a byte, 8 is one word.
+    prefix = derive(_challenge("00"), 12)[:length]
 
     counter, key = host_kernel(prefix, 10, 0, 100)
 
@@ -199,14 +196,32 @@ def test_auto_without_bindings_is_solved_on_the_cpu(monkeypatch, no_bindings):
     assert solve_challenge(challenge).counter == altcha.solve(challenge).counter
 
 
-@pytest.mark.parametrize("prefix", ["0", "000", "zz", "00" * 17])
+def test_kernel_ignores_the_digit_after_an_odd_prefix(host_kernel):
+    # The target pads an odd prefix with a 0 digit. A counter whose key has
+    # another digit there must still hit: a byte-wide compare would miss it.
+    counter = next(c for c in range(100) if derive(_challenge("00"), c)[3] != "0")
+    key = derive(_challenge("00"), counter)
+
+    assert host_kernel(key[:3], 10, counter, 1) == (0, key)
+
+
+@pytest.mark.parametrize("prefix", ["zz", "0g", "0" * 33])
 def test_prefix_the_kernel_cannot_compare_is_refused(prefix):
     with pytest.raises(altcha_cuda.CudaUnavailable):
-        altcha_cuda._whole_byte_prefix(prefix)
+        altcha_cuda._prefix_target(prefix)
 
 
-def test_whole_byte_prefix_decodes_hex():
-    assert altcha_cuda._whole_byte_prefix("00ff") == b"\x00\xff"
+@pytest.mark.parametrize(
+    ("prefix", "target"),
+    [
+        ("00ff", [0x00FF0000, 0, 0, 0]),
+        ("000", [0, 0, 0, 0]),
+        ("abc", [0xABC00000, 0, 0, 0]),
+        ("123456789", [0x12345678, 0x90000000, 0, 0]),
+    ],
+)
+def test_prefix_target_packs_hex_digits_big_endian(prefix, target):
+    assert altcha_cuda._prefix_target(prefix) == target
 
 
 # --- live: a CUDA device and driver --------------------------------------------
@@ -260,6 +275,17 @@ def test_odd_length_prefix_is_solved_like_the_cpu_solves_it(monkeypatch, prefix)
     solution = solve_challenge(challenge)
 
     cpu = altcha.solve(challenge)
+    assert (solution.counter, solution.derived_key) == (cpu.counter, cpu.derived_key)
+
+
+@live
+@pytest.mark.parametrize("prefix", ["0", "000", "00000"])
+def test_cuda_itself_solves_odd_length_prefixes(prefix):
+    challenge = _challenge(prefix)
+
+    solution = altcha_cuda.solve(challenge, max_attempts=2_000_000)
+
+    cpu = altcha.solve(challenge, max_attempts=2_000_000)
     assert (solution.counter, solution.derived_key) == (cpu.counter, cpu.derived_key)
 
 

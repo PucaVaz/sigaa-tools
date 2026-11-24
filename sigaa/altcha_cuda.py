@@ -24,16 +24,17 @@ third parties; server-side rate limiting remains SIGAA's real defence.
 from __future__ import annotations
 
 import hashlib
+import string
 import struct
 import threading
 import time
 
 from .altcha import MAX_COUNTER, CaptchaError, Challenge, Solution
 
-# Prefix lengths the kernel compares in <=4 words. Everything else (odd hex
-# length, longer prefixes, other key lengths) stays on the CPU solver, which is
-# fully general; SIGAA uses "00" and deterministic mode 16 bytes.
-_MAX_PREFIX_BYTES = 16
+# Prefix lengths, in hex digits, the kernel compares in <=4 words. Everything
+# else (longer prefixes, other key lengths) stays on the CPU solver, which is
+# fully general; SIGAA uses "00" and deterministic mode 32 digits.
+_MAX_PREFIX_DIGITS = 32
 _REQUIRED_NONCE_SALT = 16
 
 # Batches start large so SIGAA's random effort (~256 attempts on average)
@@ -107,16 +108,17 @@ __device__ __forceinline__ void compress(uint *st, const uint *blk) {
 
 // Parameters, one uint32 each, in one device buffer p[16]: nonce[0..3], salt[4..7] and
 // target[8..11] as big-endian words, then the batch's first counter (12), the iteration
-// count (13), the key-prefix length in bytes 1..16 (14) and how many counters this
-// dispatch covers (15).
+// count (13), the key-prefix length in hex digits 1..32 (14) and how many counters
+// this dispatch covers (15).
 
-// Key bytes are serialized big-endian, so prefix byte 0 is the top byte of t[0].
+// Key bytes are serialized big-endian, so prefix digit 0 is the top 4 bits of t[0]
+// and each word holds 8 digits; an odd-length prefix ends half-way through a byte.
 __device__ __forceinline__ bool prefix_hit(const uint *t, const uint *tgt, uint n) {
-  uint full = n >> 2u;
+  uint full = n >> 3u;
   for (uint i = 0; i < full; ++i) if (t[i] != tgt[i]) return false;
-  uint rem = n & 3u;
+  uint rem = n & 7u;
   if (rem) {
-    uint shift = 8u * (4u - rem);
+    uint shift = 4u * (8u - rem);
     if ((t[full] >> shift) != (tgt[full] >> shift)) return false;
   }
   return true;
@@ -312,10 +314,8 @@ class CudaSolver:
             raise CudaUnavailable(
                 f"GPU dispatch would outlast the timeout check above cost {_MAX_COST}"
             )
-        prefix = _whole_byte_prefix(challenge.key_prefix)
-        target = [0, 0, 0, 0]
-        for index, byte in enumerate(prefix):
-            target[index // 4] |= byte << (8 * (3 - index % 4))
+        target = _prefix_target(challenge.key_prefix)
+        digits = len(challenge.key_prefix)
 
         started = time.monotonic()
         # Same bound as the CPU solver: max_attempts derivations, counters from 0.
@@ -323,7 +323,7 @@ class CudaSolver:
         base, batch = 0, _BATCH_START
         while base < limit:
             batch = min(batch, limit - base)
-            hit = self._run_batch(nonce, salt, target, len(prefix), challenge.cost, base, batch)
+            hit = self._run_batch(nonce, salt, target, digits, challenge.cost, base, batch)
             if hit is not None:
                 offset, key = hit
                 counter = base + offset
@@ -364,7 +364,7 @@ class CudaSolver:
         nonce: bytes,
         salt: bytes,
         target: list[int],
-        prefix_bytes: int,
+        prefix_digits: int,
         cost: int,
         base: int,
         count: int,
@@ -378,7 +378,7 @@ class CudaSolver:
             *target,
             base,
             cost,
-            prefix_bytes,
+            prefix_digits,
             count,
         )
         blocks = (count + self._threads - 1) // self._threads
@@ -420,7 +420,7 @@ class CudaSolver:
             bytes.fromhex(_SELF_CHECK_NONCE),
             bytes.fromhex(_SELF_CHECK_SALT),
             [0, 0, 0, 0],
-            1,
+            2,  # prefix "00"
             _SELF_CHECK_COST,
             _SELF_CHECK_COUNTER,
             1,
@@ -461,19 +461,20 @@ def _compile(nvrtc, architecture: str) -> bytearray:
         nvrtc.nvrtcDestroyProgram(program)
 
 
-def _whole_byte_prefix(key_prefix: str) -> bytes:
-    """The prefix as bytes, or ``CudaUnavailable`` when the kernel cannot compare it.
+def _prefix_target(key_prefix: str) -> list[int]:
+    """The prefix as the kernel's four big-endian target words.
 
-    The widget compares hex text, so an odd-length prefix ("0", "000") is valid;
-    the kernel compares whole bytes. Those, and anything not hexadecimal, belong
-    to the CPU solver.
+    The widget compares hex text, so an odd-length prefix ("0", "000") is valid.
+    The kernel compares hex digits too (4 bits each), so the digits past the
+    prefix are zero padding it never looks at. A prefix that is not hexadecimal
+    or longer than the kernel compares raises ``CudaUnavailable`` for the CPU.
     """
-    if len(key_prefix) % 2:
-        raise CudaUnavailable("GPU kernel compares whole-byte prefixes only")
-    try:
-        prefix = bytes.fromhex(key_prefix)
-    except ValueError:
-        raise CudaUnavailable("GPU kernel needs a hexadecimal prefix") from None
-    if not 1 <= len(prefix) <= _MAX_PREFIX_BYTES:
-        raise CudaUnavailable(f"GPU kernel compares prefixes of 1..{_MAX_PREFIX_BYTES} bytes")
-    return prefix
+    if not 1 <= len(key_prefix) <= _MAX_PREFIX_DIGITS:
+        raise CudaUnavailable(
+            f"GPU kernel compares prefixes of 1..{_MAX_PREFIX_DIGITS} hex digits"
+        )
+    # Checked by hand: bytes.fromhex would skip whitespace the CPU solver keeps.
+    if not all(digit in string.hexdigits for digit in key_prefix):
+        raise CudaUnavailable("GPU kernel needs a hexadecimal prefix")
+    padded = key_prefix.ljust(_MAX_PREFIX_DIGITS, "0")
+    return list(struct.unpack(">4I", bytes.fromhex(padded)))
