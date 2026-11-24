@@ -36,6 +36,13 @@ mcp = ["mcp>=1.27,<2"]
 # Optional Metal GPU backend for the ALTCHA proof-of-work (macOS only; the
 # shader compiles at runtime, no Xcode needed). Without it the CPU solver runs.
 metal = ["pyobjc-framework-Metal>=10.0; sys_platform == 'darwin'"]
+# Optional CUDA GPU backend for the same proof-of-work (NVIDIA; Windows and
+# Linux). The kernel compiles at runtime through NVRTC, so no CUDA Toolkit or
+# nvcc is needed; only the NVIDIA driver. Without it the CPU solver runs.
+cuda = [
+    "cuda-bindings>=12.6; sys_platform != 'darwin'",
+    "nvidia-cuda-nvrtc>=12.6; sys_platform != 'darwin'",
+]
 dev = ["pytest>=8.0", "ruff>=0.6.0"]
 
 [project.scripts]
